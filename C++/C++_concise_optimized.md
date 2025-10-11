@@ -1943,7 +1943,7 @@ valgrind
 
 [参考](http://senlinzhan.github.io/2017/12/31/valgrind/)
 
-## :watermelon:C++11新特性
+## C++11新特性
 
 [参考链接](https://subingwen.cn/cplusplus/)
 
