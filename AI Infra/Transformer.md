@@ -1,6 +1,6 @@
 # 一、背景
 为什么需要 Transformer？
-在 2017 年之前，主流模型是：
+在 2017 年之前，主流模型是：[[RNN、LSTM、GRU介绍与对比]]
 - **RNN / LSTM**：顺序处理 → 无法并行 → 训练慢
 - **CNN**：擅长局部模式，但难以捕捉长距离依赖
 **Transformer = 完全抛弃循环结构 + 完全并行化**  
@@ -82,7 +82,7 @@ Input → Embedding → Positional Encoding
    Output Layer → Softmax (语言模型)
 ```
 
-大模型（LLM）就只是把：
+大型语言模型（LLM）就只是把：
 - 层数 N 增加
 - 隐藏维度增大
 - 多头数量增多
