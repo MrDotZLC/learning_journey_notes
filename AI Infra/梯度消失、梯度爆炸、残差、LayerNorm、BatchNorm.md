@@ -164,7 +164,53 @@ $$y_i = \gamma \hat{x}_i + \beta$$
     - 训练阶段用 batch 的即时均值方差
 ---
 ## 1.5 应用
-
 - ResNet / CNN 系列几乎必备
-    
 - 在 Transformer 中常用 **LayerNorm 替代 BN**
+
+
+# 五、Layer Normalization（LN）
+
+## 2.1 定义
+LayerNorm 是 **对每个样本自身的所有特征维度做归一化**，不依赖 batch。  
+公式和 BN 类似，但归一化的对象不同。
+
+---
+## 2.2 公式
+给定样本 x∈Rdx \in \mathbb{R}^dx∈Rd：
+1. **计算均值和方差**（沿特征维度）：
+
+μ=1d∑j=1dxj\mu = \frac{1}{d} \sum_{j=1}^{d} x_jμ=d1​j=1∑d​xj​ σ2=1d∑j=1d(xj−μ)2\sigma^2 = \frac{1}{d} \sum_{j=1}^{d} (x_j - \mu)^2σ2=d1​j=1∑d​(xj​−μ)2
+
+2. **归一化**：
+    
+
+x^j=xj−μσ2+ϵ\hat{x}_j = \frac{x_j - \mu}{\sqrt{\sigma^2 + \epsilon}}x^j​=σ2+ϵ​xj​−μ​
+
+3. **可学习线性变换**：
+    
+
+yj=γx^j+βy_j = \gamma \hat{x}_j + \betayj​=γx^j​+β
+
+- γ,β∈Rd\gamma, \beta \in \mathbb{R}^dγ,β∈Rd
+    
+
+---
+
+## 2.3 特性和优势
+
+1. **不依赖 batch** → 小 batch 或单样本也稳定
+    
+2. 非常适合 **RNN / Transformer**
+    
+3. 梯度更稳定，训练长序列或深层模型不会消失
+    
+4. 与序列模型结合，通常放在每个子层前（Pre-LN）或者后（Post-LN）
+    
+
+---
+
+## 2.4 局限
+
+1. 对 CNN 有局限，因为特征之间空间关系被 LN 混合
+    
+2. 不产生 BN 的 mini-batch 正则化效果
