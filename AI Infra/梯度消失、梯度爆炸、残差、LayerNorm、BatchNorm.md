@@ -47,19 +47,22 @@ $(1.5)^{50} \approx 7 \times 10^{8}$
 
 # 三、残差（Residual）
 ## 残差连接（Residual Connection） = 跳跃连接（Skip Connection）
-相对于多层非线性地从“0”学习一个函数，从"y=x"学起可以防止梯度消失或爆炸，残差连接就是保证至少存在“y=x”
-### **ResNet/Transformer block 的核心是：**
-y = x + F(x)
+**网络只需要学习“对输入的修正”**，而不是重新从零生成输出。
+
+---
+## **ResNet/Transformer block 的核心是：**
+$$y = x + F(x)$$
 反向传播：
-$\frac{\partial y}{\partial x} = I + \frac{\partial F}{\partial x}​$
-### ✔ **梯度至少有一条捷径路径是 1（恒不消失）**
+$$\frac{\partial y}{\partial x} = I + \frac{\partial F}{\partial x}​$$
+---
+## ✔ **梯度至少有一条捷径路径是 1（恒不消失）**
 因为反向传播时至少有：
-$\frac{\partial L}{\partial x} \supset \frac{\partial L}{\partial y} \cdot I$
+$$\frac{\partial L}{\partial x} \supset \frac{\partial L}{\partial y} \cdot I$$
 所以：
 - 梯度 _不会全部依赖_ 深层的链式求导
 - 梯度不可能完全消失（因为有 identity shortcut）
-
-### 残差结构让网络更容易学习到：
+---
+## 残差结构让网络更容易学习到：
 - 如果 F(x) 很难学，那至少可以学得**接近 0**
 - 那输出就接近 x
 - 这样就变成了一条“没有改变输入”的安全路径
@@ -68,12 +71,63 @@ $\frac{\partial L}{\partial x} \supset \frac{\partial L}{\partial y} \cdot I$
 
 这就是为什么有 1000 层的 ResNet 仍然能训练。
 
-### 优点：
-#### ✓ 1. 让深度网络更容易训练
+---
+## 残差连接与 Highway Networks 的关系
+### **Highway Networks（高速公路网络）**
+- 早于 ResNet 的深层网络结构
+- 公式：
+$$y = H(x) \cdot T(x) + x \cdot C(x)$$
+其中：
+- H(x)：非线性变换
+- T(x)：Transform Gate（学习多少使用 H(x)）
+- C(x) = 1 - T(x)：Carry Gate（学习多少直接保留输入 x）
+
+**特点：**
+- 通过门控机制让信息在深层网络中可以直接传递
+- 门控是可学习的
+### **ResNet 残差连接**
+- ResNet 公式：
+$$y = x + F(x)$$
+- 可以看作是 Highway Networks 的简化版本：
+    - 恒等映射直接加到输出
+    - **没有门控**（T(x) 恒为 1, C(x) 恒为 1）
+    - 参数更少，计算更快
+
+**直观理解：**
+- Highway Networks = 带门控的残差连接
+- ResNet = 不带门控的残差连接（“默认全通路”）
+
+✅ 重点：残差连接是 Highway Networks 的简化版本，但足够让深度网络稳定训练。
+---
+## 残差连接如何改善梯度流动？（数学解释）
+假设一层残差块：
+$$y = x + F(x)$$
+损失函数 L 对输入 x 的梯度：
+$$\frac{\partial L}{\partial x} = \frac{\partial L}{\partial y} \cdot \frac{\partial y}{\partial x} = \frac{\partial L}{\partial y} \cdot (1 + \frac{\partial F}{\partial x})$$
+### **关键点**
+1. **梯度中有一条恒等项**
+$$\frac{\partial L}{\partial y} \cdot 1$$
+- 即使 F(x) 很深或很复杂，梯度仍然有一条直接通路
+- 避免梯度消失
+
+2. **梯度可以直接累积到前面层**
+- 深层网络中，每个残差块都像搭了一个“高速通道”
+- 梯度不会被多层非线性完全阻断
+
+1. **增量学习更稳定**
+- F(x) 只需要学习对输入的微调（residual）
+- 网络整体训练更容易收敛
+### 🔹 直观比喻
+- 普通深层网络：梯度像水，要经过每层“滤网”，容易流失
+- 残差网络：每层有一条平滑的高速通道，梯度直接流回去，不被阻断
+- Highway Networks：可以调节通道大小（门控），梯度流动更灵活
+---
+## 残差连接优点：
+### ✓ 1. 让深度网络更容易训练
 梯度回传路径更短，不易消失。
-#### ✓ 2. 允许模型学“增量”
+### ✓ 2. 允许模型学“增量”
 F(x) 只需要学到 **“对 x 的修正”**，而不是从零开始学。
-#### ✓ 3. 防止深层退化
+### ✓ 3. 防止深层退化
 层数增加不会让精度变差。
 
 ### 简短总结（面试可直接说）
