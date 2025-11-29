@@ -133,3 +133,38 @@ F(x) 只需要学到 **“对 x 的修正”**，而不是从零开始学。
 ### 简短总结（面试可直接说）
 残差连接：把输入加到输出上，形成“x + F(x)”，让神经网络训练更稳定、更深。
 
+# 四、Batch Normalization（BN）
+## 1.1 定义
+BatchNorm 是 **按 batch 对每个特征维度** 做归一化，目的是 **缓解梯度消失/爆炸，提高训练稳定性和收敛速度**。
+
+---
+## 1.2 公式
+给定 mini-batch $\mathcal{B} = \{ x_1, x_2, ..., x_m \}$，每个样本$x_i \in \mathbb{R}^d$：
+1. **计算 batch 均值和方差**：
+$$\mu_\mathcal{B} = \frac{1}{m} \sum_{i=1}^m x_i$$​$$\sigma_\mathcal{B}^2 = \frac{1}{m} \sum_{i=1}^m (x_i - \mu_\mathcal{B})^2$$
+2. **归一化**：
+$$\hat{x}_i = \frac{x_i - \mu_\mathcal{B}}{\sqrt{\sigma_\mathcal{B}^2 + \epsilon}}$$
+3. **线性变换（可学习）**：
+$$y_i = \gamma \hat{x}_i + \beta$$
+- $\gamma, \beta$ 是可训练参数，保证网络有能力恢复原来的分布。
+- $\epsilon$ 是数值稳定项。
+---
+## 1.3 特性和优势
+1. 缓解 **梯度消失 / 梯度爆炸**
+2. 加快 **收敛速度**
+3. 有一定 **正则化效果**，减少过拟合
+4. 与卷积和全连接网络都兼容
+---
+## 1.4 局限
+1. 对 **RNN/Transformer** 不友好
+    - 长序列 batch 太小 → 均值方差不稳定
+2. 对 **batch size 很小** 时不稳定
+3. 对训练和推理处理不同：
+    - 推理阶段使用 **moving average 的均值方差**
+    - 训练阶段用 batch 的即时均值方差
+---
+## 1.5 应用
+
+- ResNet / CNN 系列几乎必备
+    
+- 在 Transformer 中常用 **LayerNorm 替代 BN**
