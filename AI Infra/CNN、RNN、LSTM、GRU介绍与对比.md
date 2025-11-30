@@ -1,6 +1,6 @@
 
-
-## 1️⃣ RNN（Recurrent Neural Network，循环神经网络）
+1️⃣6️⃣7️⃣8️⃣9️⃣🔟
+## 2️⃣ RNN（Recurrent Neural Network，循环神经网络）
 ### **基本概念**
 RNN 是处理序列数据（如文本、时间序列、语音）的基础网络。它的特点是：
 - 有 **隐藏状态 hth_tht​**，能够记录序列前面的信息。
@@ -18,7 +18,7 @@ $ht=tanh⁡(Whht−1+Wxxt+b)h_t = \tanh(W_h h_{t-1} + W_x x_t + b)ht​=tanh(Wh�
 
 ---
 
-## 2️⃣ LSTM（Long Short-Term Memory，长短期记忆网络）
+## 3️⃣ LSTM（Long Short-Term Memory，长短期记忆网络）
 ### **基本概念**
 LSTM 是对 RNN 的改进，专门解决长距离依赖问题。  
 核心思想：引入 **门控机制（Gate）** 来控制信息流。
@@ -45,7 +45,7 @@ LSTM 是对 RNN 的改进，专门解决长距离依赖问题。
 
 ---
 
-## 3️⃣ GRU（Gated Recurrent Unit，门控循环单元）
+## 4️⃣ GRU（Gated Recurrent Unit，门控循环单元）
 ### **基本概念**
 GRU 是 LSTM 的简化版本，把 LSTM 的三个门合并成 **两个门**（更新门 + 重置门），结构更简单。
 #### **GRU结构**
@@ -68,7 +68,7 @@ GRU 是 LSTM 的简化版本，把 LSTM 的三个门合并成 **两个门**（�
 
 ---
 
-## 4️⃣ 对比总结
+## 5️⃣ 对比总结
 
 |特性|RNN|LSTM|GRU|
 |---|---|---|---|
