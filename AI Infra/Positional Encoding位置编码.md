@@ -235,5 +235,75 @@ score = torch.matmul(Q, K.T) + torch.einsum('id,ijd->ij', Q, R)
 - 相对位置编码告诉模型“我和其他 token 的距离是多少”
 - 对很多任务，相对位置比绝对位置更有效，尤其是**序列长度不固定或需要长距离依赖**
 
+# RoPE（Rotary Positional Encoding）
+## 1. 背景
+Transformer 模型需要对序列中每个 token 的位置进行编码，以利用顺序信息。常见位置编码方法包括：
+- **绝对位置编码 (Absolute PE)**：例如 Sinusoidal PE 或 Learnable PE
+- **相对位置编码 (Relative PE)**：通过表示 token 之间的相对位置来计算注意力
+RoPE 是一种 **在注意力计算中直接融入位置信息的旋转编码方法**，能够自然支持 **相对位置关系**，并兼容标准的自注意力机制。
+## 2. 核心思想
+RoPE 的核心是对 **query/key 向量进行旋转**，旋转角度与 token 的位置相关，使注意力计算天然编码了相对位置信息。
+与传统加法式位置编码不同，RoPE 通过 **二维旋转矩阵或复数旋转**作用在向量上，实现位置编码。
+## 3. 数学公式
+假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
+$$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
+\begin{bmatrix} \cos \theta_i & -\sin \theta_i \\ \sin \theta_i & \cos \theta_i \end{bmatrix}
+\begin{bmatrix} x_{2i} \\ x_{2i+1} \end{bmatrix}$$
+其中：
+$$
+\theta_i = \text{position} \times \omega_i
+$$
+- $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
+- $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低
+## 4. 注意力计算中的作用
+标准自注意力：
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\Big(\frac{QK^T}{\sqrt{d}}\Big)V
+$$
+使用 RoPE 后：
+$$
+Q' = \text{RoPE}(Q, \text{pos}), \quad K' = \text{RoPE}(K, \text{pos})
+$$
+$$
+\text{Attention}(Q', K', V)
+$$
+- $Q'_i {K'_j}^T$ 自动包含 **相对位置 $i-j$** 信息  
+- 不依赖额外的相对位置矩阵  
+- 支持任意长度序列  
+## 5. 几何直觉
+### RoPE（旋转）
+- 将 embedding 看作高维空间中的箭头  
+- 每两个维度一组旋转，方向随 token 位置变化  
+- 内积大小 = cos(方向差) → 自然表示相对位置  
 
-# 
+**二维示意：**
+```
+y  
+↑  
+| ↑ (pos=3)  
+| ↖ (pos=2)  
+| ↗ (pos=1)  
+| → (pos=0)  
++----------------> x
+```
+### Sinusoidal PE（平移）
+- 在 embedding 上直接加上 `[sin(pos*ω), cos(pos*ω)]`  
+- 向量方向不变，只是平移  
+- 相对位置需要额外计算  
+```
+位置 0: →  
+位置 1: →  
+位置 2: →  
+位置 3: →
+```
+## 6. 优点总结
+1. **自然支持相对位置**：注意力分数直接编码 \(i-j\) 信息  
+2. **长度可扩展**：不受最大位置限制  
+3. **与多头注意力兼容**：直接作用在 Q/K 上  
+4. **无需额外参数**：频率可固定，可选可训练频率  
+## 7. 对比总结
+
+| 方法 | 几何变化 | 相对位置 |
+|------|---------|---------|
+| Sinusoidal PE | 向量平移 | 内积不直接包含 |
+| RoPE | 向量旋转 | 内积天然包含 |
