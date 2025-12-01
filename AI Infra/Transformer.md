@@ -17,7 +17,6 @@ Self-Attention
 Feed Forward Network (MLP)
    ↓
 残差连接 + LayerNorm
-
 ```
 这种结构可以重复 N 层，全是矩阵乘法 → **非常适合 GPU/TPU、张量并行、流水并行、数据并行等 Infra 技术**。
 1. Token Embedding（把词变成向量）
