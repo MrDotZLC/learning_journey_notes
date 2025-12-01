@@ -57,9 +57,9 @@ $$(K \times K \times C_{in}) \times C_{out} + C_{out}​$$
 对第 L 层：
 $$RF_L = RF_{L-1} + (K_L - 1) \times \text{stride\_prod}$$
 其中
-- K_L​：第 L 层卷积核大小
+- $K_L$​：第 L 层卷积核大小
 - stride_prod：之前所有层 stride 的乘积
-- 初始层：RF_0 = 1
+- 初始层：$RF_0$ = 1
 #### ✔ 2. 权重共享（Shared Weights）
 同一个卷积核在整个图像扫  
 → 参数量大幅减少  
