@@ -146,4 +146,94 @@ x = token_embedding + pos_vec
 
 > 大型长序列模型（如 LLaMA、GPT-4）多改用 RoPE 或相对位置编码以提升长序列能力。
 
+# Relative Positional Embedding（相对位置编码）
+在 Transformer 中，绝对位置编码（Absolute PE）只告诉模型每个 token 的具体位置，而很多任务中更重要的是 **token 之间的相对距离**。  
+Relative PE 的核心思想是：**注意力不仅依赖 token 内容，还依赖它们之间的相对位置**。  
+## 1️⃣ 背景
+- Transformer 原生的绝对位置编码：
+$$X_i = e_i + p_i$$
+  - **$e_i$**：token embedding  
+  - **$p_i$**：绝对位置向量  
+- 问题：
+  1. 只表示 token 的绝对位置，忽略相对关系  
+  2. 对长序列外推能力有限  
+- Relative PE 提出：
+  - 每个 token pair (i, j) 的注意力与 **i 到 j 的相对位置** 相关  
+  - 更自然地捕捉局部依赖和长距离依赖  
+## 2️⃣ 核心思想
+在标准 self-attention 中：
+$$Attention(Q, K, V) = \text{softmax}\left(\frac{Q K^T}{\sqrt{d_k}}\right) V$$
+- $Q, K, V$ 分别是 query、key、value  
+- 对每对 token，加入相对位置编码：
+$$Attention(Q, K, V) = \text{softmax}\left(\frac{Q K^T + Q R^T}{\sqrt{d_k}}\right) V$$
+- **$R$**：表示 token i 相对 token j 的位置信息向量（可训练或固定）  
+- 注意力值不仅依赖内容，还依赖相对位置  
+> 核心优势：捕捉 token 间的相对关系，而非绝对位置。
+## 3️⃣ 公式（简化版）
+假设序列长度为 L，隐藏维度为 d：
+1. 定义相对位置偏移向量：
+$$r_{i-j} \in \mathbb{R}^{d}$$
+2. 对 attention logits 进行修正：
+$$\text{score}(i,j) = Q_i \cdot K_j + Q_i \cdot r_{i-j}$$
+- $Q_i·K_j$：内容相关性  
+- $Q_i·r_{i-j}$：位置相关性  
+1. 注意力计算：
+$$\alpha_{i,j} = \frac{\exp(\text{score}(i,j))}{\sum_{k=1}^{L} \exp(\text{score}(i,k))}
+$$
+2. 输出：
+$$O_i = \sum_{j=1}^{L} \alpha_{i,j} V_j$$
+> 相比绝对位置编码，每个 token 的注意力会根据 **与其他 token 的相对距离** 自动调整。
+## 4️⃣ 实现方式（简化示例）
+
+```python
+import torch
+import torch.nn as nn
+
+max_rel = 4  # 相对位置范围 [-4,4]
+d_model = 4
+
+# 可训练相对位置向量
+rel_embedding = nn.Embedding(2*max_rel+1, d_model)
+
+seq_len = 5
+# 构建相对位置索引矩阵
+pos_ids = torch.arange(seq_len).unsqueeze(1) - torch.arange(seq_len).unsqueeze(0)
+# clip到[-max_rel,max_rel]并偏移到[0,2*max_rel]
+pos_ids = pos_ids.clamp(-max_rel,max_rel) + max_rel
+
+# 获取相对位置向量
+R = rel_embedding(pos_ids)  # [seq_len, seq_len, d_model]
+
+# 假设 Q 和 K
+# Q: [seq_len, d_model], K: [seq_len, d_model]
+score = torch.matmul(Q, K.T) + torch.einsum('id,ijd->ij', Q, R)
+```
+`einsum` 用于计算 Q_i·r_{i-j}
+## 5️⃣ Absolute PE 与 Relative PE 注意力加权对比
+
+| 特性    | Absolute PE（绝对位置编码）        | Relative PE（相对位置编码）                 |
+| ----- | -------------------------- | ----------------------------------- |
+| 表示方式  | 每个 token 对应固定位置向量 pip_ipi​ | 每对 token 之间有相对位置向量 ri−jr_{i-j}ri−j​ |
+| 关注点   | token 的绝对位置                | token 之间的距离/相对关系                    |
+| 外推能力  | 高（Sinusoidal PE 可计算任意位置）   | 高（适合长序列）                            |
+| 注意力加权 | Q·K，位置编码间接影响注意力            | Q·K + Q·r_{i-j}，位置直接作用于注意力分数        |
+## 6️⃣ 优缺点
+**优点**：
+1. 更自然地捕捉 **token 间的相对关系**
+2. 对长序列或外推更友好
+3. 能更好地建模局部依赖和长距离依赖
+**缺点**：
+4. 计算复杂度略高
+5. 实现复杂，需要处理相对位置索引和偏移
+## 7️⃣ 应用场景
+- **Transformer-XL**：长文本建模
+- **T5**：相对位置编码提升性能
+- **XLNet**：结合 permutation LM 和相对位置
+- 长序列任务，如代码、音乐、DNA 序列建模
+## 8️⃣ 总结理解
+- 绝对位置编码告诉模型“我在第 i 个位置”
+- 相对位置编码告诉模型“我和其他 token 的距离是多少”
+- 对很多任务，相对位置比绝对位置更有效，尤其是**序列长度不固定或需要长距离依赖**
+
+
 # 
