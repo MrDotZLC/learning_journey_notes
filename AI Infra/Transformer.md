@@ -19,9 +19,9 @@ Feed Forward Network (MLP)
 残差连接 + LayerNorm
 ```
 这种结构可以重复 N 层，全是矩阵乘法 → **非常适合 GPU/TPU、张量并行、流水并行、数据并行等 Infra 技术**。
-1. Token Embedding（把词变成向量）
+1. Token Embedding（把词变成向量）[[Token Embedding 全面解析]]
 文本 → 数字（tokenize） → 向量（lookup table）
-2. Positional Encoding（让模型知道顺序）
+2. Positional Encoding（让模型知道顺序）[[Positional Encoding位置编码]]
 		因为 transformer 没有循序结构，所以必须告诉它：
 	- 句子顺序
 	- 哪个 token 在哪个位置
