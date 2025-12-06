@@ -42,12 +42,10 @@ K = XWk
 V = XWv
 Attention(Q, K, V) = softmax(Q*Kᵀ / sqrt(d)) * V
 ```
-
-4. 多头 Attention
+4. 多头 Attention[[Transformer 中单头维度 d_k ​与缩放因子总结]]
 		不是一个 Q/K/V，而是多个头并行：
 	- 不同 head 学不同模式（语法、语义、指代等）
 	- 拼接 concat 后再映射回 d_model
-
 5. Feed Forward Network (FFN)[[FFN与MLP]]
 		特点：
 	- 完全位置独立 → 容易张量并行
@@ -56,8 +54,7 @@ Attention(Q, K, V) = softmax(Q*Kᵀ / sqrt(d)) * V
 ```
 FFN(x) = max(0, xW1 + b1)W2 + b2
 ```
-
-6. 残差连接 + LayerNorm（保持稳定训练）
+6. 残差连接 + LayerNorm（保持稳定训练）[[梯度消失、梯度爆炸、残差、LayerNorm、BatchNorm]]
    作用：
 	- 残差：避免梯度消失
 	- LN：使训练更稳定、收敛更快
@@ -66,8 +63,6 @@ FFN(x) = max(0, xW1 + b1)W2 + b2
 	x = x + dropout(sub_layer_output)
 	x = LayerNorm(x)
 	```
-
-
 # 三、Transformer 的整体结构（最简图）
 ```
 Input → Embedding → Positional Encoding
@@ -119,4 +114,5 @@ Transformer 已经成为：
 
 从 infra 角度就是：
 > **你只需要一次工程优化就能服务所有 AI 模型。**
+
 
