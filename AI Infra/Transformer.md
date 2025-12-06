@@ -28,7 +28,7 @@ Feed Forward Network (MLP)
 		可以用：
 	- 经典的 Sinusoidal PE
 	- 或者可训练位置编码（大模型主流）
-3. Self-Attention（核心：全局依赖）
+3. Self-Attention（自注意力机制，核心：全局依赖）
 		特点：
 	- Q·Kᵀ 得到 token 与 token 之间的相关度
 	- softmax 归一化成权重
@@ -48,7 +48,7 @@ Attention(Q, K, V) = softmax(Q*Kᵀ / sqrt(d)) * V
 	- 不同 head 学不同模式（语法、语义、指代等）
 	- 拼接 concat 后再映射回 d_model
 
-5. Feed Forward Network (FFN)
+5. Feed Forward Network (FFN)[[FFN与MLP]]
 		特点：
 	- 完全位置独立 → 容易张量并行
 	- 能提升模型表达能力
