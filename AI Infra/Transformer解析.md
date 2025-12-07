@@ -86,6 +86,80 @@ Input → Embedding → Positional Encoding
 
 # 四、Transformer 的三种常见架构
 **Encoder-only、Decoder-only、Encoder-Decoder**，它们在任务、结构和训练目标上有明显差异。
+![[transformer.png]]
+注：positional encoding输出的三个箭头分别为Q、K、V。
+## 1. Encoder-only（只用 Encoder）
+### ✔ 结构特点
+- 只有 **Encoder 堆叠层**
+- Self-Attention **无 mask**（可以看到全局）
+- 只负责“**理解输入**”，不用于自回归生成
+### ✔ 数据流
+输入序列 → Encoder → 句子/Token 表示 → 下游任务
+### ✔ 适用任务
+需要理解输入、输出固定长度或不需要生成：
+- 文本分类（情感分析）
+- 语义匹配
+- 命名实体识别（Token 分类）
+- 检索 / Embedding 生成
+### ✔ 代表模型
+- BERT
+- RoBERTa
+- ALBERT
 
+## 2. Decoder-only（只用 Decoder）
+### ✔ 结构特点
+- 只有 **Decoder 层**
+- 使用 **Masked Self-Attention**  
+    → 只能看到左侧 token（自回归生成）
+- “理解输入 + 生成输出”在同一序列中完成
+### ✔ 数据流
+完整上下文序列（含历史 + 当前输入） → Masked Self-Attention → 预测下一个 token
+### ✔ **对当前序列自回归**
+$$P(x_t | x_1, ..., x_{t-1})$$
+- “前文”已包含在序列本身，不需要 Encoder 提供额外上下文
+- 理解依靠自注意力内部完成
+### ✔ 适用任务
+- 对话生成
+- 文本续写
+- 写作助手、代码生成
+- 大型通用语言模型（LLM）
+### ✔ 代表模型
+- GPT 系列
+- LLaMA 系列
+- Falcon, Mistral 等
+## 3. Encoder-Decoder（Seq2Seq）
+### ✔ 结构特点
+- Encoder：编码输入序列（前文）
+- Decoder：基于输入 + 已生成 token 自回归生成输出
+- Decoder 具有两种注意力：
+    - Masked Self-Attention：对输出序列自回归
+    - Encoder–Decoder Attention：引用前文表示
+### ✔ 数据流
+Encoder 输入序列 X → Encoder 输出  
+Decoder 输入（已生成的 Y） →  
+Masked Self-Attention + Encoder-Decoder Attention → 下一个 token
+### ✔ 只对当前的“输出序列”自回归
+$$P(y_t | y_1, ..., y_{t-1}, X)$$
+- 输入序列 X 不参与自回归，只是条件 context
+### ✔ 适用任务
+需要“**输入序列 → 输出序列**”的场景：
+- **机器翻译**（最典型）
+- 摘要生成
+- 语音 → 文本
+- 文本 → SQL / 文本 → 结构化信息
+### ✔ 代表模型
+- T5
+- BART / mBART
+- Whisper（ASR）
+## 🔍 三种结构的核心区别（一句话版）
 
+| 架构类型            | 自回归在哪里？ | 前文如何使用？        | 理解与生成关系                  |
+| --------------- | ------- | -------------- | ------------------------ |
+| Encoder-only    | ❌ 不自回归  | 不需要            | 只理解                      |
+| Decoder-only    | ✔ 当前序列  | 前文已包含在序列中      | 理解与生成合一                  |
+| Encoder-Decoder | ✔ 输出序列  | Encoder 输出作为条件 | 分工：Encoder 理解、Decoder 生成 |
+## 🧩 最直观总结
+- **Encoder-only = 理解机器**
+- **Decoder-only = 生成机器（LLM 默认架构）**
+- **Encoder-Decoder = 输入→输出的转换机器（翻译等）**
 
