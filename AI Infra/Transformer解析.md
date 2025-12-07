@@ -84,35 +84,8 @@ Input → Embedding → Positional Encoding
 - 训练规模用到数千 GPU
 你看到的 GPT-3、GPT-4、Llama3 本质仍是 **这个结构堆得更高、数据更多、训练更久**。
 
-# 四、为什么 Transformer 是 AI Infra 的核心？
-因为：
-## ✔ 1. 完全矩阵化 → 完全可以硬件加速（GPU/TPU）
-所有计算都是：
-- GEMM（矩阵乘法）
-- softmax
-- LayerNorm
+# 四、Transformer 的三种常见架构
+**Encoder-only、Decoder-only、Encoder-Decoder**，它们在任务、结构和训练目标上有明显差异。
 
-这些都是 GPU 的强项 → **scale 很容易**。
-## 2. 模型可以拆成不同并行方式
-比如：
-- **Data Parallel**（样本并行）
-- **Tensor Parallel**（切 W 矩阵）
-- **Pipeline Parallel**（层间分布到不同 GPU）
-- **MoE 并行**（专家选择）
-    
-所有分布式训练框架（Megatron、DeepSpeed、Colossal-AI）都是基于这个结构。
-
----
-## ✔ 3. 模式统一 → 同一架构能做 NLP、CV、Audio
-Transformer 已经成为：
-- 文本（GPT、Llama）
-- 图像（ViT）
-- 多模态（CLIP）
-- 语音（Whisper）
-- Agents
-的底座。
-
-从 infra 角度就是：
-> **你只需要一次工程优化就能服务所有 AI 模型。**
 
 
