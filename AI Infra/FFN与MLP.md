@@ -32,7 +32,7 @@ $$\text{FFN}(X) = W_2 \, \sigma(X W_1 + b_1) + b_2​$$
 - 设FFN隐藏层维度为`f`
 - x 是输入 token 的向量，$X \in \mathbb{R}^{n \times d}$
 - W_1, W_2 是权重矩阵，$W_1 \in \mathbb{R}^{d \times f}, W_2 \in \mathbb{R}^{f \times d}$
-- b_1, b_2 是偏移矩阵，$b_1 \in \mathbb{R}^{f}, b_2 \in \mathbb{R}^{d}$
+- b_1, b_2 是偏移矩阵，$b_1 \in \mathbb{R}^{f}, b_2 \in \mathbb{R}^{d}$，在深度学习框架中，每个 token 的每个隐藏维度都加上同样的偏置。
 - σ 通常用 ReLU 或 GELU
 - 输出与输入同维度，便于 **残差连接**
 
