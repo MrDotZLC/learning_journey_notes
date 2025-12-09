@@ -45,6 +45,7 @@ $$\text{scores} = \frac{QK^\top}{\sqrt{d_k}}$$
 $$A = \text{softmax}(\text{scores})$$
 4. 加权求和得到输出：
 $$\text{Attention}(Q,K,V) = AV$$
+$W_Q, W_K, W_V, \text{Attention}(Q,K,V) \in \mathbb{R}^{n \times d}$
 **一句话总结**：
 		输出 = `softmax(QK^T / sqrt(d_k)) * V`，每个位置融合序列中所有信息。
 ## 3. 关键细节
@@ -89,5 +90,5 @@ $$\text{MultiHead}(X) = \text{Concat}(\text{head}_1,...,\text{head}_h)W_O$$
 | Q/K/V 来源 | 可以不同                            | 相同（来自同一序列）                     |
 | 作用       | 可以跨序列或跨模态关注                     | 序列内部各元素互相关注                    |
 | 典型应用     | Encoder-Decoder Attention、图像注意力 | Transformer Encoder/Decoder 内部 |
-- **注意力机制**是一个**泛化概念**，自注意力是其中的一种特殊形式。
+    
 - 自注意力是 **Transformer 的核心**，让序列内部每个元素能够互相“关注”，捕捉全局依赖。
