@@ -45,7 +45,8 @@ $$\text{scores} = \frac{QK^\top}{\sqrt{d_k}}$$
 $$A = \text{softmax}(\text{scores})$$
 4. 加权求和得到输出：
 $$\text{Attention}(Q,K,V) = AV$$
-$W_Q, W_K, W_V, \text{Attention}(Q,K,V) \in \mathbb{R}^{n \times d}$
+$W_Q, W_K, W_V \in \mathbb{R}^{d \times d}$
+$X, K, Q, V, \text{Attention}(Q,K,V) \in \mathbb{R}^{n \times d}$
 **一句话总结**：
 		输出 = `softmax(QK^T / sqrt(d_k)) * V`，每个位置融合序列中所有信息。
 ## 3. 关键细节

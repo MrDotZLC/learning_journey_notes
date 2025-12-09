@@ -9,7 +9,7 @@ MLP 是神经网络的一种基本结构，由 **输入层、隐藏层和输出�
 
 **公式表示**（单隐藏层 MLP）：  
 如果输入 $x \in \mathbb{R}^{d}$，隐藏层权重 W1​，偏置 b1​，输出层权重 W2，偏置 b2，激活函数 σ：
-$h=σ(W1x+b1)y=W2h+b2h = σ(W_1 x + b_1) y = W_2 h + b_2h=σ(W1​x+b1​)y=W2​h+b2​$
+$$h = σ(W_1 x + b_1) y = W_2 h + b_2$$
 **用途**：
 - 分类、回归任务
 - 基础的特征映射和表示学习
@@ -28,9 +28,11 @@ FFN 是一种特殊的 MLP，也可以说 **MLP 的一个具体应用形式**。
 - 输出维度通常与输入相同（为了残差连接）
 
 **公式（Transformer FFN）**：
-$FFN(x)=W2 σ(W1x+b1)+b2\text{FFN}(x) = W_2 \, \sigma(W_1 x + b_1) + b_2FFN(x)=W2​σ(W1​x+b1​)+b2​$
-- x 是输入 token 的向量
-- W1,W2 是权重矩阵
+$$\text{FFN}(X) = W_2 \, \sigma(X W_1 + b_1) + b_2​$$
+- 设FFN隐藏层维度为`f`
+- x 是输入 token 的向量，$X \in \mathbb{R}^{n \times d}$
+- W_1, W_2 是权重矩阵，$W_1 \in \mathbb{R}^{d \times f}, W_2 \in \mathbb{R}^{f \times d}$
+- b_1, b_2 是偏移矩阵，$b_1 \in \mathbb{R}^{f}, b_2 \in \mathbb{R}^{d}$
 - σ 通常用 ReLU 或 GELU
 - 输出与输入同维度，便于 **残差连接**
 
