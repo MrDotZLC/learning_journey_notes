@@ -28,7 +28,7 @@ Feed Forward Network (MLP)
 		可以用：
 	- 经典的 Sinusoidal PE
 	- 或者可训练位置编码（大模型主流）
-3. Self-Attention（自注意力机制，核心：全局依赖）
+3. Self-Attention（自注意力机制，核心：全局依赖）[[注意力和自注意力（Attention vs Self-Attention）]]
 		特点：
 	- Q·Kᵀ 得到 token 与 token 之间的相关度
 	- softmax 归一化成权重
