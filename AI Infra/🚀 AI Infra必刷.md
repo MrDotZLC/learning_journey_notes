@@ -1,10 +1,10 @@
 # 第 1 阶段（1 周）：基础概念理解
 学习材料：
-- “什么是 Transformer”
-- “自注意力如何工作”
-- “什么是 KV Cache”
-- “prefill vs decode”
-- “显存带宽瓶颈是什么”
+- “什么是 Transformer”[[🚀 Transformer解析]]
+- “自注意力如何工作”[[注意力和自注意力（Attention vs Self-Attention）]]
+- “什么是 KV Cache”[[KV Cache介绍]]
+- “prefill vs decode”[[🚀 大模型推理流程]]第3章
+- “显存带宽瓶颈是什么”[[🚀 大模型推理优化技术（显存带宽瓶颈优化）]]
 
 ---
 
@@ -57,3 +57,15 @@
 - GPU 推理工程师
 - 模型服务工程师
 - LLM Serving 工程师
+
+- [x] 1. **AI Infra 最基础版本：从零讲什么是 Transformer？** ✅ 2025-12-10
+
+- [ ] 2. **从零讲 GPU（连 warp 都不会也行）**
+
+- [x] 3. **从零讲 KV Cache（最重要的概念）**
+
+- [ ] 4. **从零讲 Continuous Batching（怎么并发跑多个用户）**
+
+- [ ] 5. **迷你 vLLM 项目的代码结构 & 每个模块如何写**
+
+- [ ] 6. **AI Infra 面试题（含详细答案、不需要背景）**
