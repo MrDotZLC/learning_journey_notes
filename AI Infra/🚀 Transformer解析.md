@@ -19,9 +19,9 @@ Feed Forward Network (MLP)
 残差连接 + LayerNorm
 ```
 这种结构可以重复 N 层，全是矩阵乘法 → **非常适合 GPU/TPU、张量并行、流水并行、数据并行等 Infra 技术**。
-1. Token Embedding（把词变成向量）[[Token Embedding 全面解析]]
+1. Token Embedding（把词变成向量）[[Token Embedding 介绍]]
 文本 → 数字（tokenize） → 向量（lookup table）
-2. Positional Encoding（让模型知道顺序）[[Positional Encoding位置编码]]
+2. Positional Encoding（让模型知道顺序）[[Positional Encoding 位置编码介绍]]
 		因为 transformer 没有循序结构，所以必须告诉它：
 	- 句子顺序
 	- 哪个 token 在哪个位置
@@ -46,7 +46,7 @@ Attention(Q, K, V) = softmax(Q*Kᵀ / sqrt(d)) * V
 		不是一个 Q/K/V，而是多个头并行：
 	- 不同 head 学不同模式（语法、语义、指代等）
 	- 拼接 concat 后再映射回 d_model
-5. Feed Forward Network (FFN)[[FFN与MLP]]
+5. Feed Forward Network (FFN)[[FFN与MLP介绍]]
 		特点：
 	- 完全位置独立 → 容易张量并行
 	- 能提升模型表达能力

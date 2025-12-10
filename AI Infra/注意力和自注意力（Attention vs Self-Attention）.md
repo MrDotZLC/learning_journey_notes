@@ -58,7 +58,7 @@ $$\text{Attention}(Q,K,V) = \text{softmax}\Big(\frac{QK^\top}{\sqrt{d_k}} + \tex
 $$\text{mask}_{i,j} = \begin{cases} 0 & j \le i \\ -\infty & j > i \end{cases}$$
     - Padding mask（处理变长序列，即补齐的token）
 $$\text{mask}_{i,j} = \begin{cases} 0 & j \text{ 是有效 token} \\ -\infty & j \text{ 是 padding token} \end{cases}$$
-- **位置编码**：补充序列顺序信息[[Positional Encoding位置编码]]
+- **位置编码**：补充序列顺序信息[[Positional Encoding 位置编码介绍]]
     - 绝对位置编码（sin/cos 或 learnable）
     - 相对位置编码（T5、Transformer-XL 等）
 ## 4. 多头注意力（Multi-Head Attention）[[Transformer 中单头维度 d_k ​与缩放因子总结]]
