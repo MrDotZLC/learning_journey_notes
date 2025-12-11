@@ -49,22 +49,13 @@
 - **Event**：用于在流间或 host-gpu 间同步或测量时间。
 - **Pinned Memory**：页锁定主机内存，提升 host↔device 传输带宽并支持异步 DMA。
 # 3. CUDA 编程模型（Grid / Block / Thread / Warp） — 含示例与实践
-
 ## 3.1 层级与索引（详细说明）
-
 - `threadIdx.{x,y,z}`：线程在 block 中的坐标。
-    
 - `blockIdx.{x,y,z}`：block 在 grid 中的坐标。
-    
 - `blockDim.{x,y,z}`：block 的尺寸。
-    
 - `gridDim.{x,y,z}`：grid 的尺寸。
-    
-
 多维索引常用于映射矩阵/张量的坐标。
-
 ## 3.2 最小示例（向量加法）与解释
-
 ```cpp
 __global__ void vecAdd(const float* A, const float* B, float* C, int N) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x; // 全局线程 id
@@ -76,9 +67,7 @@ int blockSize = 256;
 int gridSize = (N + blockSize - 1) / blockSize;
 vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 ```
-
-- 说明：每个线程处理单个元素，blockSize = 256（应为 32 的倍数以便 warp 对齐）。
-    
+说明：每个线程处理单个元素，blockSize = 256（应为 32 的倍数以便 warp 对齐）。
 
 ## 3.3 Warp 细节（工程实践）
 
