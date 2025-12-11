@@ -58,39 +58,26 @@
 ## 3.2 最小示例（向量加法）与解释
 ```cpp
 __global__ void vecAdd(const float* A, const float* B, float* C, int N) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x; // 全局线程 id
-    if (idx < N) C[idx] = A[idx] + B[idx];
+    int idx = blockIdx.x * blockDim.x + threadIdx.x; // 全局唯一线程 id = block在grid中的横向索引 * 每个block的线程数 + 线程在block中的索引
+    if (idx < N) C[idx] = A[idx] + B[idx]; // 越界判断与加法逻辑
 }
 
 // Host code
-int blockSize = 256;
-int gridSize = (N + blockSize - 1) / blockSize;
+int blockSize = 256; // 每个block中的线程数
+int gridSize = (N + blockSize - 1) / blockSize; // grid数（向上取整）
 vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 ```
 说明：每个线程处理单个元素，blockSize = 256（应为 32 的倍数以便 warp 对齐）。
-
-## 3.3 Warp 细节（工程实践）
-
+## 3.3 Warp 细节
+warp是线程束：GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
 - Warp 大小固定 = 32。
-    
 - Block 内线程会被划分为 `blockDim.x / 32` 个 warp（按内存连续排列）。
-    
 - 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。
-    
-
 ## 3.4 线程维度选择实践
-
 - 对于一维数据：`blockDim.x = 128/256` 常合理。
-    
 - 二维（矩阵/图像）：使用 `dim3` 定义 `blockDim(16,16)`、`gridDim((W+15)/16, (H+15)/16)`；这利于 tile 算法（shared memory）。
-    
-
 ## 3.5 Kernel Launch 开销
-
 - Kernel 启动有固定开销（几十微秒）；用小粒度 kernel 会被启动开销淹没 → 合并操作或用 persistent kernel。
-    
-
----
 
 # 4. CUDA 执行模型（SM、调度、occupancy、资源映射） — 深入
 
