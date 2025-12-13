@@ -73,12 +73,13 @@ CUDA 不是单纯的库，也不是单纯的语言，它是一个完整的生态
 - **Stream**：CUDA 流（异步执行队列），通过多个 stream 可实现重叠内存传输与计算。
 - **Event**：用于在流间或 host-gpu 间同步或测量时间。
 - **Pinned Memory**：页锁定主机内存，提升 host↔device 传输带宽并支持异步 DMA。
-## 2.4 CUDA 官方文档
+## 2.4 CUDA 官方文档、案例与性能测试
+### 2.4.1 官方文档
 [CUDA c++编程指南](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html)  
 [CUDA c++最佳实践指南](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html)  
 [CUDA 运行时API手册](https://docs.nvidia.com/cuda/cuda-runtime-api/index.html)  
 [CUDA 数学函数库API手册](https://docs.nvidia.com/cuda/cuda-math-api/index.html)
-## 2.5 CUDA 编程案例
+### 2.4.2 CUDA 编程案例
 [CUDA Samples](https://github.com/NVIDIA/cuda-samples)
 - Simple Reference 基础CUDA示例，适用于初学者， 反映了运用CUDA和CUDA runtime APIs的一些基本概念.
 - Utilities Reference 演示如何查询设备能力和衡量GPU/CPU 带宽的实例程序。
@@ -88,11 +89,12 @@ CUDA 不是单纯的库，也不是单纯的语言，它是一个完整的生态
 - Simulations Reference 展现一些运用CUDA的模拟算法。
 - Advanced Reference 用CUDA实现的一些先进的算法。
 - Cudalibraries Reference 这类示例主要告诉我们该如何使用CUDA各种函数库(NPP, CUBLAS, CUFFT,CUSPARSE, and CURAND)。
-## 2.6 CUDA 性能测试
+### 2.4.3 CUDA 性能测试
 [CUDA Bechmarks](https://github.com/ekondis/mixbench)
 - Four types of experiments are executed combined with global memory accesses: Single precision Flops (multiply-additions) Double precision Flops (multiply-additions) Half precision Flops (multiply-additions) Integer multiply-addition operations
 - Building is based now on CMake files. Each implementation resides in a separate folder: CUDA implementation: mixbench-cuda OpenCL implementation: mixbench-opencl HIP implementation: mixbench-hip SYCL implementation: mixbench-sycl
 # 3. CUDA 编程模型（Grid / Block / Thread / Warp） — 含示例与实践
+## 3.1 
 ## 3.1 层级与索引（详细说明）
 - `threadIdx.{x,y,z}`：线程在 block 中的坐标。
 - `blockIdx.{x,y,z}`：block 在 grid 中的坐标。
@@ -115,12 +117,13 @@ vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 ## 3.3 Warp线程束
 [[GPU Warp详解]]
 warp是GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
-- Warp 大小固定 = 32。
+- Warp 大小固定 = 32。[[为什么 Warp 有32个线程，而不是16或64]]
 - Block 内线程会被划分为 `blockDim.x / 32` 个 warp（按内存连续排列）。
 - 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[[__syncwarp()与__syncthreads()]]
 ## 3.4 线程维度选择实践
+[[GPU 维度解析]]
 - 对于一维数据：`blockDim.x = 128/256` 常合理。
-- 二维（矩阵/图像）：使用 `dim3` 定义 `blockDim(16,16)`、`gridDim((W+15)/16, (H+15)/16)`；这利于 tile 算法（shared memory）。
+- 二维（矩阵/图像）：使用 `dim3` 定义 `blockDim(16,16)`、`gridDim((W+15)/16, (H+15)/16)`；这利于 tile 算法（shared memory）。（维度向上取整）
 ## 3.5 Kernel Launch 开销
 - Kernel 启动有固定开销（几十微秒）；用小粒度 kernel 会被启动开销淹没 → 合并操作或用 persistent kernel。
 
