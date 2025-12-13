@@ -12,18 +12,39 @@
 
 # 1. GPU 前导知识
 ## 1.1 目标与设计权衡
-- **目标**：最大化吞吐（throughput）与执行并行规模；以牺牲单线程延迟和复杂控制逻辑为代价。
+- **设计目标**：最大化吞吐（throughput）与执行并行规模；以牺牲单线程延迟和复杂控制逻辑为代价。
 - **主要权衡**：
     - 减少每核心的复杂性 → 增加核心数量
     - 减少大容量缓存 → 以并行和硬件线程切换掩盖延迟
     - 将指令发射粒度固定为 warp（硬件实现）
 ## 1.2 关键硬件构件
-- **SM（Streaming Multiprocessor）**：每个 SM 包含若干个执行单元、Tensor Core、寄存器池、shared memory、warp scheduler。NVIDIA 各代（Kepler/Maxwell/Pascal/Volta/Ampere/Hopper）在 SM 内部实现与资源配比不同（如 Tensor Core 出现位置与功能差异）。
+- **SM（Streaming Multiprocessor）**：GPU的功能单元，NVIDIA 各代（Kepler/Maxwell/Pascal/Volta/Ampere/Hopper）在 SM 内部实现与资源配比不同（如 Tensor Core 出现位置与功能差异）。每个SM包含：
+	- Scalar ALUs（算术逻辑单元）
+	- Tensor Cores（矩阵计算加速）
+	- Warp Schedulers（Warp 调度器）
+	- Register File（寄存器文件）
+	- Shared Memory（共享内存）
+	- L1 Cache
+	- Load/Store Units
+	- Special Function Units（SFU，用于三角函数等）
 - **CUDA Core**：标量 ALU，执行整数/浮点基本运算。
 - **Tensor Core**：专门做矩阵乘加（MMA）的硬件单元，支持混合精度（如 FP16 × FP16 → FP32 累加，或 FP8 支持）。
 - **Warp Scheduler**：选择 ready 的 warp 并发指令发出，通常一个 SM 有多个 warp scheduler（越新的架构 scheduler 数量、发射能力更强）。
 - **Memory Controller / DRAM (HBM/GDDR)**：高并行内存通道、宽带宽但高延迟；显存接口宽、并发 IO 多。
-## 1.3 GPU 与 CPU 根本区别
+## 1.3 GPU层级
+```
+GPU
+ ├── 多个 SM
+ │     ├── Warp Scheduler
+ │     ├── Registers
+ │     ├── Shared Memory / L1
+ │     ├── CUDA Cores
+ │     ├── Tensor Cores
+ │     └── L1 Cache
+ └── L2 Cache
+      └── HBM/DRAM（Global Memory）
+```
+## 1.4 GPU 与 CPU 根本区别
 
 | 项目   | CPU      | GPU       |
 | ---- | -------- | --------- |
@@ -32,8 +53,10 @@
 | 延迟目标 | 最小延迟     | 最大吞吐      |
 | 调度方式 | OS 调度    | Warp 硬件调度 |
 | 适用场景 | 分支多、逻辑复杂 | 大规模数据并行任务 |
-# 2. CUDA 总览
-
+# 2. CUDA
+CUDA（Compute Unified Device Architecture）是 **NVIDIA 推出的并行计算平台与编程模型**，用于在其 GPU（Graphics Processing Unit）上进行**通用计算（GPGPU，General-Purpose computing on GPU）**。
+CUDA 不是单纯的库，也不是单纯的语言，它是一个完整的生态。
+使用 CUDA，开发者可以将计算密集型任务从 CPU 转移到 GPU，显著提升吞吐量与速度。
 ## 2.1 CUDA 的组成
 - **语言层**：CUDA C/C++（关键关键字 `__global__`, `__device__`, `__host__`），以及更高层绑定（Python 下的 numba / CuPy / PyTorch CUDA kernels）。
 - **编译链**：源 → NVCC → PTX（跨架构中间 IR）→ 在 driver / JIT 阶段或静态编译成 SASS（架构特定机器码）。
@@ -89,11 +112,12 @@ int gridSize = (N + blockSize - 1) / blockSize; // grid数（向上取整）
 vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 ```
 说明：每个线程处理单个元素，blockSize = 256（应为 32 的倍数以便 warp 对齐）。
-## 3.3 Warp 细节
-warp是线程束：GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
+## 3.3 Warp线程束
+[[GPU Warp详解]]
+warp是GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
 - Warp 大小固定 = 32。
 - Block 内线程会被划分为 `blockDim.x / 32` 个 warp（按内存连续排列）。
-- 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。
+- 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[[__syncwarp()与__syncthreads()]]
 ## 3.4 线程维度选择实践
 - 对于一维数据：`blockDim.x = 128/256` 常合理。
 - 二维（矩阵/图像）：使用 `dim3` 定义 `blockDim(16,16)`、`gridDim((W+15)/16, (H+15)/16)`；这利于 tile 算法（shared memory）。
