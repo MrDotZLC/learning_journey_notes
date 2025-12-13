@@ -93,15 +93,37 @@ CUDA 不是单纯的库，也不是单纯的语言，它是一个完整的生态
 [CUDA Bechmarks](https://github.com/ekondis/mixbench)
 - Four types of experiments are executed combined with global memory accesses: Single precision Flops (multiply-additions) Double precision Flops (multiply-additions) Half precision Flops (multiply-additions) Integer multiply-addition operations
 - Building is based now on CMake files. Each implementation resides in a separate folder: CUDA implementation: mixbench-cuda OpenCL implementation: mixbench-opencl HIP implementation: mixbench-hip SYCL implementation: mixbench-sycl
-# 3. CUDA 编程模型（Grid / Block / Thread / Warp） — 含示例与实践
-## 3.1 
-## 3.1 层级与索引（详细说明）
+# 3. CUDA 编程模型（Grid / Block / Thread / Warp）
+## 3.1 核心思想
+> **把一个大任务拆分为大量完全相同的小任务，让 GPU 同时执行**
+## 3.2 四层执行层级
+```
+Grid
+ └── Block
+      └── Warp
+           └── Thread
+```
+#### Thread
+- 最小执行单元
+- 执行一份 kernel 代码
+#### Warp
+- **32 个线程**
+- GPU 的最小调度单位
+- 所有线程执行**同一条指令**
+#### Block
+- 一组线程（通常 128~1024）
+- 运行在同一个 SM
+- 共享 shared memory
+- 支持 `__syncthreads()`
+#### Grid
+- 一次 kernel 启动的全部 block 集合
+## 3.3 层级与索引（详细说明）
 - `threadIdx.{x,y,z}`：线程在 block 中的坐标。
 - `blockIdx.{x,y,z}`：block 在 grid 中的坐标。
 - `blockDim.{x,y,z}`：block 的尺寸。
 - `gridDim.{x,y,z}`：grid 的尺寸。
 多维索引常用于映射矩阵/张量的坐标。
-## 3.2 最小示例（向量加法）与解释
+## 3.4 最小示例（向量加法）与解释
 ```cpp
 __global__ void vecAdd(const float* A, const float* B, float* C, int N) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x; // 全局唯一线程 id = block在grid中的横向索引 * 每个block的线程数 + 线程在block中的索引
@@ -114,42 +136,30 @@ int gridSize = (N + blockSize - 1) / blockSize; // grid数（向上取整）
 vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 ```
 说明：每个线程处理单个元素，blockSize = 256（应为 32 的倍数以便 warp 对齐）。
-## 3.3 Warp线程束
+## 3.5 Warp线程束
 [[GPU Warp详解]]
 warp是GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
 - Warp 大小固定 = 32。[[为什么 Warp 有32个线程，而不是16或64]]
 - Block 内线程会被划分为 `blockDim.x / 32` 个 warp（按内存连续排列）。
 - 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[[__syncwarp()与__syncthreads()]]
-## 3.4 线程维度选择实践
+## 3.6 线程维度选择实践
 [[GPU 维度解析]]
 - 对于一维数据：`blockDim.x = 128/256` 常合理。
 - 二维（矩阵/图像）：使用 `dim3` 定义 `blockDim(16,16)`、`gridDim((W+15)/16, (H+15)/16)`；这利于 tile 算法（shared memory）。（维度向上取整）
-## 3.5 Kernel Launch 开销
+## 3.7 Kernel Launch 开销
 - Kernel 启动有固定开销（几十微秒）；用小粒度 kernel 会被启动开销淹没 → 合并操作或用 persistent kernel。
-
-# 4. CUDA 执行模型（SM、调度、occupancy、资源映射） — 深入
-
-## 4.1 SM 内部资源与映射
-
-- 每个 SM 有固定数量的寄存器和 shared memory（如 64KB，取决于架构/配置）。
-    
-- kernel 的每个线程会分配寄存器数；block 的 shared memory 使用会从 SM 配额中占用。
-    
-- 一个 SM 能承载的最大 Active blocks / warps 由以下三者共同限制：register 使用、shared memory 使用、硬件最大线程数。
-    
-
+# 4. CUDA 执行模型（SM、调度、occupancy、资源映射）
+## 4.1 SM 如何执行 Kernel
+1. Grid 中的 block 被分配到 SM
+2. 一个 block 只在一个 SM 上执行
+3. block 被拆成多个 warp
+4. warp scheduler 轮流调度 warp
 ## 4.2 计算 Activation（示例）
-
 给定 SM 资源：
-
 - max_regs_per_sm = R_sm
-    
 - reg_per_thread = r_t
-    
 - threads_per_block = T_b
-    
 - blocks_per_sm limited by floor(R_sm / (r_t*T_b)), 以及 shared mem 限制、max threads per SM。
-    
 
 计算 occupancy（伪代码）：
 
@@ -159,56 +169,28 @@ max_active_threads = min(max_threads_per_sm,
                          floor(shared_mem_sm / shared_mem_per_block) * threads_per_block)
 occupancy = max_active_threads / max_threads_per_sm
 ```
-
 工程建议：使用 `nvcc --ptxas-options=-v` 或 `nvprof/nsight` 查看寄存器使用与 occupancy。
-
 ## 4.3 Occupancy 的误区
-
 - **误区**：occupancy 越高越好。
-    
 - **事实**：高 occupancy 有利于隐藏内存延迟，但如果 kernel 是 compute-bound（寄存器/ALU 饱和），提高 occupancy 不会带来线性收益，还可能因 register pressure 导致 spill。
-    
-
 ## 4.4 Warp 调度策略与影响
-
 - 当某 warp 等待 memory，scheduler 切换到其它 ready warp；这会隐藏 latency。
-    
 - 若活跃 warp 数不足以覆盖 memory latency，则 GPU 会空闲等待 → memory-bound。
-    
-
----
-
-# 5. CUDA 内存模型（层级、coalescing、shared memory、bank conflict） — 实战细节
-
+# 5. CUDA 内存模型（层级、coalescing、shared memory、bank conflict）
 ## 5.1 内存层级与延迟量级（参考范围）
-
 - Register：1 cycle（非常快）
-    
 - Shared Memory：≈ 10 cycles（架构差异）
-    
 - L1：几十 cycles
-    
 - L2：数百 cycles
-    
 - Global DRAM (HBM)：数百到上千 cycles
-    
 
 > 工程结论：尽量把频繁访问的小数据放到 register/shared memory；将大数据流通过 coalesced global loads。
-
 ## 5.2 Memory Coalescing 规则（具体）
-
 - Warp 中线程的 global memory 地址应连续或以固定小 stride 访问，这样硬件可以合并多个 32/64/128 字节的访问为少量事务。
-    
 - 举例：`float`（4B）数组，warp 线程 `i` 访问 `A[base + i]` → 完全 coalesced。若每个线程访问 `A[base + i*stride]` 且 stride 很大，则无法 coalesce。
-    
-
 ## 5.3 Shared Memory：tile-based 算法（示例：矩阵乘法）
-
 - 使用 `TILE = 16/32`，每个 block 将 A、B 的子 tile load 到 shared memory，再对 tile 做内循环计算，减少 global loads。
-    
 - 代码片段（伪）：
-    
-
 ```cpp
 __shared__ float sA[TILE][TILE];
 __shared__ float sB[TILE][TILE];
@@ -221,26 +203,13 @@ for (m = 0; m < ceil(N/TILE); ++m) {
 }
 C[row*N+col] = sum;
 ```
-
 - 关键优化点：tile 大小、bank conflict 避免、unroll 内循环。
-    
-
 ## 5.4 Shared Memory Bank Conflict
-
 - Shared memory 被划分为若干 bank（如 32 banks）。同一时刻若多个线程访问同一 bank（不同地址但同 bank），访问会串行化。
-    
 - 规避手段：padding（在行尾加上若干元素），或调整访问模式使得访问地址分布跨 bank。
-    
-
 ## 5.5 Local Memory（寄存器溢出）
-
 - 当编译器分配寄存器不足时，会将一些局部变量溢出（spill）到 local memory（实际上是 global memory），带来巨大的延迟和带宽负担。
-    
 - 通过减小 per-thread 寄存器使用（使用 `-maxrregcount` 或手动重构）可避免 spill，但也可能降低 ILP（instruction-level parallelism）。
-    
-
----
-
 # 6. CUDA 性能优化详解（含清单、模板、反例）
 
 ## 6.1 性能分析流程（工程化）
