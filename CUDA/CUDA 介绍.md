@@ -202,39 +202,48 @@ for (m = 0; m < ceil(N/TILE); ++m) {
 }
 C[row*N+col] = sum;
 ```
-- 关键优化点：tile 大小、bank conflict 避免、unroll 内循环。
+- 关键优化点：
+	- tile 大小：更大的 tile ≠ 一定更快，过大block数会少，反而处理变慢。
+	- bank conflict 避免
+	- unroll 内循环。
 ## 5.4 Shared Memory Bank Conflict
-- Shared memory 被划分为若干 bank（如 32 banks）。同一时刻若多个线程访问同一 bank（不同地址但同 bank），访问会串行化。
-- 规避手段：padding（在行尾加上若干元素），或调整访问模式使得访问地址分布跨 bank。
+- Shared memory 不是一整块内存，是被划分为若干并行服务单元 bank（如 32 banks）。同一时刻若多个线程访问同一 bank（不同地址但同 bank），访问会串行化。
+- bank conflict例子：
+```
+// 物理上线性存储的二维数组
+__shared__ float s[32];
+float x = s[threadIdx.x];
+
+// 列下标固定，访问多行，访问地址是连续的，bank各不相同
+// 行下标固定，访问多列，访问地址是按固定stride访问的，stride=32，则每次都访问base + i * 32 * 4 bytes，对应同一个bank = (i * 32) % 32 = 0，导致串行访问同一个 bank 32次。
+
+```
+- 常见列访问运算：转置 / stencil / reduction / attention。
+- **规避手段：**
+	- padding（在行尾加上若干元素）：使得 Shared memory 的一维长度不是 32 的整数倍，避免列访问bank冲突。
+	- 调整访问模式使得访问地址分布跨 bank。
+- 特例（Broadcast）：
+  多个线程同时访问同一地址，硬件会广播到这些线程中，不算bank conflict。
+- 判断手段
+  重点看：
+	- `shared_load_transactions`
+	- `shared_store_transactions`
+		如果：`transactions ≫ warp 数`，基本可以确定有 bank conflict。
 ## 5.5 Local Memory（寄存器溢出）
 - 当编译器分配寄存器不足时，会将一些局部变量溢出（spill）到 local memory（实际上是 global memory），带来巨大的延迟和带宽负担。
 - 通过减小 per-thread 寄存器使用（使用 `-maxrregcount` 或手动重构）可避免 spill，但也可能降低 ILP（instruction-level parallelism）。
-# 6. CUDA 性能优化详解（含清单、模板、反例）
-
-## 6.1 性能分析流程（工程化）
-
+# 6. CUDA 性能优化详解
+## 6.1 性能分析流程
 1. **确定瓶颈类别**：使用 profiler（nsight-compute）观察主要 metric —— achieved occupancy、DRAM utilization、SM utilization、warp issue efficiency、L2 hit rate。
-    
 2. **若 memory-bound**：优化 coalescing、shared memory、减少 global loads、重排数据布局。
-    
 3. **若 compute-bound**：优化 instruction-level parallelism、reduce divergent branches、利用 Tensor Core。
-    
 4. **验证每次改动**：用微基准对比（固定 problem size & stream & device）。
-    
-
 ## 6.2 访存优化详单
-
 - **数据布局调整**：数组 of struct (AoS) → struct of arrays (SoA) 以利于 coalescing。
-    
 - **使用 `__ldg()`**：对只读数据使用只读 cache。
-    
 - **减少全局写**：把中间结果保存在 registers/shared memory；延迟写回。
-    
 - **压缩数据类型**：用 FP16 / BF16 / FP8 减少 bandwidth。注意计算精度需求。
-    
 - **Tensor Core**：矩阵乘法使用 Tensor Core（WMMA、cublasLt）减少时间与带宽压力（因为 Tensor Core 做更多数学计算每次 load）。
-    
-
 ## 6.3 线程结构优化清单
 
 - **Block 大小**：通常 128/256/512，保持为 32 的倍数。
