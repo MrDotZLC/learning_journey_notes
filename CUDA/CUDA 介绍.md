@@ -53,17 +53,17 @@ GPU
 | 延迟目标 | 最小延迟     | 最大吞吐      |
 | 调度方式 | OS 调度    | Warp 硬件调度 |
 | 适用场景 | 分支多、逻辑复杂 | 大规模数据并行任务 |
-# 2. CUDA
+# 2. CUDA 总览
 CUDA（Compute Unified Device Architecture）是 **NVIDIA 推出的并行计算平台与编程模型**，用于在其 GPU（Graphics Processing Unit）上进行**通用计算（GPGPU，General-Purpose computing on GPU）**。
 CUDA 不是单纯的库，也不是单纯的语言，它是一个完整的生态。
 使用 CUDA，开发者可以将计算密集型任务从 CPU 转移到 GPU，显著提升吞吐量与速度。
 ## 2.1 CUDA 的组成
-- **语言层**：CUDA C/C++（关键关键字 `__global__`, `__device__`, `__host__`），以及更高层绑定（Python 下的 numba / CuPy / PyTorch CUDA kernels）。
+- **语言层**：CUDA C/C++（关键关键字 `__global__`, `__device__`, `__host__`）。
 - **编译链**：源 → NVCC → PTX（跨架构中间 IR）→ 在 driver / JIT 阶段或静态编译成 SASS（架构特定机器码）。
 - **运行时层**：CUDA Runtime API、Driver API。
-- **库层**：cuBLAS/cuDNN/cuFFT/cuSPARSE/NCCL/TensorRT 等。
-- **工具链**：nsight-compute/nsight-systems/CUPTI/nvprof 等。
-## 2.2 程序从源到执行的流程（工程视角）
+- **库层**：cuBLAS、cuDNN、cuFFT、cuSPARSE、NCCL、TensorRT 等。
+- **工具链**：nsight-compute、nsight-systems、CUPTI、nvprof 等。
+## 2.2 程序执行流程
 1. 开发：写 kernel + host 代码。
 2. 编译：`nvcc` 产生 PTX 或已编译 SASS（可指定 `-arch`）。
 3. 链接/运行时：driver 加载 kernel 到设备，分配资源。
@@ -100,7 +100,7 @@ CUDA 不是单纯的库，也不是单纯的语言，它是一个完整的生态
 ```
 Grid
  └── Block
-      └── Warp
+      └── Warp (32 threads)
            └── Thread
 ```
 #### Thread
@@ -150,23 +150,22 @@ warp是GPU 一次性同时执行的 32 个线程组成的“固定小队”。Wa
 - Kernel 启动有固定开销（几十微秒）；用小粒度 kernel 会被启动开销淹没 → 合并操作或用 persistent kernel。
 # 4. CUDA 执行模型（SM、调度、occupancy、资源映射）
 ## 4.1 SM 如何执行 Kernel
-1. Grid 中的 block 被分配到 SM
-2. 一个 block 只在一个 SM 上执行
-3. block 被拆成多个 warp
-4. warp scheduler 轮流调度 warp
+1. Grid 中的 block 被分配到 SM（一个 block 只在一个 SM 上执行）
+2. block 被拆成多个 warp
+3. warp scheduler 轮流调度 warp
 ## 4.2 计算 Activation（示例）
 给定 SM 资源：
-- max_regs_per_sm = R_sm
-- reg_per_thread = r_t
-- threads_per_block = T_b
+- max_regs_per_sm = R_sm：每个SM中寄存器总量
+- reg_per_thread = r_t：每个线程可用的寄存器数量
+- threads_per_block = T_b：每个block包含的线程数
 - blocks_per_sm limited by floor(R_sm / (r_t*T_b)), 以及 shared mem 限制、max threads per SM。
 
 计算 occupancy（伪代码）：
 
 ```
 max_active_threads = min(max_threads_per_sm,
-                         floor(R_sm / r_t) / warp_size * warp_size,
-                         floor(shared_mem_sm / shared_mem_per_block) * threads_per_block)
+                         floor(R_sm / r_t) / warp_size * warp_size, // 寄存器限制下的最大线程数
+                         floor(shared_mem_sm / shared_mem_per_block) * threads_per_block) // 共享内存限制下的最大线程数
 occupancy = max_active_threads / max_threads_per_sm
 ```
 工程建议：使用 `nvcc --ptxas-options=-v` 或 `nvprof/nsight` 查看寄存器使用与 occupancy。
@@ -185,7 +184,7 @@ occupancy = max_active_threads / max_threads_per_sm
 - Global DRAM (HBM)：数百到上千 cycles
 
 > 工程结论：尽量把频繁访问的小数据放到 register/shared memory；将大数据流通过 coalesced global loads。
-## 5.2 Memory Coalescing 规则（具体）
+## 5.2 Memory Coalescing 内存合并规则
 - Warp 中线程的 global memory 地址应连续或以固定小 stride 访问，这样硬件可以合并多个 32/64/128 字节的访问为少量事务。
 - 举例：`float`（4B）数组，warp 线程 `i` 访问 `A[base + i]` → 完全 coalesced。若每个线程访问 `A[base + i*stride]` 且 stride 很大，则无法 coalesce。
 ## 5.3 Shared Memory：tile-based 算法（示例：矩阵乘法）
