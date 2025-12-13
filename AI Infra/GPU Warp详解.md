@@ -114,6 +114,14 @@ GPU divergence 中涉及 **三个 PC**：
 - 合并相同路径线程 entry → stack push/pop 次数减少
 - RPC 保持一致，保证 divergence 汇合点正确
 - stack depth 降低 → stack 操作延迟减少
+
+| 特性              | Ampere/Ada（优化前）          | Hopper（优化后）                     | 优势                         |
+| --------------- | ------------------------ | ------------------------------- | -------------------------- |
+| **PC**          | 每 warp divergence 路径单独存储 | 多 warp 相同路径合并，entry.PC 指向合并路径起始 | 减少 entry 数量，stack depth 下降 |
+| **Active Mask** | warp 内活跃线程 mask（小 warp）  | 合并后的 full warp mask（所有相同路径线程）   | lane 利用率提高，减少 idle         |
+| **RPC**         | 汇合点地址，多个 warp entry 重复存储 | RPC 不变，多个 warp 共享               | 汇合正确且 stack 操作次数少          |
+| **Stack Depth** | 较深（每 warp 独立 entry）      | 较浅（合并 entry）                    | push/pop 开销下降              |
+| **发射次数**        | divergence 路径 × warp 数   | 按路径总线程数 / 32 → 合并发射             | 发射延迟降低                     |
 ## 4.3 Warp Scheduler 优化
 - Hopper SM 拥有 6 个 scheduler
 - 可以同时发射更多 warp
