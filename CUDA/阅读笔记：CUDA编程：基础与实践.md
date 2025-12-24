@@ -46,7 +46,7 @@ cudaError_t cudaStreamQuery(cudaStream_t stream); // 不阻塞主机，仅检查
 // 核函数的3中调用方式
 my_kernel<<<N_grid, N_block>>>(函数参数);
 my_kernel<<<N_grid, N_block, N_shared>>>(函数参数);
-my_kernel<<<N_grid, N_block, N_shared, stream_id>>>(函数参数);
+my_kernel<<<N_grid, N_block, N_shared, stream_id>>>(函数参数); // 不用N_shared，设为0
 ```
 - N_grid ：网格大小，类型为dim3或整数
 - N_block ：线程块大小，类型为dim3或整数
