@@ -63,3 +63,4 @@ enum cudaMemcpyKind kind,
 cudaStream_t stream
 );
 ```
+异步传输函数cudaMemcpyAsync由GPU 中的DMA（direct memory access）直接实现。
