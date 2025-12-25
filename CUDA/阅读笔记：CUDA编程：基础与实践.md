@@ -52,3 +52,14 @@ my_kernel<<<N_grid, N_block, N_shared, stream_id>>>(函数参数); // 不用N_sh
 - N_block ：线程块大小，类型为dim3或整数
 - N_shared ：动态共享内存字节数
 - stream_id ：CUDA流编号
+### 异步数据传输
+```
+cudaError_t cudaMemcpyAsync
+(
+void *dst,
+const void *src,
+size_t count,
+enum cudaMemcpyKind kind,
+cudaStream_t stream
+);
+```
