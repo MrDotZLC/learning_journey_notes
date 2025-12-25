@@ -1,8 +1,8 @@
 [代码链接](https://github.com/MrDotZLC/cuda_practice)
 
 # 零、目录
-1. CUDA流
-2. 
+11. CUDA流
+12. 统一内存编程
 
 
 
@@ -97,3 +97,8 @@ Stream 3：              H2D -> KER -> D2H
 Stream 4：                     H2D -> KER -> D2H
 ```
 
+
+
+
+# 十二、统一内存编程
+## 12.1 基本概念
