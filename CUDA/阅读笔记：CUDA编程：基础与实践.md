@@ -26,6 +26,7 @@
 ## 11.1 CUDA流
 主机和设备都能发出，CUDA流式并行的，若非指定，一般是默认流（default stream），又称空流（null stream）。
 ```
+// 见cuda_stream.cu
 cudaStream_t stream_1; // 流类型别名
 cudaStreamCreate(&stream_1); // 创建流，注意要传流的地址
 cudaStreamDestroy(stream_1); // 销毁流
@@ -53,7 +54,11 @@ my_kernel<<<N_grid, N_block, N_shared, stream_id>>>(函数参数); // 不用N_sh
 - N_shared ：动态共享内存字节数
 - stream_id ：CUDA流编号
 ### 异步数据传输
+异步传输函数cudaMemcpyAsync由GPU 中的DMA（direct memory access）[[GPU 中的 DMA]]直接实现。
 ```
+// 见cuda_stream.cu
+
+// 内存异步复制函数
 cudaError_t cudaMemcpyAsync
 (
 void *dst,
@@ -62,5 +67,15 @@ size_t count,
 enum cudaMemcpyKind kind,
 cudaStream_t stream
 );
+
+// 示例
+// 1. 分配不可分页主机内存
+cudaError_t cudaMallocHost(void** ptr, size_t size);
+cudaError_t cudaHostAlloc(void** ptr, size_t size, size_t flags);
+
+// 2. 异步传输内存
+cudaMemcpyAsync(void *dst, const void *src, size_t count, enum cudaMemcpyKind kind, cudaStream_t stream);
+
+// 3. 释放主机内存
+cudaError_t cudaFreeHost(void* ptr);
 ```
-异步传输函数cudaMemcpyAsync由GPU 中的DMA（direct memory access）直接实现。
