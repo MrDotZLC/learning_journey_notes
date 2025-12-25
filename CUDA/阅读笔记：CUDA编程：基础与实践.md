@@ -81,7 +81,12 @@ cudaMemcpyAsync(void *dst, const void *src, size_t count, enum cudaMemcpyKind ki
 cudaError_t cudaFreeHost(void* ptr);
 ```
 假设每个流都有三个步骤：主机数据复制到设备（H2D）、核函数运行（KER）、设备内存复制到主机（D2H）。
-**流并发核心：** H2D/D2H之间不能并发，H2D/D2H与KER之间可以并发。
+**流并发核心：** PCIe copy engine 是“硬件固定数量”的
+- **H2D copy engine：1 个**
+- **D2H copy engine：1 个**
+- 不能：
+    - 2 个 H2D 同时跑
+    - 2 个 D2H 同时跑
 ```
 // 每个CUDA流的数据处理量是单个流的1/4
 // 将12个操作减少至6个，效率提升12/6=2倍
