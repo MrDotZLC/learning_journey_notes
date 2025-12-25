@@ -44,6 +44,7 @@ cudaError_t cudaStreamQuery(cudaStream_t stream); // 不阻塞主机，仅检查
 			创建非默认流执行核函数
 ### 非默认流：
 ```
+// 见cuda_stream.cu
 // 核函数的3中调用方式
 my_kernel<<<N_grid, N_block>>>(函数参数);
 my_kernel<<<N_grid, N_block, N_shared>>>(函数参数);
@@ -56,7 +57,7 @@ my_kernel<<<N_grid, N_block, N_shared, stream_id>>>(函数参数); // 不用N_sh
 ### 异步数据传输
 异步传输函数cudaMemcpyAsync由GPU 中的DMA（direct memory access）[[GPU 中的 DMA]]直接实现。
 ```
-// 见cuda_stream.cu
+// 见cs_transfer.cu
 
 // 内存异步复制函数
 cudaError_t cudaMemcpyAsync
@@ -79,3 +80,15 @@ cudaMemcpyAsync(void *dst, const void *src, size_t count, enum cudaMemcpyKind ki
 // 3. 释放主机内存
 cudaError_t cudaFreeHost(void* ptr);
 ```
+假设每个流都有三个步骤：主机数据复制到设备（H2D）、核函数运行（KER）、设备内存复制到主机（D2H）。
+**流并发核心：** H2D/D2H之间不能并发，H2D/D2H与KER之间可以并发。
+```
+// 每个CUDA流的数据处理量是单个流的1/4
+// 将12个操作减少至6个，效率提升12/6=2倍
+// 提升比：3n/(3+n-1)，理论上最高提升3倍
+Stream 1：H2D -> KER -> D2H
+Stream 2：       H2D -> KER -> D2H
+Stream 3：              H2D -> KER -> D2H
+Stream 4：                     H2D -> KER -> D2H
+```
+
