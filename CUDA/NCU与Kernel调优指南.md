@@ -6,7 +6,8 @@
 `target_compile_options(${EXE_NAME} PRIVATE -lineinfo)`
 ![[img_ncu_修改cmake配置.png]]
 4. Start Activity 连接对应平台及可执行文件
-   ![[Pasted image 20260102230846.png]]
+![[Pasted image 20260102231109.png]]
+ ![[Pasted image 20260102231307.png]]
 5. 
  
 注：在终端执行 ncu-ui 时，可能会出现报错，尽量全部解决掉（正常执行命令后，终端无输出），保证ncu-ui正确启动，避免功能无法使用。
