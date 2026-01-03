@@ -142,46 +142,28 @@ Used 80 registers, 49152 bytes smem
 - NVIDIA Occupancy Calculator（Excel / Nsight Compute）
 - Nsight Compute：
     - `sm__warps_active.avg.pct_of_peak_sustained_active`
-## 七、工程化调优流程（非常重要）
-
-### 7.1 标准步骤
-
+# 七、工程化调优流程（非常重要）
+## 7.1 标准步骤
 1. **先保证正确性**
-    
 2. 通过 profiler 判断瓶颈：
-    
     - memory-bound？
-        
     - compute-bound？
-        
 3. 查看：
-    
     - register usage
-        
     - occupancy
-        
 4. 判断是否需要：
-    
     - 提高 occupancy
-        
     - 或降低 occupancy 换 ILP
-        
+## 7.2 常见调优手段
 
----
-
-### 7.2 常见调优手段
-
-|目标|手段|
-|---|---|
-|↑ occupancy|减少 registers|
-|↓ registers|减少展开|
-|↓ spill|提高 registers|
-|↑ 吞吐|增大 block|
-|↑ cache|降低 occupancy|
-
----
-
-## 八、一个完整示例分析
+| 目标          | 手段           |
+| ----------- | ------------ |
+| ↑ occupancy | 减少 registers |
+| ↓ registers | 减少展开         |
+| ↓ spill     | 提高 registers |
+| ↑ 吞吐        | 增大 block     |
+| ↑ cache     | 降低 occupancy |
+# 八、一个完整示例分析
 
 ```cpp
 __global__ void kernel(float* a) {
@@ -189,35 +171,15 @@ __global__ void kernel(float* a) {
     ...
 }
 ```
-
 - 编译后：
-    
     - 120 registers / thread
-        
     - Occupancy ≈ 25%
-        
 - 优化：
-    
     - 使用 shared memory
-        
     - 或缩小数组  
         → Occupancy 提升但不一定更快
-        
-
----
-
-## 九、总结一句话
+# 九、总结一句话
 
 > **Occupancy 是“能同时驻留多少 warp”，  
 > 性能是“这些 warp 是否在做有用的工作”。**
 
-如果你下一步希望：
-
-- 手算某个 kernel 的 occupancy
-    
-- 分析 Nsight Compute 的具体指标
-    
-- 或针对 Hopper / Tensor Core 的 occupancy 特性
-    
-
-可以直接给出 kernel 或架构目标。
