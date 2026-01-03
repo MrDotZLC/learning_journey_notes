@@ -101,68 +101,47 @@ B_{max}
 |长 latency 指令|需要 warp 切换|
 ## 4.3 什么时候低 Occupancy 反而更快？
 
-|场景|原因|
-|---|---|
-|计算密集|指令级并行 > warp 级|
-|Tensor Core|pipeline 饱和优先|
-|高寄存器需求|减少 spill|
-|L1 / cache 命中高|延迟低|
+| 场景             | 原因             |
+| -------------- | -------------- |
+| 计算密集           | 指令级并行 > warp 级 |
+| Tensor Core    | pipeline 饱和优先  |
+| 高寄存器需求         | 减少 spill       |
+| L1 / cache 命中高 | 延迟低            |
 典型案例：
 - Tensor Core kernel
 - cuBLAS GEMM
 - cuDNN convolution
-
 Occupancy 常在 **25%–50%**
-## 五、编译期与运行期对 Occupancy 的影响
-### 5.1 编译期因素
+# 五、编译期与运行期对 Occupancy 的影响
+## 5.1 编译期因素
 
-|因素|影响|
-|---|---|
-|`-maxrregcount`|人为限制寄存器|
-|内联展开|↑ registers|
-|循环展开|↑ registers|
-|使用 double|↑ registers|
-|大结构体|↑ registers|
-
----
-
-### 5.2 运行期因素
+| 因素              | 影响          |
+| --------------- | ----------- |
+| `-maxrregcount` | 人为限制寄存器     |
+| 内联展开            | ↑ registers |
+| 循环展开            | ↑ registers |
+| 使用 double       | ↑ registers |
+| 大结构体            | ↑ registers |
+## 5.2 运行期因素
 
 |因素|影响|
 |---|---|
 |动态 shared memory|↓ blocks|
 |Launch 参数|直接决定|
 |多 kernel 并发|SM 资源竞争|
-
----
-
-## 六、Occupancy 的计算与工具
-
-### 6.1 静态分析
-
+# 六、Occupancy 的计算与工具
+## 6.1 静态分析
 ```bash
 nvcc --ptxas-options=-v kernel.cu
 ```
-
 输出：
-
 ```
 Used 80 registers, 49152 bytes smem
 ```
-
----
-
-### 6.2 Occupancy Calculator（逻辑）
-
+## 6.2 Occupancy Calculator（逻辑）
 - NVIDIA Occupancy Calculator（Excel / Nsight Compute）
-    
 - Nsight Compute：
-    
     - `sm__warps_active.avg.pct_of_peak_sustained_active`
-        
-
----
-
 ## 七、工程化调优流程（非常重要）
 
 ### 7.1 标准步骤
