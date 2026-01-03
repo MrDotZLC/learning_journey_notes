@@ -170,13 +170,14 @@ occupancy = max_active_threads / max_threads_per_sm
 ```
 工程建议：使用 `nvcc --ptxas-options=-v` 或 `nvprof/nsight` 查看寄存器使用与 occupancy。
 ## 4.3 Occupancy 的误区
+详见：[[Occupancy介绍]]
 - **误区**：occupancy 越高越好。
 - **事实**：高 occupancy 有利于隐藏内存延迟，但如果 kernel 是 compute-bound（寄存器/ALU 饱和），提高 occupancy 不会带来线性收益，还可能因 register pressure 导致 spill。
 ## 4.4 Warp 调度策略与影响
 - 当某 warp 等待 memory，scheduler 切换到其它 ready warp；这会隐藏 latency。
 - 若活跃 warp 数不足以覆盖 memory latency，则 GPU 会空闲等待 → memory-bound。
 # 5. CUDA 内存模型（层级、coalescing、shared memory、bank conflict）
-物理/逻辑结构与请求全路径介绍：[[缓存与访存介绍]]
+物理/逻辑结构与请求全路径：[[缓存与访存介绍]]
 ## 5.1 内存层级与延迟量级
 
 | **内存类型**                      | **访问延迟（时钟周期）** | **说明**                                                                            |
