@@ -32,9 +32,7 @@ GPU 通过 **warp-level latency hiding** 工作：
 
 # 三、决定 Occupancy 的四大资源约束
 Occupancy 实际上是**四个约束取最小值**的结果。
-## 3.1 线程数限制（Threads per Block）
-
-## 3.2 Block 数限制
+## 3.1 Block 数限制
 $$\text{Active Blocks}_{threads}
 
 \left\lfloor  
@@ -45,38 +43,24 @@ $$\text{Active Blocks}_{threads}
   → SM 只能放 2 blocks  
   → 最多 64 warps（刚好满，Occupancy100%）
 - 32 threads / block
-  → 理论为
-  → 最多 64 warps（刚好满，Occupancy100%）
-- 小 block（如 32 threads）会被 block 上限限制
-## 3.3 Register 使用限制（最常见瓶颈）
-#### 3.3.1 物理事实
+  → 理论为 64 block，但
+  → 最多 32 block（Occupancy=32/64= 50%）
+  → 小 block（如 32 threads）会被 block 上限限制
+## 3.2 Register 使用限制（最常见瓶颈）
+### 3.2.1 物理事实
 - Registers **按 warp 分配**
-    
 - 每个线程使用 `R` 个寄存器
-    
-
-# [  
-\text{Regs per Block}
-
-R \times \text{Threads per Block}  
-]
-
-# [  
-\text{Active Blocks}_{regs}
+$$\text{Regs per Block}
+=
+R \times \text{Threads per Block}$$  
+$$\text{Active Blocks}_{regs}
 
 \left\lfloor  
 \frac{\text{Regs per SM}}{\text{Regs per Block}}  
-\right\rfloor  
-]
-
----
-
-#### 3.3.2 示例
-
+\right\rfloor  $$
+### 3.2.2 示例
 - 每线程 80 registers
-    
 - block = 256 threads
-    
 
 ```
 每 block 寄存器 = 80 × 256 = 20480
