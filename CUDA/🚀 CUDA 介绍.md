@@ -191,6 +191,7 @@ occupancy = max_active_threads / max_threads_per_sm
 | **全局内存（Global Memory / HBM）** | **数百到上千个周期**   | GPU 中的主要内存（显存），也叫图形内存，带宽非常高，但访问延迟较大。访问时延迟高，尤其在内存访问不连续时，影响性能。                      |
 > 工程结论：尽量把频繁访问的小数据放到 register/shared memory；将大数据流通过 coalesced global loads。
 ## 5.2 Memory Coalescing 内存合并规则
+**详见[[合并访存]]**
 - Warp 中线程的 global memory 地址应连续或以固定小 stride 访问，这样硬件可以合并多个 32/64/128 字节的访问为少量事务。
 - 举例：`float`（4B）数组，warp 线程 `i` 访问 `A[base + i]` → 完全 coalesced。若每个线程访问 `A[base + i*stride]` 且 stride 很大，则无法 coalesce。
 ## 5.3 Shared Memory：tile-based 算法（示例：矩阵乘法）
@@ -287,7 +288,7 @@ float x = s[threadIdx.x];
 ## 8.1 深度学习训练（可复现步骤）
 1. **模型并行策略**：Data Parallel + Gradient AllReduce（NCCL）是基础；大型模型加入 Tensor Parallel / Pipeline Parallel。
 2. **混合精度训练**：使用 AMP（自动混合精度）以获得 Tensor Core 加速（loss scaling 避免下溢）。
-3. **KV Cache 管理**：在 decode 阶段，KV Cache 常驻显存并要求 coalesced 访问/连续布局。
+3. **KV Cache 管理**：在 decode 阶段，KV Cache 常驻显存并要求 coalesced 访问/连续布局。[[合并访存]]
 4. **优化点**：使用 cuBLASLt、cutlass（NVIDIA 开源矩阵库变体），fused kernels（layernorm+gelu）；减少 host-device synchronization。
 ## 8.2 推理（低延迟/高吞吐）
 - **Batching 策略**：小 batch 的低延迟与大 batch 的高吞吐权衡。
