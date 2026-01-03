@@ -5,7 +5,7 @@
 > **Occupancy = 当前 SM 上活跃 Warp 数 / 该 SM 支持的最大 Warp 数**
 $$\text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}$$  
 	
-**注**：等价于：实际block数 / 理论block数
+**注：不足一个block的warp会被丢弃，不参与Occupancy的计算。**
 示例（Ampere）：
 - 最大 warp 数：64
 - 实际驻留 warp：32  
@@ -22,17 +22,17 @@ GPU 通过 **warp-level latency hiding** 工作：
 # 二、Occupancy 的硬件边界（架构事实）
 ## 2.1 SM 的硬性上限（Ampere 示例）
 
-|资源|每 SM 上限|
-|---|---|
-|Threads|2048|
-|Warps|64|
-|Blocks|32|
-|Registers|65536 × 32-bit|
-|Shared Memory|164 KB（可配置）|
+| 资源            | 每 SM 上限        |
+| ------------- | -------------- |
+| Threads       | 2048           |
+| Warps         | 64             |
+| Blocks        | 32             |
+| Registers     | 65536 × 32-bit |
+| Shared Memory | 164 KB（可配置）    |
 > Occupancy **永远不可能超过这些物理上限**
 
 # 三、决定 Occupancy 的四大资源约束
-Occupancy 实际上是**四个约束取最小值**的结果。
+Occupancy 实际上是**四个约束取最小值**的结果。**不足一个block的warp会被丢弃，不参与Occupancy的计算。**
 ## 3.1 Block 数限制
 $$\text{Active Blocks}_{threads}
 
@@ -60,7 +60,8 @@ $$\text{Active Blocks}_{regs}
 \frac{\text{Regs per SM}}{\text{Regs per Block}}  
 \right\rfloor  $$
 ### 3.2.2 示例
-- 80 registers / thread，256 threads / block
+- 80 registers / thread，256 threads / block，65536 regs / SM
+- 每个 warp 寄存器 = 65536 / (80 * 32) = 25.6
 - 每 block 寄存器 = 80 × 256 = 20480，SM 总寄存器 = 65536
   → 只能放 3 blocks（61440）
   → 3 × 8 warps = 24 warps
