@@ -4,7 +4,7 @@
 
 > **Occupancy = 当前 SM 上活跃 Warp 数 / 该 SM 支持的最大 Warp 数**
 $$\text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}$$  
-
+	等价于：实际block数 / 理论block数
 示例（Ampere）：
 - 最大 warp 数：64
 - 实际驻留 warp：32  
@@ -59,36 +59,22 @@ $$\text{Active Blocks}_{regs}
 \frac{\text{Regs per SM}}{\text{Regs per Block}}  
 \right\rfloor  $$
 ### 3.2.2 示例
-- 每线程 80 registers
-- block = 256 threads
-
-```
-每 block 寄存器 = 80 × 256 = 20480
-SM 总寄存器 = 65536
-→ 只能放 3 blocks（61440）
-→ 3 × 8 warps = 24 warps
-→ Occupancy = 24 / 64 = 37.5%
-```
-
----
-
+- 80 registers / thread，256 threads / block，
+- 每 block 寄存器 = 80 × 256 = 20480，SM 总寄存器 = 65536
+  → 只能放 3 blocks（61440）
+  → 3 × 8 warps = 24 warps
+  → Occupancy = 24 / 64 = 37.5%
 ### 3.4 Shared Memory 使用限制
-
-# [  
-\text{Active Blocks}_{smem}
+$$\text{Active Blocks}_{smem}
 
 \left\lfloor  
 \frac{\text{Shared Memory per SM}}{\text{Shared per Block}}  
-\right\rfloor  
-]
-
+\right\rfloor  $$
 示例：
-
 - 每 block 使用 48 KB
-    
 - 每 SM 164 KB  
     → 只能放 3 blocks
-    
+    → 只能放 3 blocks
 
 ---
 
