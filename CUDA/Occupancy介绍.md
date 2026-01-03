@@ -59,7 +59,7 @@ $$\text{Active Blocks}_{regs}
 \frac{\text{Regs per SM}}{\text{Regs per Block}}  
 \right\rfloor  $$
 ### 3.2.2 示例
-- 80 registers / thread，256 threads / block，
+- 80 registers / thread，256 threads / block
 - 每 block 寄存器 = 80 × 256 = 20480，SM 总寄存器 = 65536
   → 只能放 3 blocks（61440）
   → 3 × 8 warps = 24 warps
@@ -71,51 +71,35 @@ $$\text{Active Blocks}_{smem}
 \frac{\text{Shared Memory per SM}}{\text{Shared per Block}}  
 \right\rfloor  $$
 示例：
-- 每 block 使用 48 KB
+- 每 block 使用 48 KB，256 threads / block
 - 每 SM 164 KB  
     → 只能放 3 blocks
-    → 只能放 3 blocks
-
----
-
+    → Occupancy = 24 / 64 = 37.5%
 ### 3.5 综合公式（概念）
-
-# [  
-\text{Active Blocks per SM}
-
+$$\text{Active Blocks per SM}
+=
 \min(  
 B_{threads},  
 B_{regs},  
 B_{smem},  
 B_{max}  
-)  
-]
-
----
-
-## 四、Occupancy ≠ 性能（必须强调）
-
-### 4.1 常见误区
+)  $$
+# 四、Occupancy ≠ 性能（必须强调）
+## 4.1 常见误区
 
 |误区|纠正|
 |---|---|
 |Occupancy 越高越快|错|
 |100% Occupancy 是目标|错|
 |低 Occupancy 一定慢|错|
-
----
-
-### 4.2 什么时候高 Occupancy 有用？
+## 4.2 什么时候高 Occupancy 有用？
 
 |场景|需求|
 |---|---|
 |内存受限|高 occupancy 隐藏 DRAM 延迟|
 |分支多|更多 warp 填补空泡|
 |长 latency 指令|需要 warp 切换|
-
----
-
-### 4.3 什么时候低 Occupancy 反而更快？
+## 4.3 什么时候低 Occupancy 反而更快？
 
 |场景|原因|
 |---|---|
@@ -123,22 +107,13 @@ B_{max}
 |Tensor Core|pipeline 饱和优先|
 |高寄存器需求|减少 spill|
 |L1 / cache 命中高|延迟低|
-
 典型案例：
-
 - Tensor Core kernel
-    
 - cuBLAS GEMM
-    
 - cuDNN convolution
-    
 
 Occupancy 常在 **25%–50%**
-
----
-
 ## 五、编译期与运行期对 Occupancy 的影响
-
 ### 5.1 编译期因素
 
 |因素|影响|
