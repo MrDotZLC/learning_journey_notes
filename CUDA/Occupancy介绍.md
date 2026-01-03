@@ -1,0 +1,299 @@
+# 一、Occupancy 的本质定义（非常关键）
+
+## 1.1 数学定义
+
+> **Occupancy = 当前 SM 上活跃 Warp 数 / 该 SM 支持的最大 Warp 数**
+$$\text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}$$  
+
+示例（Ampere）：
+- 最大 warp 数：64
+- 实际驻留 warp：32  
+    → Occupancy = 50%
+### 1.2 Occupancy 的真实作用
+Occupancy **不是性能指标本身**，而是：
+> **用于隐藏访存与流水线延迟的调度资源**
+
+GPU 通过 **warp-level latency hiding** 工作：
+- 一个 warp stall（等内存）
+- 调度器切换到另一个 ready warp
+
+**Occupancy 决定了“可切换 warp 的数量上限”**
+# 二、Occupancy 的硬件边界（架构事实）
+## 2.1 SM 的硬性上限（Ampere 示例）
+
+|资源|每 SM 上限|
+|---|---|
+|Threads|2048|
+|Warps|64|
+|Blocks|32|
+|Registers|65536 × 32-bit|
+|Shared Memory|164 KB（可配置）|
+> Occupancy **永远不可能超过这些物理上限**
+
+# 三、决定 Occupancy 的四大资源约束
+Occupancy 实际上是**四个约束取最小值**的结果。
+## 3.1 线程数限制（Threads per Block）
+
+## 3.2 Block 数限制
+$$\text{Active Blocks}_{threads}
+
+\left\lfloor  
+\frac{\text{Max Threads per SM}}{\text{Threads per Block}}  
+\right\rfloor  $$
+示例：
+- 1024 threads / block  
+  → SM 只能放 2 blocks  
+  → 最多 64 warps（刚好满，Occupancy100%）
+- 32 threads / block
+  → 理论为
+  → 最多 64 warps（刚好满，Occupancy100%）
+- 小 block（如 32 threads）会被 block 上限限制
+## 3.3 Register 使用限制（最常见瓶颈）
+#### 3.3.1 物理事实
+- Registers **按 warp 分配**
+    
+- 每个线程使用 `R` 个寄存器
+    
+
+# [  
+\text{Regs per Block}
+
+R \times \text{Threads per Block}  
+]
+
+# [  
+\text{Active Blocks}_{regs}
+
+\left\lfloor  
+\frac{\text{Regs per SM}}{\text{Regs per Block}}  
+\right\rfloor  
+]
+
+---
+
+#### 3.3.2 示例
+
+- 每线程 80 registers
+    
+- block = 256 threads
+    
+
+```
+每 block 寄存器 = 80 × 256 = 20480
+SM 总寄存器 = 65536
+→ 只能放 3 blocks（61440）
+→ 3 × 8 warps = 24 warps
+→ Occupancy = 24 / 64 = 37.5%
+```
+
+---
+
+### 3.4 Shared Memory 使用限制
+
+# [  
+\text{Active Blocks}_{smem}
+
+\left\lfloor  
+\frac{\text{Shared Memory per SM}}{\text{Shared per Block}}  
+\right\rfloor  
+]
+
+示例：
+
+- 每 block 使用 48 KB
+    
+- 每 SM 164 KB  
+    → 只能放 3 blocks
+    
+
+---
+
+### 3.5 综合公式（概念）
+
+# [  
+\text{Active Blocks per SM}
+
+\min(  
+B_{threads},  
+B_{regs},  
+B_{smem},  
+B_{max}  
+)  
+]
+
+---
+
+## 四、Occupancy ≠ 性能（必须强调）
+
+### 4.1 常见误区
+
+|误区|纠正|
+|---|---|
+|Occupancy 越高越快|错|
+|100% Occupancy 是目标|错|
+|低 Occupancy 一定慢|错|
+
+---
+
+### 4.2 什么时候高 Occupancy 有用？
+
+|场景|需求|
+|---|---|
+|内存受限|高 occupancy 隐藏 DRAM 延迟|
+|分支多|更多 warp 填补空泡|
+|长 latency 指令|需要 warp 切换|
+
+---
+
+### 4.3 什么时候低 Occupancy 反而更快？
+
+|场景|原因|
+|---|---|
+|计算密集|指令级并行 > warp 级|
+|Tensor Core|pipeline 饱和优先|
+|高寄存器需求|减少 spill|
+|L1 / cache 命中高|延迟低|
+
+典型案例：
+
+- Tensor Core kernel
+    
+- cuBLAS GEMM
+    
+- cuDNN convolution
+    
+
+Occupancy 常在 **25%–50%**
+
+---
+
+## 五、编译期与运行期对 Occupancy 的影响
+
+### 5.1 编译期因素
+
+|因素|影响|
+|---|---|
+|`-maxrregcount`|人为限制寄存器|
+|内联展开|↑ registers|
+|循环展开|↑ registers|
+|使用 double|↑ registers|
+|大结构体|↑ registers|
+
+---
+
+### 5.2 运行期因素
+
+|因素|影响|
+|---|---|
+|动态 shared memory|↓ blocks|
+|Launch 参数|直接决定|
+|多 kernel 并发|SM 资源竞争|
+
+---
+
+## 六、Occupancy 的计算与工具
+
+### 6.1 静态分析
+
+```bash
+nvcc --ptxas-options=-v kernel.cu
+```
+
+输出：
+
+```
+Used 80 registers, 49152 bytes smem
+```
+
+---
+
+### 6.2 Occupancy Calculator（逻辑）
+
+- NVIDIA Occupancy Calculator（Excel / Nsight Compute）
+    
+- Nsight Compute：
+    
+    - `sm__warps_active.avg.pct_of_peak_sustained_active`
+        
+
+---
+
+## 七、工程化调优流程（非常重要）
+
+### 7.1 标准步骤
+
+1. **先保证正确性**
+    
+2. 通过 profiler 判断瓶颈：
+    
+    - memory-bound？
+        
+    - compute-bound？
+        
+3. 查看：
+    
+    - register usage
+        
+    - occupancy
+        
+4. 判断是否需要：
+    
+    - 提高 occupancy
+        
+    - 或降低 occupancy 换 ILP
+        
+
+---
+
+### 7.2 常见调优手段
+
+|目标|手段|
+|---|---|
+|↑ occupancy|减少 registers|
+|↓ registers|减少展开|
+|↓ spill|提高 registers|
+|↑ 吞吐|增大 block|
+|↑ cache|降低 occupancy|
+
+---
+
+## 八、一个完整示例分析
+
+```cpp
+__global__ void kernel(float* a) {
+    float x[32];   // 寄存器爆炸
+    ...
+}
+```
+
+- 编译后：
+    
+    - 120 registers / thread
+        
+    - Occupancy ≈ 25%
+        
+- 优化：
+    
+    - 使用 shared memory
+        
+    - 或缩小数组  
+        → Occupancy 提升但不一定更快
+        
+
+---
+
+## 九、总结一句话
+
+> **Occupancy 是“能同时驻留多少 warp”，  
+> 性能是“这些 warp 是否在做有用的工作”。**
+
+如果你下一步希望：
+
+- 手算某个 kernel 的 occupancy
+    
+- 分析 Nsight Compute 的具体指标
+    
+- 或针对 Hopper / Tensor Core 的 occupancy 特性
+    
+
+可以直接给出 kernel 或架构目标。
