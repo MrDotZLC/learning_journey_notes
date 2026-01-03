@@ -5,11 +5,11 @@
 > **Occupancy = 当前 SM 上活跃 Warp 数 / 该 SM 支持的最大 Warp 数**
 $$\text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}$$  
 	
+**注**：等价于：实际block数 / 理论block数
 示例（Ampere）：
 - 最大 warp 数：64
 - 实际驻留 warp：32  
     → Occupancy = 50%
-**注**：SM中的Active Warp一定是4的倍数，
 ### 1.2 Occupancy 的真实作用
 Occupancy **不是性能指标本身**，而是：
 > **用于隐藏访存与流水线延迟的调度资源**
