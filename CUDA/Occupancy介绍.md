@@ -131,8 +131,41 @@ Occupancy 常在 **25%–50%**
 |动态 shared memory|↓ blocks|
 |Launch 参数|直接决定|
 |多 kernel 并发|SM 资源竞争|
-# 六、理论Occupancy与实际Occupancy
+# 六、实际Occupancy
 
+| 维度                  | 理论 Occupancy             | 实际（Achieved）Occupancy            |
+| ------------------- | ------------------------ | -------------------------------- |
+| 本质                  | **资源允许的上限**              | **调度器实际使用情况**                    |
+| 是否静态                | 是（launch 时确定）            | 否（运行中统计）                         |
+| 是否受控制流影响            | 否                        | 是                                |
+| 是否受 memory stall 影响 | 否                        | 是                                |
+| 计算口径                | Active warps / Max warps | Issued / Active / Eligible warps |
+| 是否等于性能              | 否                        | 仍然不等于                            |
+## 6.1 定义
+在 NVIDIA 工具里，更准确的名字是：  
+**Achieved Active Warp Occupancy** 或 **Issued Warp Occupancy**
+
+> **定义**：在运行过程中，实际处于可执行或被发射状态的 warp 比例
+
+## 6.2 影响因素
+实际 Occupancy 会被以下因素 **动态拉低**：
+1. **Memory Stall**：等待 global / shared / L2
+2. **Instruction Dependency**：RAW / WAW hazard
+3. **Branch Divergence**：warp 部分线程 inactive
+4. **Execution Unit 饱和**：scheduler 无法发射
+5. **Barrier / __syncthreads()**
+## 6.3 举例
+### 场景
+- 理论 Occupancy = 75%
+- Nsight 显示：
+    - Active Warp Occupancy ≈ 40%
+    - Issued Warp Occupancy ≈ 20%
+### 原因
+- warp 大量 stall 在：
+    - global memory
+    - atomic
+- scheduler 即使有 warp：
+    - 也**无法发射指令**
 # 七、工程化调优流程（非常重要）
 ## 7.1 标准步骤
 1. **先保证正确性**
