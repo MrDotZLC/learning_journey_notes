@@ -166,7 +166,7 @@ Occupancy 常在 **25%–50%**
     - atomic
 - scheduler 即使有 warp：
     - 也**无法发射指令**
-# 七、工程化调优流程（非常重要）
+# 七、工程化调优流程
 ## 7.1 标准步骤
 1. **先保证正确性**
 2. 通过 profiler 判断瓶颈：
@@ -206,4 +206,3 @@ __global__ void kernel(float* a) {
 
 > **Occupancy 是“能同时驻留多少 warp”，  
 > 性能是“这些 warp 是否在做有用的工作”。**
-
