@@ -131,19 +131,8 @@ Occupancy 常在 **25%–50%**
 |动态 shared memory|↓ blocks|
 |Launch 参数|直接决定|
 |多 kernel 并发|SM 资源竞争|
-# 六、Occupancy 的计算与工具
-## 6.1 静态分析
-```bash
-nvcc --ptxas-options=-v kernel.cu
-```
-输出：
-```
-Used 80 registers, 49152 bytes smem
-```
-## 6.2 Occupancy Calculator（逻辑）
-- NVIDIA Occupancy Calculator（Excel / Nsight Compute）
-- Nsight Compute：
-    - `sm__warps_active.avg.pct_of_peak_sustained_active`
+# 六、理论Occupancy与实际Occupancy
+
 # 七、工程化调优流程（非常重要）
 ## 7.1 标准步骤
 1. **先保证正确性**
