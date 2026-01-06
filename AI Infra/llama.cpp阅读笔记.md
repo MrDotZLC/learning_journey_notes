@@ -9,3 +9,9 @@
 	3. 打开CUDA配置：
 	4. 设置build目标
 	5. 以debug方式build llama-simple子项目 
+
+# 一、
+
+后端与设备的类关系
+![[Pasted image 20260106204903.png]]
+
