@@ -9,18 +9,18 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
 采用cuda并行计算方式，每个线程处理多个数据。
-核心代码：
+核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 ```
 static void ggml_compute_forward_get_rows_f16(
         const struct ggml_compute_params * params,
               struct ggml_tensor * dst) {
 
     const struct ggml_tensor * src0 = dst->src[0]; // 源tensor(2048,92544),词表长度*单词特征维度
-    const struct ggml_tensor * src1 = dst->src[1]; // 源tensor(5,1)，输入的5个 token
+    const struct ggml_tensor * src1 = dst->src[1]; // 索引tensor(5,1)，输入的5个 token
 
     GGML_TENSOR_BINARY_OP_LOCALS // 宏定义，展开后是将src和dst中的ne,nb赋值给局部变量，方便使用，见下图
 
-    const int64_t nc = ne00; // 第0个src中第0个ne，即2048
+    const int64_t nc = ne00; // 每一行的元素个数，即2048
     const int64_t nr = ggml_nelements(src1); // 总行数，即token个数
 
     assert(ne0  == nc);
@@ -38,15 +38,15 @@ static void ggml_compute_forward_get_rows_f16(
     const int ir0 = dr*ith;
     const int ir1 = MIN(ir0 + dr, nr);
 
-    for (int64_t i = ir0; i < ir1; ++i) { // 遍历负责的行，维度[i10, i11, i12, 1]，跨步[nb10,nb11,nb12,0]=[4, 20, 20, 20]
-        const int64_t i12 = i/(ne11*ne10);
-        const int64_t i11 = (i - i12*ne11*ne10)/ne10;
-        const int64_t i10 = (i - i12*ne11*ne10 - i11*ne10);
-        const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12);
+    for (int64_t i = ir0; i < ir1; ++i) { // 遍历负责的行，即dst的逻辑索引，维度[i10, i11, i12, 1]，跨步[nb10,nb11,nb12,0]=[4, 20, 20, 20]
+        const int64_t i12 = i/(ne11*ne10); // 第 2 维索引
+        const int64_t i11 = (i - i12*ne11*ne10)/ne10; // 第 1 维索引
+        const int64_t i10 = (i - i12*ne11*ne10 - i11*ne10); // 第 0 维索引
+        const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12); // src0 中的第 i01 行 
 
         GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
-        ggml_fp16_to_fp32_row( // 从 src0 的开始位置复制数据到 dst 的开始位置
+        ggml_fp16_to_fp32_row( // 复制数据()
                 (const void *) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03),
                      (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
     }
