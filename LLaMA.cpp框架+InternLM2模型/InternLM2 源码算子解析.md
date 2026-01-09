@@ -42,13 +42,15 @@ static void ggml_compute_forward_get_rows_f16(
         const int64_t i12 = i/(ne11*ne10); // 第 2 维索引
         const int64_t i11 = (i - i12*ne11*ne10)/ne10; // 第 1 维索引
         const int64_t i10 = (i - i12*ne11*ne10 - i11*ne10); // 第 0 维索引
-        const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12); // src0 中的第 i01 行 
+        const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12); // 索引张量中的索引数据，即src0 中的第 i01 行 
 
         GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
-        ggml_fp16_to_fp32_row( // 复制数据()
+        ggml_fp16_to_fp32_row( // 复制数据
+                // i01是token_id, 
                 (const void *) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03),
-                     (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
+	            // nb00是一个元素的字节数，i10是0维索引，所以要乘一个第0维度的总字节数 nb01，同理i11乘一个第1维度的总字节数    
+			    (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
     }
 }
 ```
