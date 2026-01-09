@@ -1,9 +1,58 @@
 # 0. 先验知识
 ## 0.1. pytorch中的维度与llama.cpp中的内存跨步对比
 ![[Pasted image 20260110030940.png]]
+## 0.2. Token输入
+输入：Hello my name is
+token数量：5（Hello前默认有一个起始符 \<s\>）
+
 # 1. GET_ROWS
 根据索引从weight矩阵中取值拼接。
+GET_ROWS算子是CPU后端进行计算。
+采用cuda并行计算方式，每个线程处理多个数据。
+核心代码：
+```
+static void ggml_compute_forward_get_rows_f16(
+        const struct ggml_compute_params * params,
+              struct ggml_tensor * dst) {
 
+    const struct ggml_tensor * src0 = dst->src[0]; // 源tensor(92544,2048),词表长度*单词特征维度
+    const struct ggml_tensor * src1 = dst->src[1]; // 源tensor(5,1)，输入的5个 token
+
+    GGML_TENSOR_BINARY_OP_LOCALS // 宏定义，展开后是将src和dst中的ne,nb赋值给局部变量，方便使用，见下图
+
+    const int64_t nc = ne00; // 第0个src中第0个ne，即2048
+    const int64_t nr = ggml_nelements(src1); // 总行数，即token个数
+
+    assert(ne0  == nc);
+    assert(ne02 == ne11);
+    assert(nb00 == sizeof(ggml_fp16_t));
+    assert(ggml_nrows(dst) == nr);
+
+    const int ith = params->ith; // 第 ith 个线程，类似cuda中的threadIdx
+    const int nth = params->nth; // 一共 nth 个线程，类似cuda的blockDim
+
+    // rows per thread
+    const int dr = (nr + nth - 1)/nth; // 每个线程处理的行数
+
+    // row range for this thread
+    const int ir0 = dr*ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    for (int64_t i = ir0; i < ir1; ++i) { // 遍历负责的行
+        const int64_t i12 = i/(ne11*ne10); // 
+        const int64_t i11 = (i - i12*ne11*ne10)/ne10;
+        const int64_t i10 = (i - i12*ne11*ne10 - i11*ne10);
+        const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12);
+
+        GGML_ASSERT(i01 >= 0 && i01 < ne01);
+
+        ggml_fp16_to_fp32_row(
+                (const void *) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03),
+                     (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
+    }
+}
+```
+![[Pasted image 20260110033758.png]]
 
 # 2. RMS_NORM
 
