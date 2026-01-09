@@ -47,7 +47,7 @@ static void ggml_compute_forward_get_rows_f16(
         GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
         ggml_fp16_to_fp32_row( // 复制数据
-                // i01是token_id, 
+                // i01是token_id, 乘第0维步长，token_id只和第0位有关，其他维是并行维保持一致，才能保证src0和dst属于同一子空间内。
                 (const void *) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03),
 	            // nb00是一个元素的字节数，i10是0维索引，所以要乘一个第0维度的总字节数 nb01，同理i11乘一个第1维度的总字节数    
 			    (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
