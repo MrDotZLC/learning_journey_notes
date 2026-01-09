@@ -28,6 +28,7 @@ llama.cpp的学习路线：
    - 模型缓存位置：
      Hugging Face缓存目录：
       windows：C:\Users\\<你的用户名>\\.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
-	   1. ubuntu：/home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
+      ubuntu：/home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
+	  
 
 1. 
