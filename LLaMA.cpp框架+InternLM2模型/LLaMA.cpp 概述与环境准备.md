@@ -23,12 +23,22 @@ llama.cpp的学习路线：
 ## 6. 模型获取
 1. 这里选择[internlm2-1_8b](https://huggingface.co/internlm/internlm2-1_8b)模型
 2. 加载模型到本地
-   - 需要【科学】上网，模型3.78GB。
-   ![[Pasted image 20260109210741.png]]
-   - 模型缓存位置：
-     Hugging Face缓存目录：
-      windows：C:\Users\\<你的用户名>\\.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
-      ubuntu：/home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
-	  
+   需要【科学】上网，模型3.78GB。
+     ![[Pasted image 20260109210741.png]]
+   模型缓存位置：
+	- Hugging Face缓存目录：
+       windows：C:\Users\\<你的用户名>\\.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
+       ubuntu：/home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
+	- ubuntu下，快照文件都是软链，源文件存放在:
+      /home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\blob\
+	   ![[Pasted image 20260109214806.png]]
+3. pytorch_modle.bin转gguf文件
+```
+   python convert_hf_to_gguf.py <gguf文件路径> --outtype <精度>
+   # 精度："f32", "f16", "bf16", "q8_0", "tq1_0", "tq2_0", "auto"
+   # 不考虑量化，精度一般选 f16/f32 ，默认 f16
+   # 选择f32，gguf 文件会比源文件 pytorch_modle.bin 大1倍
+```
+4. 将gguf文件**复制**到build/bin中，防止误删
 
-1. 
+
