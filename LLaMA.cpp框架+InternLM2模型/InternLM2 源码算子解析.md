@@ -15,7 +15,7 @@ static void ggml_compute_forward_get_rows_f16(
         const struct ggml_compute_params * params,
               struct ggml_tensor * dst) {
 
-    const struct ggml_tensor * src0 = dst->src[0]; // 源tensor(92544,2048),词表长度*单词特征维度
+    const struct ggml_tensor * src0 = dst->src[0]; // 源tensor(2048,92544),词表长度*单词特征维度
     const struct ggml_tensor * src1 = dst->src[1]; // 源tensor(5,1)，输入的5个 token
 
     GGML_TENSOR_BINARY_OP_LOCALS // 宏定义，展开后是将src和dst中的ne,nb赋值给局部变量，方便使用，见下图
@@ -38,15 +38,15 @@ static void ggml_compute_forward_get_rows_f16(
     const int ir0 = dr*ith;
     const int ir1 = MIN(ir0 + dr, nr);
 
-    for (int64_t i = ir0; i < ir1; ++i) { // 遍历负责的行
-        const int64_t i12 = i/(ne11*ne10); // 
+    for (int64_t i = ir0; i < ir1; ++i) { // 遍历负责的行，维度[i10, i11, i12, 1]，跨步[nb10,nb11,nb12,0]=[4, 20, 20, 20]
+        const int64_t i12 = i/(ne11*ne10);
         const int64_t i11 = (i - i12*ne11*ne10)/ne10;
         const int64_t i10 = (i - i12*ne11*ne10 - i11*ne10);
         const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12);
 
         GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
-        ggml_fp16_to_fp32_row(
+        ggml_fp16_to_fp32_row( // 从 src0 的开始位置复制数据到 dst 的开始位置
                 (const void *) ((char *) src0->data + i01*nb01 + i11*nb02 + i12*nb03),
                      (float *) ((char *)  dst->data + i10*nb1  + i11*nb2  + i12*nb3), nc);
     }
