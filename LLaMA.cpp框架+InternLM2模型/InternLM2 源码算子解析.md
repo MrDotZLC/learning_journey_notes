@@ -62,24 +62,24 @@ static void ggml_compute_forward_get_rows_f16(
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
 代码解析：
 ![[Pasted image 20260111031403.png]]
-block形状为：
-
+block形状[1024,1,1]，一个 block 1024个线程，数据形状5 * 2048，则一个block处理一行，每个线程处理2个数据。 
+![[Pasted image 20260111033734.png]]
 ```
 template <int block_size>
 static __global__ void rms_norm_f32(const float * x, float * dst, const int ncols, const float eps) {
-    const int row = blockIdx.x*blockDim.y + threadIdx.y; // 
-    const int tid = threadIdx.x;
+    const int row = blockIdx.x*blockDim.y + threadIdx.y;  // 行数
+    const int tid = threadIdx.x;                          // 线程ID
 
     float tmp = 0.0f; // partial sum for thread in warp
 
-    for (int col = tid; col < ncols; col += block_size) {
+    for (int col = tid; col < ncols; col += block_size) { // 两个数的平方和
         const float xi = x[row*ncols + col];
         tmp += xi * xi;
     }
 
     // sum up partial sums
-    tmp = warp_reduce_sum(tmp);
-    if (block_size > WARP_SIZE) {
+    tmp = warp_reduce_sum(tmp); // warp内使用shuffle进行规约求和
+    if (block_size > WARP_SIZE) { // 
         __shared__ float s_sum[32];
         int warp_id = threadIdx.x / WARP_SIZE;
         int lane_id = threadIdx.x % WARP_SIZE;
