@@ -60,4 +60,9 @@ static void ggml_compute_forward_get_rows_f16(
 [[RMS_norm介绍]]均方根归一化。
 ![[Pasted image 20260111025330.png]]
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
+代码解析：
+![[Pasted image 20260111031403.png]]
+
+
+
 # 3. MUL
