@@ -62,7 +62,7 @@ static void ggml_compute_forward_get_rows_f16(
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
 代码解析：
 ![[Pasted image 20260111031403.png]]
-block形状[1024,1,1]，一个 block 1024个线程，数据形状5 * 2048，则一个block处理一行，每个线程处理2个数据。 
+block形状[1024,1,1]，一个 block有1024个线程和32个warp。数据形状为5 * 2048，即5个block，每个block处理一行，每个线程处理2个数据。 
 ![[Pasted image 20260111033734.png]]
 ```
 template <int block_size>
@@ -72,30 +72,31 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 
     float tmp = 0.0f; // partial sum for thread in warp
 
+	// 将一行数规约成1024个数
     for (int col = tid; col < ncols; col += block_size) { // 两个数的平方和
         const float xi = x[row*ncols + col];
         tmp += xi * xi;
     }
 
     // sum up partial sums
-    tmp = warp_reduce_sum(tmp); // warp内使用shuffle进行规约求和
-    if (block_size > WARP_SIZE) { // 
-        __shared__ float s_sum[32];
+    tmp = warp_reduce_sum(tmp); // warp内使用shuffle进行规约求和，求得32个数
+    if (block_size > WARP_SIZE) {
+        __shared__ float s_sum[32]; // 共享内存，存32个warp里的第0个数
         int warp_id = threadIdx.x / WARP_SIZE;
         int lane_id = threadIdx.x % WARP_SIZE;
-        if (lane_id == 0) {
+        if (lane_id == 0) { // 是否是处理第0个数的线程
             s_sum[warp_id] = tmp;
         }
-        __syncthreads();
-        tmp = s_sum[lane_id];
-        tmp = warp_reduce_sum(tmp);
+        __syncthreads(); // 所有线程同步
+        tmp = s_sum[lane_id]; // 同个warp的每个线程取一个数
+        tmp = warp_reduce_sum(tmp); // 每个warp都对32个数进行规约求和
     }
 
-    const float mean = tmp / ncols;
-    const float scale = rsqrtf(mean + eps);
+    const float mean = tmp / ncols; // 均值，block内所有线程的tmp值相同
+    const float scale = rsqrtf(mean + eps); // 1/sqrt(mean+eps)
 
-    for (int col = tid; col < ncols; col += block_size) {
-        dst[row*ncols + col] = scale * x[row*ncols + col];
+    for (int col = tid; col < ncols; col += block_size) { // 每个线程负责2个数
+        dst[row*ncols + col] = scale * x[row*ncols + col]; // scale 乘上 xi
     }
 }
 ```
