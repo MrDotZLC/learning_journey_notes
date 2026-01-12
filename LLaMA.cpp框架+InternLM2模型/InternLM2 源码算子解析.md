@@ -52,7 +52,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 2. 维度顺序不能乱
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
 
-# 1. GET_ROWS
+# 1. GET_ROWS（取值拼接）
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
 采用cuda并行计算方式，每个线程处理多个数据。
@@ -103,8 +103,8 @@ static void ggml_compute_forward_get_rows_f16(
 ```
 ![[Pasted image 20260110033758.png]]
 
-# 2. RMS_NORM
-[[RMS_norm介绍]]均方根归一化。
+# 2. RMS_NORM（均方根归一化）
+[[RMS_norm介绍]]
 ![[Pasted image 20260111025330.png]]
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
 代码解析：
@@ -148,8 +148,8 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 }
 ```
 
-# 3. MUL
-## 3.1 统一维度（处理广播）
+# 3. MUL（广播乘法）
+## 3.1 统一维度（维度折叠）
 ![[Pasted image 20260112173351.png]]
 ```
 // 模板参数：bin_op 是一个二元 float 运算函数指针（如 add / mul）
@@ -341,6 +341,7 @@ struct bin_bcast_cuda {
     }
 };
 ```
+## 3.2 广播乘法
 核函数的grid、block的线程分布示意：
 z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
 ![[Pasted image 20260112190722.png]]
@@ -393,7 +394,7 @@ static __global__ void k_bin_bcast(
     }
 
     // ====== broadcast 维度取模 ======
-    // 当 src1 在某个维度上是 broadcast 时：
+    // 当 src1 在某几个维度上是 broadcast 时：
     // ne1? < ne?，通过 % 映射回有效索引
 
     const int i11 = i1 % ne11;  // src1 在 ne1 维的索引
@@ -430,7 +431,7 @@ static __global__ void k_bin_bcast(
     // 采用 grid-stride loop 覆盖整个 ne0 维
     for (int i0 = i0s; i0 < ne0; i0 += blockDim.x * gridDim.x) {
 
-        // src1 在 ne0 维上的 broadcast 映射
+        // src1 在 ne0 维上的 broadcast 映射（0维是连续的，几何直觉上是列，放在循环里广播映射）
         const int i10 = i0 % ne10;
 
         // 执行二元运算：
@@ -445,3 +446,7 @@ static __global__ void k_bin_bcast(
 }
 
 ```
+## 3.3 为什么 GGML 不把stride设为0
+保持 stride 的“物理含义不变”，把 broadcast 作为“逻辑索引规则”处理，而不是“内存布局规则”。
+
+# 
