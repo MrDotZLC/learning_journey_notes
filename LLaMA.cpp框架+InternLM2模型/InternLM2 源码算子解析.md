@@ -101,5 +101,6 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 }
 ```
 
-
 # 3. MUL
+
+![[Pasted image 20260112145700.png]]
