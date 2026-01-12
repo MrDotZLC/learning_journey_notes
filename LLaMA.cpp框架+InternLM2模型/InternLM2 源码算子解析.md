@@ -18,11 +18,10 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 `A: (batch, seq_len, hidden) B: (hidden)`
 逻辑上等价于：
 `B → (1, 1, hidden) → (batch, seq_len, hidden)`
-### 注意：LLaMA.cpp中不能运行时广播，因为内存都是提前分配好的。LLaMA.cpp解决唯独不匹配的
-1. graph构建前，就计算好tensor的维度，提前消除维度不一致
-2. 在kernel中显式
-
-
+### 注意：LLaMA.cpp中不能运行时广播，因为内存都是提前分配好的。LLaMA.cpp解决维度不匹配的方式：
+1. graph构建前，**计算好tensor的维度**，提前消除维度不一致。
+2. 利用**维度折叠**，“消灭”不匹配的维度。
+3. 在kernel中显式做“**逻辑广播**”，“写死”在index计算里。
 ## 0.4. 维度折叠（LLaMA）
 将多个逻辑维度合并为一个物理维度，或在计算前后进行 reshape/view，使计算在更低维或更规则的张量形态上完成。
 典型形式：
@@ -150,6 +149,5 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 ```
 
 # 3. MUL
-
-
-![[Pasted image 20260112150529.png]]
+## 3.1 统一维度
+![[Pasted image 20260112173351.png]]
