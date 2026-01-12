@@ -344,3 +344,104 @@ struct bin_bcast_cuda {
 核函数的grid、block的线程分布示意：
 z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
 ![[Pasted image 20260112190722.png]]
+```
+// CUDA kernel：对两个张量执行逐元素二元运算（支持 broadcast）
+// bin_op : 二元 float 运算（如 add / mul / max）
+// src0_t / src1_t / dst_t : 实际数据类型（可能是 fp16 / fp32 等）
+template<float (*bin_op)(const float, const float),
+         typename src0_t,
+         typename src1_t,
+         typename dst_t>
+static __global__ void k_bin_bcast(
+        const src0_t * src0,   // 输入张量0（device 指针，可为 null）
+        const src1_t * src1,   // 输入张量1（device 指针）
+        dst_t * dst,           // 输出张量（device 指针）
+
+        // dst 的 shape（折叠后的 4 维）
+        int ne0, int ne1, int ne2, int ne3,
+
+        // src1 的 shape（用于 broadcast）
+        int ne10, int ne11, int ne12, int ne13,
+
+        // dst 的 stride（单位：元素）
+        /*int s0, */ int s1,  int s2,  int s3,
+
+        // src0 的 stride（单位：元素）
+        /*int s00,*/ int s01, int s02, int s03,
+
+        // src1 的 stride（单位：元素）
+        /*int s10,*/ int s11, int s12, int s13) {
+
+    // ====== 计算线程对应的逻辑索引 ======
+
+    // i0s：当前线程负责的 ne0 维起始索引
+    // x 维 thread + block 映射到 ne0
+    const int i0s = blockDim.x * blockIdx.x + threadIdx.x;
+
+    // i1：ne1 维索引（y 维 grid/block）
+    const int i1  = blockDim.y * blockIdx.y + threadIdx.y;
+
+    // z 维同时覆盖 ne2 和 ne3：
+    // 先映射到线性索引，再拆成 (i2, i3)
+    const int iz  = blockDim.z * blockIdx.z + threadIdx.z;
+    const int i2  = iz / ne3;   // ne2 维索引
+    const int i3  = iz % ne3;   // ne3 维索引
+
+    // ====== 越界保护 ======
+    if (i0s >= ne0 || i1 >= ne1 || i2 >= ne2 || i3 >= ne3) {
+        return;
+    }
+
+    // ====== broadcast 维度取模 ======
+    // 当 src1 在某个维度上是 broadcast 时：
+    // ne1? < ne?，通过 % 映射回有效索引
+
+    const int i11 = i1 % ne11;  // src1 在 ne1 维的索引
+    const int i12 = i2 % ne12;  // src1 在 ne2 维的索引
+    const int i13 = i3 % ne13;  // src1 在 ne3 维的索引
+
+    // ====== 计算 base offset（不包含 ne0 维） ======
+
+    // src0 的行起始偏移（元素单位）
+    const size_t i_src0 =
+            i3 * s03 +
+            i2 * s02 +
+            i1 * s01;
+
+    // src1 的行起始偏移（元素单位，使用 broadcast 后的索引）
+    const size_t i_src1 =
+            i13 * s13 +
+            i12 * s12 +
+            i11 * s11;
+
+    // dst 的行起始偏移（元素单位）
+    const size_t i_dst =
+            i3 * s3 +
+            i2 * s2 +
+            i1 * s1;
+
+    // ====== 取得当前 (i1,i2,i3) 对应的指针 ======
+
+    const src0_t * src0_row = src0 + i_src0;
+    const src1_t * src1_row = src1 + i_src1;
+    dst_t * dst_row         = dst  + i_dst;
+
+    // ====== ne0 维上的主循环 ======
+    // 采用 grid-stride loop 覆盖整个 ne0 维
+    for (int i0 = i0s; i0 < ne0; i0 += blockDim.x * gridDim.x) {
+
+        // src1 在 ne0 维上的 broadcast 映射
+        const int i10 = i0 % ne10;
+
+        // 执行二元运算：
+        // - src0 可能为 null（如一元算子退化情形）
+        // - src0/src1 转换为 float
+        // - 结果再 cast 为 dst_t
+        dst_row[i0] = (dst_t)bin_op(
+            src0 ? (float)src0_row[i0] : 0.0f,
+            (float)src1_row[i10]
+        );
+    }
+}
+
+```
