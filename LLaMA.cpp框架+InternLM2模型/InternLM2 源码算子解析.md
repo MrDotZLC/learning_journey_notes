@@ -340,5 +340,7 @@ struct bin_bcast_cuda {
         }
     }
 };
-
 ```
+核函数的grid、block的线程分布示意：
+z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
+![[Pasted image 20260112190722.png]]
