@@ -20,7 +20,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 `B → (1, 1, hidden) → (batch, seq_len, hidden)`
 ### 注意：LLaMA.cpp中不能运行时广播，因为内存都是提前分配好的。LLaMA.cpp解决唯独不匹配的
 1. graph构建前，就计算好tensor的维度，提前消除维度不一致
-2. 在kernel中
+2. 在kernel中显式
 
 
 ## 0.4. 维度折叠（LLaMA）
