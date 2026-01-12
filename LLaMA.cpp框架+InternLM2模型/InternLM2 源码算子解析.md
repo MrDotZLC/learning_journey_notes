@@ -47,6 +47,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 1. 数据一定要内存连续，非连续数据需要 contiguous()
 2. 维度顺序不能乱
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
+
 # 1. GET_ROWS
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
