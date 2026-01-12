@@ -149,5 +149,196 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 ```
 
 # 3. MUL
-## 3.1 统一维度
+## 3.1 统一维度（处理广播）
 ![[Pasted image 20260112173351.png]]
+```
+// 模板参数：bin_op 是一个二元 float 运算函数指针（如 add / mul）
+template<float (*bin_op)(const float, const float)>
+struct bin_bcast_cuda {
+
+    // 泛型算子：支持不同 src0/src1/dst 数据类型
+    template<typename src0_t, typename src1_t, typename dst_t>
+    void operator()(
+        const struct ggml_tensor * src0,   // 输入张量0（host 侧描述）
+        const struct ggml_tensor * src1,   // 输入张量1（host 侧描述）
+        struct ggml_tensor * dst,          // 输出张量（host 侧描述）
+        const src0_t * src0_dd,             // 输入0 的 device 指针
+        const src1_t * src1_dd,             // 输入1 的 device 指针
+        dst_t * dst_dd,                     // 输出的 device 指针
+        cudaStream_t stream) {              // CUDA stream
+
+        // 展开 GGML tensor 的维度与 stride：
+        // ne*  表示每个维度的元素数量
+        // nb*  表示每个维度的字节 stride
+        GGML_TENSOR_BINARY_OP_LOCALS // 定义 ne0..ne3, ne00..ne03, ne10..ne13, nb*
+
+        // 计算 src1 相对于 dst 在每个维度上的 broadcast 比率
+        int nr0 = ne10/ne0;
+        int nr1 = ne11/ne1;
+        int nr2 = ne12/ne2;
+        int nr3 = ne13/ne3;
+
+        // nr[i] == 1 表示该维度没有 broadcast
+        int nr[4] = { nr0, nr1, nr2, nr3 };
+
+        // ====== 用于“维度折叠（collapse）”的临时数组 ======
+
+        // dst 的 shape
+        int64_t cne[]  = {ne0, ne1, ne2, ne3};
+        // src0 的 shape
+        int64_t cne0[] = {ne00, ne01, ne02, ne03};
+        // src1 的 shape
+        int64_t cne1[] = {ne10, ne11, ne12, ne13};
+
+        // dst 的 stride
+        size_t cnb[]  = {nb0, nb1, nb2, nb3};
+        // src0 的 stride
+        size_t cnb0[] = {nb00, nb01, nb02, nb03};
+        // src1 的 stride
+        size_t cnb1[] = {nb10, nb11, nb12, nb13};
+
+        // 将高维折叠进低维：
+        // [d0, d1, d2, d3] -> [d0*d1, d2, d3, 1]
+        auto collapse = [](int64_t cne[]) {
+            cne[0] *= cne[1];
+            cne[1] = cne[2];
+            cne[2] = cne[3];
+            cne[3] = 1;
+        };
+
+        // 同步更新 stride（注意 stride 与 shape 的乘法关系）
+        auto collapse_nb = [](size_t cnb[], const int64_t cne[]) {
+            cnb[1] *= cne[1];
+            cnb[2] *= cne[2];
+            cnb[3] *= cne[3];
+        };
+
+        // ====== 维度折叠优化 ======
+        // 仅当 src0 / src1 / dst 都是 contiguous 时才允许
+        // 并且从最低维开始，只要该维度不需要 broadcast（nr[i] == 1）
+        if (ggml_is_contiguous(src0) &&
+            ggml_is_contiguous(src1) &&
+            ggml_is_contiguous(dst)) {
+
+            for (int i = 0; i < 4; i++) {
+                // 一旦遇到需要 broadcast 的维度就停止折叠
+                if (nr[i] != 1) {
+                    break;
+                }
+
+                // 从第 1 维开始才真正折叠
+                if (i > 0) {
+                    collapse_nb(cnb,  cne);
+                    collapse_nb(cnb0, cne0);
+                    collapse_nb(cnb1, cne1);
+
+                    collapse(cne);
+                    collapse(cne0);
+                    collapse(cne1);
+                }
+            }
+        }
+
+        // ====== 使用折叠后的 shape / stride 重新绑定局部变量 ======
+        {
+            int64_t ne0 = cne[0];
+            int64_t ne1 = cne[1];
+            int64_t ne2 = cne[2];
+            int64_t ne3 = cne[3];
+
+            // src1 的 shape（src0 的 shape 在 kernel 中不再需要）
+            int64_t ne10 = cne1[0];
+            int64_t ne11 = cne1[1];
+            int64_t ne12 = cne1[2];
+            int64_t ne13 = cne1[3];
+
+            // dst 的 stride（字节）
+            size_t nb0 = cnb[0];
+            size_t nb1 = cnb[1];
+            size_t nb2 = cnb[2];
+            size_t nb3 = cnb[3];
+
+            // src0 的 stride（字节）
+            size_t nb00 = cnb0[0];
+            size_t nb01 = cnb0[1];
+            size_t nb02 = cnb0[2];
+            size_t nb03 = cnb0[3];
+
+            // src1 的 stride（字节）
+            size_t nb10 = cnb1[0];
+            size_t nb11 = cnb1[1];
+            size_t nb12 = cnb1[2];
+            size_t nb13 = cnb1[3];
+
+            // ====== 将 stride 从“字节”转换为“元素数” ======
+
+            size_t s0 = nb0 / sizeof(dst_t);
+            size_t s1 = nb1 / sizeof(dst_t);
+            size_t s2 = nb2 / sizeof(dst_t);
+            size_t s3 = nb3 / sizeof(dst_t);
+
+            size_t s10 = nb10 / sizeof(src1_t);
+            size_t s11 = nb11 / sizeof(src1_t);
+            size_t s12 = nb12 / sizeof(src1_t);
+            size_t s13 = nb13 / sizeof(src1_t);
+
+            size_t s00 = nb00 / sizeof(src0_t);
+            size_t s01 = nb01 / sizeof(src0_t);
+            size_t s02 = nb02 / sizeof(src0_t);
+            size_t s03 = nb03 / sizeof(src0_t);
+
+            // CUDA block 的最大线程数
+            const int block_size = 128;
+
+            // ne0 的一半（通常用于 vectorized / half2 优化）
+            int64_t hne0 = std::max(ne0 / 2LL, 1LL);
+
+            // ====== 计算 block 维度 ======
+            dim3 block_dims;
+            block_dims.x = std::min<unsigned int>(hne0, block_size);
+            block_dims.y = std::min<unsigned int>(ne1, block_size / block_dims.x);
+            block_dims.z = std::min(
+                std::min<unsigned int>(
+                    ne2 * ne3,
+                    block_size / block_dims.x / block_dims.y),
+                64U
+            );
+
+            // ====== 计算 grid 维度 ======
+            dim3 block_nums(
+                (hne0        + block_dims.x - 1) / block_dims.x,
+                (ne1         + block_dims.y - 1) / block_dims.y,
+                (ne2 * ne3   + block_dims.z - 1) / block_dims.z
+            );
+
+            // ====== kernel 选择 ======
+            // CUDA 的 z 维 grid 上限是 65535
+            if (block_nums.z > 65535) {
+                // 超出限制时，退化为 1D grid 的 unravel kernel
+                int block_num =
+                    (ne0 * ne1 * ne2 * ne3 + block_size - 1) / block_size;
+
+                k_bin_bcast_unravel<bin_op><<<block_num, block_size, 0, stream>>>(
+                    src0_dd, src1_dd, dst_dd,
+                    ne0, ne1, ne2, ne3,
+                    ne10, ne11, ne12, ne13,
+                    /* dst stride */  s1,  s2,  s3,
+                    /* src0 stride */ s01, s02, s03,
+                    /* src1 stride */ s11, s12, s13
+                );
+            } else {
+                // 正常使用 3D grid kernel
+                k_bin_bcast<bin_op><<<block_nums, block_dims, 0, stream>>>(
+                    src0_dd, src1_dd, dst_dd,
+                    ne0, ne1, ne2, ne3,
+                    ne10, ne11, ne12, ne13,
+                    /* dst stride */  s1,  s2,  s3,
+                    /* src0 stride */ s01, s02, s03,
+                    /* src1 stride */ s11, s12, s13
+                );
+            }
+        }
+    }
+};
+
+```
