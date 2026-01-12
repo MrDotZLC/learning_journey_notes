@@ -447,6 +447,8 @@ static __global__ void k_bin_bcast(
 
 ```
 ## 3.3 为什么 GGML 不把stride设为0
-保持 stride 的“物理含义不变”，把 broadcast 作为“逻辑索引规则”处理，而不是“内存布局规则”。
-
+1. **保持 stride 的“物理含义不变”**：把 broadcast 作为“逻辑索引规则”处理，而不是“内存布局规则”。
+2. **保证 collapse / reshape / view 的正确性**：避免 index 从空间塌缩成一个点。
+3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
+4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 
