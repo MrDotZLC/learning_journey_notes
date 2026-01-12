@@ -18,7 +18,11 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 `A: (batch, seq_len, hidden) B: (hidden)`
 逻辑上等价于：
 `B → (1, 1, hidden) → (batch, seq_len, hidden)`
-### 注意：LLaMA.cpp中不能使用广播，因为内存都是提前分配好的。
+### 注意：LLaMA.cpp中不能运行时广播，因为内存都是提前分配好的。LLaMA.cpp解决唯独不匹配的
+1. graph构建前，就计算好tensor的维度，提前消除维度不一致
+2. 在kernel中
+
+
 ## 0.4. 维度折叠（LLaMA）
 将多个逻辑维度合并为一个物理维度，或在计算前后进行 reshape/view，使计算在更低维或更规则的张量形态上完成。
 典型形式：
@@ -42,6 +46,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 #### 4. 与广播机制配合使用
 - 折叠维度 → 广播参数
 - 广播 mask → 折叠 batch/head
+
 二者是 LLM 张量工程的“左右手”。
 ### 注意事项：
 1. 数据一定要内存连续，非连续数据需要 contiguous()
