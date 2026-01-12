@@ -4,6 +4,8 @@
 ## 0.2. Token输入
 输入：Hello my name is
 token数量：5（Hello前默认有一个起始符 \<s\>）
+## 0.3. 广播机制
+
 
 # 1. GET_ROWS
 根据索引从weight矩阵中取值拼接。
@@ -103,4 +105,5 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 
 # 3. MUL
 
-![[Pasted image 20260112145700.png]]
+
+![[Pasted image 20260112150529.png]]
