@@ -56,7 +56,8 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 
 # 1. GET_ROWS（取值拼接）
 ## InternLM python代码：
-
+![[Pasted image 20260113213148.png]]
+![[Pasted image 20260113213346.png]]
 ## LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
@@ -458,6 +459,9 @@ static __global__ void k_bin_bcast(
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 4. MAT_MUL（Attention中的矩阵乘法）
+InternLM
+![[Pasted image 20260113213814.png]]
+
 LLaMA.cpp中用Linear将权重拆分成Q、K、V。
 ![[Pasted image 20260113204201.png]]
 ![[Pasted image 20260113212008.png]]
