@@ -53,10 +53,12 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
 
 # 1. GET_ROWS（取值拼接）
+## InternLM 代码位置：
+
+## LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
 采用cuda并行计算方式，每个线程处理多个数据。
-核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 ```
 static void ggml_compute_forward_get_rows_f16(
         const struct ggml_compute_params * params,
@@ -451,4 +453,6 @@ static __global__ void k_bin_bcast(
 2. **保证 collapse / reshape / view 的正确性**：避免 index 从空间塌缩成一个点，进而 debug 困难。
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
-# 4. 
+# 4. MAT_MUL（Attention中的矩阵乘法）
+LLaMA.cpp中用Linear将权重拆分成Q、K、V。
+![[Pasted image 20260113204201.png]]
