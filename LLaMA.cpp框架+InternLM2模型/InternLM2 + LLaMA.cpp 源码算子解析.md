@@ -464,16 +464,19 @@ static __global__ void k_bin_bcast(
 # 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
 用Linear将权重拆分成权重$W_Q$、$W_K$、$W_V$，再分别矩阵乘$X_{RMSNorm}$，得到QKV。
 ![[Pasted image 20260113212008.png]]
-## 4.1 Linear 投影切分子空间QKV权重
+## 4.1 InternLM python代码
+### 4.1.1 Linear 投影切分子空间QKV权重
 这一步是Attention 中 Q/K/V 的线性投影。
-### 4.1.1 InternLM python代码：
+### 4.1.2 
 ![[Pasted image 20260113215407.png]]
-### 4.1.2 LLaMA.cpp代码：
+## 4.2 LLaMA.cpp代码：
 
-## 4.2 GEMM矩阵乘法生成KQV矩阵
+### 4.2.1 GEMM矩阵乘法生成KQV矩阵
 Q = x_norm · Wq
-         →  K = x_norm · Wk
-         →  V = x_norm · Wv
+K = x_norm · Wk
+V = x_norm · Wv
+
+
 
 # 5. ROPE（旋转位置编码）
 
