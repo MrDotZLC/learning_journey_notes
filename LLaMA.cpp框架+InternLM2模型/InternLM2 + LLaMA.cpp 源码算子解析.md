@@ -155,7 +155,7 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 }
 ```
 
-# 3. MUL（广播乘法）
+# 3. MUL（RMSNorm中的广播乘法）
 ## 3.1 统一维度（维度折叠）
 ![[Pasted image 20260112173351.png]]
 ```
@@ -458,7 +458,10 @@ static __global__ void k_bin_bcast(
 2. **保证 collapse / reshape / view 的正确性**：避免 index 从空间塌缩成一个点，进而 debug 困难。
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
-# 4. MAT_MUL（Attention中的矩阵乘法）
+# 4. MAT_MUL（RMSNorm中的矩阵乘法）
+
+
+# 5. ROPE（旋转位置编码）
 InternLM python代码：
 ![[Pasted image 20260113215407.png]]
 
