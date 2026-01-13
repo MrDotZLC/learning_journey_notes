@@ -462,19 +462,14 @@ static __global__ void k_bin_bcast(
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
-用Linear将权重拆分成权重$W_Q$、$W_K$、$W_V$，再分别矩阵乘$X_{RMSNorm}$，得到QKV。
+用Linear将权重和归一化结果，生成QKV。
 ![[Pasted image 20260113212008.png]]
-## 4.1 InternLM python代码
-### 4.1.1 Linear 投影切分子空间QKV权重
-这一步是Attention 中 Q/K/V 的线性投影。
-### 4.1.2 
+## 4.1 InternLM python代码：
+torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法，生成QKV融合矩阵，再分割成QKV。
+调用的是torch库函数，这里不再深入解析。
 ![[Pasted image 20260113215407.png]]
 ## 4.2 LLaMA.cpp代码：
-
-### 4.2.1 GEMM矩阵乘法生成KQV矩阵
-Q = x_norm · Wq
-K = x_norm · Wk
-V = x_norm · Wv
+权重$W_Q$、$W_K$、$W_V$在内存拷贝时分配，Attention中分别矩阵乘$X_{RMSNorm}$，得到QKV。
 
 
 
