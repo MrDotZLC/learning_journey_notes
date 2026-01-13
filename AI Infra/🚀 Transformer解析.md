@@ -1,6 +1,6 @@
 # 一、背景
 为什么需要 Transformer？
-在 2017 年之前，主流模型是：[[CNN、RNN、LSTM、GRU介绍与对比]]
+在 2017 年之前，主流模型是：[CNN、RNN、LSTM、GRU介绍与对比](CNN%E3%80%81RNN%E3%80%81LSTM%E3%80%81GRU%E4%BB%8B%E7%BB%8D%E4%B8%8E%E5%AF%B9%E6%AF%94.md)
 - **RNN / LSTM**：顺序处理 → 无法并行 → 训练慢
 - **CNN**：擅长局部模式，但难以捕捉长距离依赖
 **Transformer = 完全抛弃循环结构 + 完全并行化**  
@@ -19,16 +19,16 @@ Feed Forward Network (MLP)
 残差连接 + LayerNorm
 ```
 这种结构可以重复 N 层，全是矩阵乘法 → **非常适合 GPU/TPU、张量并行、流水并行、数据并行等 Infra 技术**。
-1. Token Embedding（把词变成向量）[[Token Embedding 介绍]]
+1. Token Embedding（把词变成向量）[Token Embedding 介绍](Token%20Embedding%20%E4%BB%8B%E7%BB%8D.md)
 文本 → 数字（tokenize） → 向量（lookup table）
-2. Positional Encoding（让模型知道顺序）[[Positional Encoding 位置编码介绍]]
+2. Positional Encoding（让模型知道顺序）[Positional Encoding 位置编码介绍](Positional%20Encoding%20%E4%BD%8D%E7%BD%AE%E7%BC%96%E7%A0%81%E4%BB%8B%E7%BB%8D.md)
 		因为 transformer 没有循序结构，所以必须告诉它：
 	- 句子顺序
 	- 哪个 token 在哪个位置
 		可以用：
 	- 经典的 Sinusoidal PE
 	- 或者可训练位置编码（大模型主流）
-3. Self-Attention（自注意力机制，核心：全局依赖）[[注意力和自注意力（Attention vs Self-Attention）]]
+3. Self-Attention（自注意力机制，核心：全局依赖）[注意力和自注意力（Attention vs Self-Attention）](%E6%B3%A8%E6%84%8F%E5%8A%9B%E5%92%8C%E8%87%AA%E6%B3%A8%E6%84%8F%E5%8A%9B%EF%BC%88Attention%20vs%20Self-Attention%EF%BC%89.md)
 		特点：
 	- Q·Kᵀ 得到 token 与 token 之间的相关度
 	- softmax 归一化成权重
@@ -42,11 +42,11 @@ K = XWk
 V = XWv
 Attention(Q, K, V) = softmax(Q*Kᵀ / sqrt(d)) * V
 ```
-4. 多头 Attention[[Transformer 中单头维度 d_k ​与缩放因子总结]]
+4. 多头 Attention[Transformer 中单头维度 d_k ​与缩放因子总结](Transformer%20%E4%B8%AD%E5%8D%95%E5%A4%B4%E7%BB%B4%E5%BA%A6%20d_k%20%E2%80%8B%E4%B8%8E%E7%BC%A9%E6%94%BE%E5%9B%A0%E5%AD%90%E6%80%BB%E7%BB%93.md)
 		不是一个 Q/K/V，而是多个头并行：
 	- 不同 head 学不同模式（语法、语义、指代等）
 	- 拼接 concat 后再映射回 d_model
-5. Feed Forward Network (FFN)[[FFN与MLP介绍]]
+5. Feed Forward Network (FFN)[FFN与MLP介绍](FFN%E4%B8%8EMLP%E4%BB%8B%E7%BB%8D.md)
 		特点：
 	- 完全位置独立 → 容易张量并行
 	- 能提升模型表达能力
@@ -54,7 +54,7 @@ Attention(Q, K, V) = softmax(Q*Kᵀ / sqrt(d)) * V
 ```
 FFN(x) = max(0, xW1 + b1)W2 + b2
 ```
-6. 残差连接 + LayerNorm（保持稳定训练）[[梯度消失、梯度爆炸、残差、LayerNorm、BatchNorm]]
+6. 残差连接 + LayerNorm（保持稳定训练）[梯度消失、梯度爆炸、残差、LayerNorm、BatchNorm](%E6%A2%AF%E5%BA%A6%E6%B6%88%E5%A4%B1%E3%80%81%E6%A2%AF%E5%BA%A6%E7%88%86%E7%82%B8%E3%80%81%E6%AE%8B%E5%B7%AE%E3%80%81LayerNorm%E3%80%81BatchNorm.md)
    作用：
 	- 残差：避免梯度消失
 	- LN：使训练更稳定、收敛更快
@@ -86,7 +86,7 @@ Input → Embedding → Positional Encoding
 
 # 四、Transformer 的三种常见架构
 **Encoder-only、Decoder-only、Encoder-Decoder**，它们在任务、结构和训练目标上有明显差异。
-![[transformer.png]]
+![transformer](transformer.png)
 注：positional encoding输出的三个箭头分别为Q、K、V。
 ## 1. Encoder-only（只用 Encoder）
 ### ✔ 结构特点
@@ -162,4 +162,3 @@ $$P(y_t | y_1, ..., y_{t-1}, X)$$
 - **Encoder-only = 理解机器**
 - **Decoder-only = 生成机器（LLM 默认架构）**
 - **Encoder-Decoder = 输入→输出的转换机器（翻译等）**
-

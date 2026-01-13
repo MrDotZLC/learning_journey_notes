@@ -51,7 +51,7 @@ my_kernel<<<N_grid, N_block, N_shared, stream_id>>>(函数参数); // 不用N_sh
 - N_shared ：动态共享内存字节数
 - stream_id ：CUDA流编号
 ### 异步数据传输
-异步传输函数cudaMemcpyAsync由GPU 中的DMA（direct memory access）[[GPU 中的 DMA]]直接实现。
+异步传输函数cudaMemcpyAsync由GPU 中的DMA（direct memory access）[GPU 中的 DMA](GPU%20%E4%B8%AD%E7%9A%84%20DMA.md)直接实现。
 ```
 // 见cs_transfer.cu
 

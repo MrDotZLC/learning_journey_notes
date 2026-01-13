@@ -137,13 +137,13 @@ vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 ```
 说明：每个线程处理单个元素，blockSize = 256（应为 32 的倍数以便 warp 对齐）。
 ## 3.5 Warp线程束
-[[GPU Warp详解]]
+[GPU Warp详解](GPU%20Warp%E8%AF%A6%E8%A7%A3.md)
 warp是GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
-- Warp 大小固定 = 32。[[为什么 Warp 有32个线程，而不是16或64]]
+- Warp 大小固定 = 32。[为什么 Warp 有32个线程，而不是16或64](%E4%B8%BA%E4%BB%80%E4%B9%88%20Warp%20%E6%9C%8932%E4%B8%AA%E7%BA%BF%E7%A8%8B%EF%BC%8C%E8%80%8C%E4%B8%8D%E6%98%AF16%E6%88%9664.md)
 - Block 内线程会被划分为 `blockDim.x / 32` 个 warp（按内存连续排列）。
-- 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[[__syncwarp()与__syncthreads()]]
+- 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[__syncwarp()与__syncthreads()](__syncwarp%28%29%E4%B8%8E__syncthreads%28%29.md)
 ## 3.6 线程维度选择实践
-[[GPU 维度解析]]
+[GPU 维度解析](GPU%20%E7%BB%B4%E5%BA%A6%E8%A7%A3%E6%9E%90.md)
 - 对于一维数据：`blockDim.x = 128/256` 常合理。
 - 二维（矩阵/图像）：使用 `dim3` 定义 `blockDim(16,16)`、`gridDim((W+15)/16, (H+15)/16)`；这利于 tile 算法（shared memory）。（维度向上取整）
 ## 3.7 Kernel Launch 开销
@@ -170,14 +170,14 @@ occupancy = max_active_threads / max_threads_per_sm
 ```
 工程建议：使用 `nvcc --ptxas-options=-v` 或 `nvprof/nsight` 查看寄存器使用与 occupancy。
 ## 4.3 Occupancy 的误区
-详见：[[Occupancy介绍]]
+详见：[Occupancy介绍](Occupancy%E4%BB%8B%E7%BB%8D.md)
 - **误区**：occupancy 越高越好。
 - **事实**：高 occupancy 有利于隐藏内存延迟，但如果 kernel 是 compute-bound（寄存器/ALU 饱和），提高 occupancy 不会带来线性收益，还可能因 register pressure 导致 spill。
 ## 4.4 Warp 调度策略与影响
 - 当某 warp 等待 memory，scheduler 切换到其它 ready warp；这会隐藏 latency。
 - 若活跃 warp 数不足以覆盖 memory latency，则 GPU 会空闲等待 → memory-bound。
 # 5. CUDA 内存模型（层级、coalescing、shared memory、bank conflict）
-物理/逻辑结构与请求全路径：[[缓存与访存介绍]]
+物理/逻辑结构与请求全路径：[缓存与访存介绍](%E7%BC%93%E5%AD%98%E4%B8%8E%E8%AE%BF%E5%AD%98%E4%BB%8B%E7%BB%8D.md)
 ## 5.1 内存层级与延迟量级
 
 | **内存类型**                      | **访问延迟（时钟周期）** | **说明**                                                                            |
@@ -193,7 +193,7 @@ occupancy = max_active_threads / max_threads_per_sm
 | **全局内存（Global Memory / HBM）** | **数百到上千个周期**   | GPU 中的主要内存（显存），也叫图形内存，带宽非常高，但访问延迟较大。访问时延迟高，尤其在内存访问不连续时，影响性能。                      |
 > 工程结论：尽量把频繁访问的小数据放到 register/shared memory；将大数据流通过 coalesced global loads。
 ## 5.2 Memory Coalescing 内存合并规则
-**详见[[合并访存介绍]]**
+**详见[合并访存介绍](%E5%90%88%E5%B9%B6%E8%AE%BF%E5%AD%98%E4%BB%8B%E7%BB%8D.md)**
 - Warp 中线程的 global memory 地址应连续或以固定小 stride 访问，这样硬件可以合并多个 32/64/128 字节的访问为少量事务。
 - 举例：`float`（4B）数组，warp 线程 `i` 访问 `A[base + i]` → 完全 coalesced。若每个线程访问 `A[base + i*stride]` 且 stride 很大，则无法 coalesce。
 ## 5.3 Shared Memory：tile-based 算法（示例：矩阵乘法）
@@ -243,7 +243,7 @@ float x = s[threadIdx.x];
 - 通过减小 per-thread 寄存器使用（使用 `-maxrregcount` 或手动重构）可避免 spill，但也可能降低 ILP（instruction-level parallelism）。
 # 6. CUDA 性能优化详解
 ## 6.1 性能分析流程
-1. **确定瓶颈类别**：使用 profiler（nsight-compute）观察主要 metric —— achieved occupancy、DRAM utilization、SM utilization、warp issue efficiency、L2 hit rate。[[常见 CUDA和Nsight Compute 性能指标]]
+1. **确定瓶颈类别**：使用 profiler（nsight-compute）观察主要 metric —— achieved occupancy、DRAM utilization、SM utilization、warp issue efficiency、L2 hit rate。[常见 CUDA和Nsight Compute 性能指标](%E5%B8%B8%E8%A7%81%20CUDA%E5%92%8CNsight%20Compute%20%E6%80%A7%E8%83%BD%E6%8C%87%E6%A0%87.md)
 2. **若 memory-bound**：优化 coalescing、shared memory、减少 global loads、重排数据布局。
 3. **若 compute-bound**：优化 instruction-level parallelism、reduce divergent branches、利用 Tensor Core。
 4. **验证每次改动**：用微基准对比（固定 problem size & stream & device）。
@@ -290,7 +290,7 @@ float x = s[threadIdx.x];
 ## 8.1 深度学习训练（可复现步骤）
 1. **模型并行策略**：Data Parallel + Gradient AllReduce（NCCL）是基础；大型模型加入 Tensor Parallel / Pipeline Parallel。
 2. **混合精度训练**：使用 AMP（自动混合精度）以获得 Tensor Core 加速（loss scaling 避免下溢）。
-3. **KV Cache 管理**：在 decode 阶段，KV Cache 常驻显存并要求 coalesced 访问/连续布局。[[合并访存介绍]]
+3. **KV Cache 管理**：在 decode 阶段，KV Cache 常驻显存并要求 coalesced 访问/连续布局。[合并访存介绍](%E5%90%88%E5%B9%B6%E8%AE%BF%E5%AD%98%E4%BB%8B%E7%BB%8D.md)
 4. **优化点**：使用 cuBLASLt、cutlass（NVIDIA 开源矩阵库变体），fused kernels（layernorm+gelu）；减少 host-device synchronization。
 ## 8.2 推理（低延迟/高吞吐）
 - **Batching 策略**：小 batch 的低延迟与大 batch 的高吞吐权衡。

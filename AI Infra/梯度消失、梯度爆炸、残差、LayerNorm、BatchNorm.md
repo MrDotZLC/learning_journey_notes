@@ -201,4 +201,3 @@ $$y_j = \gamma \hat{x}_j + \beta$$
 1. 对 CNN 有局限，因为特征之间空间关系被 LN 混合
 2. 不产生 BN 的 mini-batch 正则化效果
 
-

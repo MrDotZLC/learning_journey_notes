@@ -50,7 +50,7 @@ $X, K, Q, V, \text{Attention}(Q,K,V) \in \mathbb{R}^{n \times d}$
 **一句话总结**：
 		输出 = `softmax(QK^T / sqrt(d_k)) * V`，每个位置融合序列中所有信息。
 ## 3. 关键细节
-- **缩放系数 $\sqrt{d_k}$​​**：控制点积范围，防止 softmax 梯度过小。[[Transformer 中单头维度 d_k ​与缩放因子总结]] 
+- **缩放系数 $\sqrt{d_k}$​​**：控制点积范围，防止 softmax 梯度过小。[Transformer 中单头维度 d_k ​与缩放因子总结](Transformer%20%E4%B8%AD%E5%8D%95%E5%A4%B4%E7%BB%B4%E5%BA%A6%20d_k%20%E2%80%8B%E4%B8%8E%E7%BC%A9%E6%94%BE%E5%9B%A0%E5%AD%90%E6%80%BB%E7%BB%93.md) 
 - **Mask**：
   在softmax 前加上 mask ，将无效注意力权重置为负无穷。
 $$\text{Attention}(Q,K,V) = \text{softmax}\Big(\frac{QK^\top}{\sqrt{d_k}} + \text{mask}\Big) V$$
@@ -58,10 +58,10 @@ $$\text{Attention}(Q,K,V) = \text{softmax}\Big(\frac{QK^\top}{\sqrt{d_k}} + \tex
 $$\text{mask}_{i,j} = \begin{cases} 0 & j \le i \\ -\infty & j > i \end{cases}$$
     - Padding mask（处理变长序列，即补齐的token）
 $$\text{mask}_{i,j} = \begin{cases} 0 & j \text{ 是有效 token} \\ -\infty & j \text{ 是 padding token} \end{cases}$$
-- **位置编码**：补充序列顺序信息[[Positional Encoding 位置编码介绍]]
+- **位置编码**：补充序列顺序信息[Positional Encoding 位置编码介绍](Positional%20Encoding%20%E4%BD%8D%E7%BD%AE%E7%BC%96%E7%A0%81%E4%BB%8B%E7%BB%8D.md)
     - 绝对位置编码（sin/cos 或 learnable）
     - 相对位置编码（T5、Transformer-XL 等）
-## 4. 多头注意力（Multi-Head Attention）[[Transformer 中单头维度 d_k ​与缩放因子总结]]
+## 4. 多头注意力（Multi-Head Attention）[Transformer 中单头维度 d_k ​与缩放因子总结](Transformer%20%E4%B8%AD%E5%8D%95%E5%A4%B4%E7%BB%B4%E5%BA%A6%20d_k%20%E2%80%8B%E4%B8%8E%E7%BC%A9%E6%94%BE%E5%9B%A0%E5%AD%90%E6%80%BB%E7%BB%93.md)
 - 将 d 维分为 h 个头，每个头独立做 attention；
 - 输出拼接后线性变换回原维度：
 $$\text{MultiHead}(X) = \text{Concat}(\text{head}_1,...,\text{head}_h)W_O$$

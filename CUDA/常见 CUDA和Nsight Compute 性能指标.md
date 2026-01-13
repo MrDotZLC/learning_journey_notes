@@ -34,7 +34,7 @@
 | 30–70% | 混合型         |
 | < 30%  | 计算受限或访存效率低  |
 ### 4. 低 DRAM 利用率的典型原因
-- 访问不合并（uncoalesced）[[合并访存介绍]]
+- 访问不合并（uncoalesced）[合并访存介绍](%E5%90%88%E5%B9%B6%E8%AE%BF%E5%AD%98%E4%BB%8B%E7%BB%8D.md)
 - L2/L1 命中率高（其实是好事）
 - kernel 太短（启动 / 尾部开销占比高）
 ## 三、SM Utilization（SM 利用率）
@@ -118,7 +118,7 @@ Warp Issue Efficiency
 ```
 ## 七、典型“性能诊断模式”
 ### 模式 1：低 occupancy + 低 issue efficiency
-➡ **TLP 不足[[如何提高TLP和ILP]]**
+➡ **TLP 不足[如何提高TLP和ILP](%E5%A6%82%E4%BD%95%E6%8F%90%E9%AB%98TLP%E5%92%8CILP.md)**
 - 减寄存器
 - 减 shared memory
 - 增 block 数
@@ -126,7 +126,7 @@ Warp Issue Efficiency
 ➡ **memory / dependency stall**
 - 看 L2 hit rate
 - 看 DRAM utilization
-- 考虑 ILP、prefetch[[如何提高TLP和ILP]]
+- 考虑 ILP、prefetch[如何提高TLP和ILP](%E5%A6%82%E4%BD%95%E6%8F%90%E9%AB%98TLP%E5%92%8CILP.md)
 ### 模式 3：高 SM utilization + 高 DRAM utilization
 ➡ **典型 memory-bound kernel**
 - 优化访存

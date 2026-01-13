@@ -3,7 +3,7 @@
 ### 1. Grid（网格）
 - **Grid** 是一次 kernel 启动的整体执行域
 - 由 **多个 thread block** 组成
-- 维度最多 **3 维**：`gridDim.x / y / z`[[为什么 Grid 和 Block 维度最多 3 维]]
+- 维度最多 **3 维**：`gridDim.x / y / z`[为什么 Grid 和 Block 维度最多 3 维](%E4%B8%BA%E4%BB%80%E4%B9%88%20Grid%20%E5%92%8C%20Block%20%E7%BB%B4%E5%BA%A6%E6%9C%80%E5%A4%9A%203%20%E7%BB%B4.md)
 - 不同 block **彼此独立**，不能直接同步或通信
 ### 2. Block（线程块）
 - **Block** 是线程调度与资源分配的基本单位

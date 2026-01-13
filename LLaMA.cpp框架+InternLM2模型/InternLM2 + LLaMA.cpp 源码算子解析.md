@@ -1,6 +1,6 @@
 # 0. 先验知识
 ## 0.1. pytorch中的维度与llama.cpp中的内存跨步对比
-![[Pasted image 20260110030940.png]]
+![Pasted image 20260110030940](Pasted%20image%2020260110030940.png)
 ## 0.2. Token输入
 输入：Hello my name is
 token数量：5（Hello前默认有一个起始符 \<s\>）
@@ -52,12 +52,12 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 2. 维度顺序不能乱
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
 ## 0.5. llama.cpp中Attention结构
-![[Pasted image 20260113211925.png]]
+![Pasted image 20260113211925](Pasted%20image%2020260113211925.png)
 
 # 1. GET_ROWS（取值拼接）
 ## 1.1 InternLM python代码：
-![[Pasted image 20260113213148.png]]
-![[Pasted image 20260113213346.png]]
+![Pasted image 20260113213148](Pasted%20image%2020260113213148.png)
+![Pasted image 20260113213346](Pasted%20image%2020260113213346.png)
 ## 1.2 LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
@@ -106,18 +106,18 @@ static void ggml_compute_forward_get_rows_f16(
     }
 }
 ```
-![[Pasted image 20260110033758.png]]
+![Pasted image 20260110033758](Pasted%20image%2020260110033758.png)
 
 # 2. RMS_NORM（均方根归一化）
-[[RMS_norm介绍]]
-![[Pasted image 20260111025330.png]]
+[RMS_norm介绍](RMS_norm%E4%BB%8B%E7%BB%8D.md)
+![Pasted image 20260111025330](Pasted%20image%2020260111025330.png)
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
 ## 2.1 InternLM python代码解析：
-![[Pasted image 20260113211108.png]]
+![Pasted image 20260113211108](Pasted%20image%2020260113211108.png)
 ## 2.2 LLaMA.cpp 实现代码解析：实际只完成了红框部分的计算，红框部分乘上**权重**是下一个算子（广播乘法）。
-![[Pasted image 20260111031403.png]]
+![Pasted image 20260111031403](Pasted%20image%2020260111031403.png)
 block形状[1024,1,1]，一个 block有1024个线程和32个warp。数据形状为5 * 2048，即5个block，每个block处理一行，每个线程处理2个数据。 
-![[Pasted image 20260111033734.png]]
+![Pasted image 20260111033734](Pasted%20image%2020260111033734.png)
 ```
 template <int block_size>
 static __global__ void rms_norm_f32(const float * x, float * dst, const int ncols, const float eps) {
@@ -157,7 +157,7 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 
 # 3. MUL（RMSNorm中的广播乘法）
 ## 3.1 统一维度（维度折叠）
-![[Pasted image 20260112173351.png]]
+![Pasted image 20260112173351](Pasted%20image%2020260112173351.png)
 ```
 // 模板参数：bin_op 是一个二元 float 运算函数指针（如 add / mul）
 template<float (*bin_op)(const float, const float)>
@@ -350,10 +350,10 @@ struct bin_bcast_cuda {
 ```
 ## 3.2 广播乘法
 ### 3.2.1 python代码中，调用的是库函数。
-![[Pasted image 20260114005850.png]]
+![Pasted image 20260114005850](Pasted%20image%2020260114005850.png)
 核函数的grid、block的线程分布示意：
 z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
-![[Pasted image 20260112190722.png]]
+![Pasted image 20260112190722](Pasted%20image%2020260112190722.png)
 ### 3.2.2 LLaMA.cpp 代码解析：
 ```
 // CUDA kernel：对两个张量执行逐元素二元运算（支持 broadcast）
@@ -463,17 +463,16 @@ static __global__ void k_bin_bcast(
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
 用Linear将权重和归一化结果，生成QKV。
-![[Pasted image 20260113212008.png]]
+![Pasted image 20260113212008](Pasted%20image%2020260113212008.png)
 ## 4.1 InternLM python代码：
 torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法，生成QKV融合矩阵，再分割成QKV。
 调用的是torch库函数，这里不再深入解析。
-![[Pasted image 20260113215407.png]]
+![Pasted image 20260113215407](Pasted%20image%2020260113215407.png)
 ## 4.2 LLaMA.cpp代码：
 权重$W_Q$、$W_K$、$W_V$在内存拷贝时分配，Attention中分别矩阵乘$X_{RMSNorm}$，得到QKV。
-每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[[CUDA：SGEMM单精度矩阵乘法（待整理）]]。
-![[Pasted image 20260114041038.png]]
+每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[CUDA：SGEMM单精度矩阵乘法（待整理）](CUDA%EF%BC%9ASGEMM%E5%8D%95%E7%B2%BE%E5%BA%A6%E7%9F%A9%E9%98%B5%E4%B9%98%E6%B3%95%EF%BC%88%E5%BE%85%E6%95%B4%E7%90%86%EF%BC%89.md)。
+![Pasted image 20260114041038](Pasted%20image%2020260114041038.png)
 # 5. ROPE（旋转位置编码）
 
-![[Pasted image 20260113204201.png]]
-
+![Pasted image 20260113204201](Pasted%20image%2020260113204201.png)
 

@@ -46,7 +46,7 @@ int i3 = (linear / d4) % d3;
 - 超过 3 维只会增加“语法便利”
 - 不会增加“表达能力”
 ## 四、性能与可控性：维度越多，性能越难预测
-### 1. Warp 是 1D 的（32 threads）[[为什么block 可以是 3D，但 warp 却是 1D？]]
+### 1. Warp 是 1D 的（32 threads）[为什么block 可以是 3D，但 warp 却是 1D？](%E4%B8%BA%E4%BB%80%E4%B9%88block%20%E5%8F%AF%E4%BB%A5%E6%98%AF%203D%EF%BC%8C%E4%BD%86%20warp%20%E5%8D%B4%E6%98%AF%201D%EF%BC%9F.md)
 - warp 内线程是 **线性编号**
 - warp 不理解 2D / 3D / 4D
 - 多维只是编程抽象

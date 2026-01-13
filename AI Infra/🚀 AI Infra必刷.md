@@ -1,10 +1,10 @@
 # 第 1 阶段（1 周）：基础概念理解
 学习材料：
-- “什么是 Transformer”[[🚀 Transformer解析]]
-- “自注意力如何工作”[[注意力和自注意力（Attention vs Self-Attention）]]
-- “什么是 KV Cache”[[KV Cache介绍]]
-- “prefill vs decode”[[🚀 大模型推理流程]]第3章
-- “显存带宽瓶颈是什么”[[🚀 大模型推理优化技术（显存带宽瓶颈优化）]]
+- “什么是 Transformer”[🚀 Transformer解析](%F0%9F%9A%80%20Transformer%E8%A7%A3%E6%9E%90.md)
+- “自注意力如何工作”[注意力和自注意力（Attention vs Self-Attention）](%E6%B3%A8%E6%84%8F%E5%8A%9B%E5%92%8C%E8%87%AA%E6%B3%A8%E6%84%8F%E5%8A%9B%EF%BC%88Attention%20vs%20Self-Attention%EF%BC%89.md)
+- “什么是 KV Cache”[KV Cache介绍](KV%20Cache%E4%BB%8B%E7%BB%8D.md)
+- “prefill vs decode”[🚀 大模型推理流程](%F0%9F%9A%80%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E6%8E%A8%E7%90%86%E6%B5%81%E7%A8%8B.md)第3章
+- “显存带宽瓶颈是什么”[🚀 大模型推理优化技术（显存带宽瓶颈优化）](%F0%9F%9A%80%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E6%8E%A8%E7%90%86%E4%BC%98%E5%8C%96%E6%8A%80%E6%9C%AF%EF%BC%88%E6%98%BE%E5%AD%98%E5%B8%A6%E5%AE%BD%E7%93%B6%E9%A2%88%E4%BC%98%E5%8C%96%EF%BC%89.md)
 
 ---
 
