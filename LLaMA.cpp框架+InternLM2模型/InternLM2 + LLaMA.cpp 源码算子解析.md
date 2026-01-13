@@ -55,10 +55,10 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 ![[Pasted image 20260113211925.png]]
 
 # 1. GET_ROWS（取值拼接）
-## InternLM python代码：
+## 1.1 InternLM python代码：
 ![[Pasted image 20260113213148.png]]
 ![[Pasted image 20260113213346.png]]
-## LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
+## 1.2 LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
 采用cuda并行计算方式，每个线程处理多个数据。
@@ -112,9 +112,9 @@ static void ggml_compute_forward_get_rows_f16(
 [[RMS_norm介绍]]
 ![[Pasted image 20260111025330.png]]
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
-InternLM python代码解析：
+## 2.1 InternLM python代码解析：
 ![[Pasted image 20260113211108.png]]
-LLaMA.cpp 实现代码解析：
+## 2.2 LLaMA.cpp 实现代码解析：实际只完成了红框部分的计算，红框部分乘上**权重**是下一个算子（广播乘法）。
 ![[Pasted image 20260111031403.png]]
 block形状[1024,1,1]，一个 block有1024个线程和32个warp。数据形状为5 * 2048，即5个block，每个block处理一行，每个线程处理2个数据。 
 ![[Pasted image 20260111033734.png]]
@@ -349,9 +349,12 @@ struct bin_bcast_cuda {
 };
 ```
 ## 3.2 广播乘法
+### 3.2.1 python代码中，调用的是库函数。
+![[Pasted image 20260114005850.png]]
 核函数的grid、block的线程分布示意：
 z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
 ![[Pasted image 20260112190722.png]]
+### 3.2.2 LLaMA.cpp 代码解析：
 ```
 // CUDA kernel：对两个张量执行逐元素二元运算（支持 broadcast）
 // bin_op : 二元 float 运算（如 add / mul / max）
@@ -458,16 +461,22 @@ static __global__ void k_bin_bcast(
 2. **保证 collapse / reshape / view 的正确性**：避免 index 从空间塌缩成一个点，进而 debug 困难。
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
-# 4. MAT_MUL（RMSNorm中的矩阵乘法）
-InternLM python代码中，调用的是库函数。
-![[Pasted image 20260114005850.png]]
+# 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
+用Linear将权重拆分成权重$W_Q$、$W_K$、$W_V$，再分别矩阵乘$X_{RMSNorm}$，得到QKV。
+![[Pasted image 20260113212008.png]]
+## 4.1 Linear 投影切分子空间QKV权重
+这一步是Attention 中 Q/K/V 的线性投影。
+### 4.1.1 InternLM python代码：
+![[Pasted image 20260113215407.png]]
+### 4.1.2 LLaMA.cpp代码：
 
+## 4.2 GEMM矩阵乘法生成KQV矩阵
+Q = x_norm · Wq
+         →  K = x_norm · Wk
+         →  V = x_norm · Wv
 
 # 5. ROPE（旋转位置编码）
-InternLM python代码：
-![[Pasted image 20260113215407.png]]
 
-LLaMA.cpp代码：用Linear将权重拆分成Q、K、V。
 ![[Pasted image 20260113204201.png]]
-![[Pasted image 20260113212008.png]]
+
 
