@@ -459,6 +459,8 @@ static __global__ void k_bin_bcast(
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 4. MAT_MUL（RMSNorm中的矩阵乘法）
+InternLM python代码中，调用的是库函数。
+![[Pasted image 20260114005850.png]]
 
 
 # 5. ROPE（旋转位置编码）
