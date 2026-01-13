@@ -470,9 +470,22 @@ torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法
 ![Pasted image 20260113215407](Pasted%20image%2020260113215407.png)
 ## 4.2 LLaMA.cpp代码：
 权重$W_Q$、$W_K$、$W_V$在内存拷贝时分配，Attention中分别矩阵乘$X_{RMSNorm}$，得到QKV。
+![Pasted image 20260113204201](Pasted%20image%2020260113204201.png)
 每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[CUDA：SGEMM单精度矩阵乘法（待整理）](Learning/CUDA/CUDA：SGEMM单精度矩阵乘法（待整理）.md)。
 ![Pasted image 20260114041038](Pasted%20image%2020260114041038.png)
 # 5. ROPE（旋转位置编码）
+详见[Positional Encoding 位置编码介绍](Learning/AI%20Infra/Positional%20Encoding%20位置编码介绍.md)。
+**公式：**假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
+$$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
+\begin{bmatrix} \cos \theta_i & -\sin \theta_i \\ \sin \theta_i & \cos \theta_i \end{bmatrix}
+\begin{bmatrix} x_{2i} \\ x_{2i+1} \end{bmatrix}$$
+其中：
+$$
+\theta_i = \text{position} \times \omega_i
+$$
+- $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
+- $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。
 
-![Pasted image 20260113204201](Pasted%20image%2020260113204201.png)
+## 5.1 InternLM python代码解析
+
 

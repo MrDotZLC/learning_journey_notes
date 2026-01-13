@@ -1,4 +1,4 @@
-# Sinusoidal Position Encoding 总结
+# 一、Sinusoidal Position Encoding 总结
 
 ## 1. 为什么需要位置编码？
 Transformer 的 Self-Attention **没有顺序概念**。  
@@ -49,7 +49,7 @@ $$PE(pos, 2i+1)=\cos\left(\frac{pos}{10000^{2i/d}}\right)$$
 ## 10. 一句话总结
 > **Sinusoidal PE 用一组不同周期的正弦/余弦函数，为 Transformer 提供可区分、可外推、具有相对距离结构的绝对位置编码，是最经典也最具数学优雅的 PE 方案。**
 
-# Learnable Positional Embedding（可训练位置编码）
+# 二、Learnable Positional Embedding（可训练位置编码）
 
 在 Transformer 中，为了让模型感知序列顺序，需要给每个 token 添加位置编码（Positional Embedding, PE）。  
 Learnable PE 是最简单直观的一种方法：将每个位置的编码作为**可训练向量**，模型在训练中自动学习最优表示。
@@ -146,7 +146,7 @@ x = token_embedding + pos_vec
 
 > 大型长序列模型（如 LLaMA、GPT-4）多改用 RoPE 或相对位置编码以提升长序列能力。
 
-# Relative Positional Embedding（相对位置编码）
+# 三、Relative Positional Embedding（相对位置编码）
 在 Transformer 中，绝对位置编码（Absolute PE）只告诉模型每个 token 的具体位置，而很多任务中更重要的是 **token 之间的相对距离**。  
 Relative PE 的核心思想是：**注意力不仅依赖 token 内容，还依赖它们之间的相对位置**。  
 ## 1️⃣ 背景
@@ -235,7 +235,7 @@ score = torch.matmul(Q, K.T) + torch.einsum('id,ijd->ij', Q, R)
 - 相对位置编码告诉模型“我和其他 token 的距离是多少”
 - 对很多任务，相对位置比绝对位置更有效，尤其是**序列长度不固定或需要长距离依赖**
 
-# RoPE（Rotary Positional Encoding）
+# 四、RoPE（Rotary Positional Encoding）
 ## 1. 背景
 Transformer 模型需要对序列中每个 token 的位置进行编码，以利用顺序信息。常见位置编码方法包括：
 - **绝对位置编码 (Absolute PE)**：例如 Sinusoidal PE 或 Learnable PE
