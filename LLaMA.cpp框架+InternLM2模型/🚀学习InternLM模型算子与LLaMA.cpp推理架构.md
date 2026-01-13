@@ -12,7 +12,7 @@ LLaMA.cpp 将**权重 bin 文件**转成其可识别的**权重 gguf 文件**，
 
 [[LLaMA.cpp 概述与环境准备]]
 
-[[LLaMA.cpp 工程源码结构解析]]
+[[LLaMA.cpp 工程源码结构解析（待整理）]]
 
 [[InternLM 概述与环境准备]]
 
