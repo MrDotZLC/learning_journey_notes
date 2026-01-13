@@ -487,5 +487,6 @@ $$
 - $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。
 
 ## 5.1 InternLM python代码解析
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114054025.png)
 
 
