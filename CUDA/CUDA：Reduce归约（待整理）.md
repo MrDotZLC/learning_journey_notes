@@ -1,1 +1,0 @@
-[CUDA：SGEMM单精度矩阵乘法（待整理）](CUDA：SGEMM单精度矩阵乘法（待整理）.md)
