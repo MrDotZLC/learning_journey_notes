@@ -470,7 +470,7 @@ torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法
 ![Pasted image 20260113215407](Pasted%20image%2020260113215407.png)
 ## 4.2 LLaMA.cpp代码：
 权重$W_Q$、$W_K$、$W_V$在内存拷贝时分配，Attention中分别矩阵乘$X_{RMSNorm}$，得到QKV。
-每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[CUDA：SGEMM单精度矩阵乘法（待整理）](CUDA%EF%BC%9ASGEMM%E5%8D%95%E7%B2%BE%E5%BA%A6%E7%9F%A9%E9%98%B5%E4%B9%98%E6%B3%95%EF%BC%88%E5%BE%85%E6%95%B4%E7%90%86%EF%BC%89.md)。
+每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[CUDA：SGEMM单精度矩阵乘法（待整理）](../CUDA/CUDA：SGEMM单精度矩阵乘法（待整理）.md)。
 ![Pasted image 20260114041038](Pasted%20image%2020260114041038.png)
 # 5. ROPE（旋转位置编码）
 
