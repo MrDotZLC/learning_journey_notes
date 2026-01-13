@@ -460,7 +460,7 @@ static __global__ void k_bin_bcast(
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 4. MAT_MUL（Attention中的矩阵乘法）
 InternLM python代码：
-![[Pasted image 20260113213814.png]]
+![[Pasted image 20260113215407.png]]
 
 LLaMA.cpp代码：用Linear将权重拆分成Q、K、V。
 ![[Pasted image 20260113204201.png]]
