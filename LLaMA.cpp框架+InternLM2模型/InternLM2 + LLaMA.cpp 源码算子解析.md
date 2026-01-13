@@ -51,9 +51,11 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 1. 数据一定要内存连续，非连续数据需要 contiguous()
 2. 维度顺序不能乱
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
+## 0.5. llama.cpp中Attention结构
+![[Pasted image 20260113211925.png]]
 
 # 1. GET_ROWS（取值拼接）
-## InternLM 代码位置：
+## InternLM python代码：
 
 ## LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
@@ -109,7 +111,9 @@ static void ggml_compute_forward_get_rows_f16(
 [[RMS_norm介绍]]
 ![[Pasted image 20260111025330.png]]
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
-代码解析：
+InternLM python代码解析：
+![[Pasted image 20260113211108.png]]
+LLaMA.cpp 实现代码解析：
 ![[Pasted image 20260111031403.png]]
 block形状[1024,1,1]，一个 block有1024个线程和32个warp。数据形状为5 * 2048，即5个block，每个block处理一行，每个线程处理2个数据。 
 ![[Pasted image 20260111033734.png]]
@@ -456,3 +460,5 @@ static __global__ void k_bin_bcast(
 # 4. MAT_MUL（Attention中的矩阵乘法）
 LLaMA.cpp中用Linear将权重拆分成Q、K、V。
 ![[Pasted image 20260113204201.png]]
+![[Pasted image 20260113212008.png]]
+
