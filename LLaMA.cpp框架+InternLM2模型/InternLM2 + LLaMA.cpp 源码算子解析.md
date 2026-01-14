@@ -488,7 +488,7 @@ $$
 ## 5.1 InternLM python代码解析
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114054025.png)
 ### 5.1.1 获取所有维度对的旋转角度
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114182931.png)
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114203720.png)
 
 ### 5.1.2 
 
