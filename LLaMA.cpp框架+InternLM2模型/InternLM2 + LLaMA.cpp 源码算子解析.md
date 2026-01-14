@@ -485,8 +485,9 @@ $$
 $$
 - $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
 - $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。
-
 ## 5.1 InternLM python代码解析
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114054025.png)
-
+### 5.1.1 获取所有维度对的旋转角度
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114182931.png)
+### 5.1.2 
 
