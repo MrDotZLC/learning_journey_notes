@@ -496,7 +496,15 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116191050.png)
 
 ## 5.2 LLaMA.cpp 代码解析
-框架写死了block_dim(1,256,1)，在核函数中，实际只有(1,64,1)参与计算。
+框架写死了block_dim(1,256,1)，在核函数中，实际只有(1,64,1)参与ROPE计算。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116211949.png)
-
-
+1. $\omega_i = 10000^{-2i/d}$中与维度 i 无关的部分，提前计算成固定值theta_scale。
+2. 每个线程计算1对维度对 i0，代表相邻的2个维度$i_{2n}$和$i_{2n+1}$。
+3. 在(1,5,16,128)的矩阵中，以最后1个维度为1行，row 为第 row 行。
+4. 在(1,5,16,128)的矩阵中，i 为矩阵的位置索引下标。
+5. 在(1,5,16,128)的矩阵中，i2 为第2维的索引下标，即第几个token位置下表
+6. 这一行对应公式$\theta_{i0} = \text{position}_{i2} \times \omega_{i0}$
+7. 将维度对 i0 拆分为维度$i_{2n}$和$i_{2n+1}$。
+8. 旋转维度对。
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116233545.png)
+# 6. 
