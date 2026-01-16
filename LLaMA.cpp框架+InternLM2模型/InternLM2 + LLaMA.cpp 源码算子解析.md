@@ -522,4 +522,4 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
     `x = x.permute(...).contiguous().view(...)`
 3. **调试维度问题**
     `print(x.shape, x.stride(), x.is_contiguous())`
-## 6.2 
+## 6.2 pytorch 的实现
