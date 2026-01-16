@@ -559,14 +559,11 @@ struct ggml_tensor * ggml_reshape_3d(
 - **只支持 2D**
 - 仅修改 shape + stride
 - **不 copy 数据**
-```
-
-```
-
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117021310.png)
 ### 6.3.3 premute
 - 允许多维度重排**
 - 仅修改 shape + stride
 - **不 copy 数据**
-```
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117021847.png)
 
-```
+# 7. 
