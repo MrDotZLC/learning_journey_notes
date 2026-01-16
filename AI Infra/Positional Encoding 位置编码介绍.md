@@ -255,7 +255,9 @@ RoPE 的核心是对 **query/key 向量进行旋转**，旋转角度与 token �
 假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
 $$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
 \begin{bmatrix} \cos \theta_i & -\sin \theta_i \\ \sin \theta_i & \cos \theta_i \end{bmatrix}
-\begin{bmatrix} x_{2i} \\ x_{2i+1} \end{bmatrix}$$
+\begin{bmatrix} x_{2i} \\ x_{2i+1} \end{bmatrix} =
+\begin{bmatrix} x_{2i} \cos \theta_i - x_{2i+1}\sin \theta_i \\ x_{2i} \sin \theta_i + x_{2i+1} \cos \theta_i
+\end{bmatrix}$$
 其中：
 $$
 \theta_i = \text{position} \times \omega_i
