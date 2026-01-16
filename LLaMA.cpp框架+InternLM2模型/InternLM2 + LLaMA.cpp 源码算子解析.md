@@ -496,5 +496,7 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116191050.png)
 
 ## 5.2 LLaMA.cpp 代码解析
+框架写死了block_dim(1,256,1)，在核函数中，实际只有(1,64,1)参与计算。
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116211949.png)
 
 
