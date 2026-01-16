@@ -509,4 +509,17 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 8. 旋转维度对。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116233545.png)
 # 6. 维度变换
-ggml中没有这部分的实现，pytorch中有4个相关算子（）
+|方法|是否改 shape|是否改维度顺序|是否拷贝|要求 contiguous|常见用途|
+|---|---|---|---|---|---|
+|`view`|是|否|否|是|高性能 reshape|
+|`reshape`|是|否|可能|否|安全 reshape|
+|`transpose`|是|是（2 维）|否|否|矩阵/特征转置|
+|`permute`|是|是（任意）|否|否|任意维度重排|
+## 6.1 实践建议（经验法则）
+1. **首选 `reshape`**
+   除非你明确需要 `view` 的零拷贝语义
+2. **`transpose` / `permute` 后如果要 `view`**
+    `x = x.permute(...).contiguous().view(...)`
+3. **调试维度问题**
+    `print(x.shape, x.stride(), x.is_contiguous())`
+## 6.2 
