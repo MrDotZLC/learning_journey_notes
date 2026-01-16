@@ -533,6 +533,7 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 > 换句话说：  
 > ggml 的 reshape = PyTorch 的 `view`，  
 > 而不是 `reshape`
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117020723.png)
 ```
 struct ggml_tensor * ggml_reshape_3d(
         struct ggml_context * ctx,
