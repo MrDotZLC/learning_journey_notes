@@ -54,6 +54,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 ## 0.5. llama.cpp中Attention结构
 ![Pasted image 20260113211925](Pasted%20image%2020260113211925.png)
 ## 0.6. InternLM2推理Graph结构
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117045041.png)
 
 # 1. GET_ROWS（取值拼接）
 ## 1.1 InternLM python代码：
