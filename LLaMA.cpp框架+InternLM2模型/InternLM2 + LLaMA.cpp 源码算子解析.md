@@ -53,6 +53,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
 ## 0.5. llama.cpp中Attention结构
 ![Pasted image 20260113211925](Pasted%20image%2020260113211925.png)
+## 0.6. InternLM2推理Graph结构
 
 # 1. GET_ROWS（取值拼接）
 ## 1.1 InternLM python代码：
@@ -507,4 +508,5 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 7. 将维度对 i0 拆分为维度$i_{2n}$和$i_{2n+1}$。
 8. 旋转维度对。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116233545.png)
-# 6. 
+# 6. 维度变换
+ggml中没有这部分的实现，pytorch中有4个相关算子（）
