@@ -475,7 +475,7 @@ torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法
 ![Pasted image 20260114041038](Pasted%20image%2020260114041038.png)
 # 5. ROPE（旋转位置编码）
 详见[Positional Encoding 位置编码介绍](Learning/AI%20Infra/Positional%20Encoding%20位置编码介绍.md)。
-**公式：**假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
+假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
 $$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
 \begin{bmatrix} \cos \theta_i & -\sin \theta_i \\ \sin \theta_i & \cos \theta_i \end{bmatrix}
 \begin{bmatrix} x_{2i} \\ x_{2i+1} \end{bmatrix}$$
@@ -490,9 +490,11 @@ $$
 ### 5.1.1 获取所有维度对的旋转角度
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114203720.png)
 ### 5.1.2 计算旋转后的QK矩阵
-对应公式：
-
+公式里写的是“矩阵乘法”，但在 PyTorch 实现中，它被等价地展开成了逐元素运算（Hadamard 运算 + 广播），从而避免显式构造旋转矩阵。
+**对整个向量 $x \in \mathbb{R}^d$，RoPE 是 对每一对维度独立旋转**：
+$$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116191050.png)
 
+## 5.2 LLaMA.cpp 代码解析
 
 

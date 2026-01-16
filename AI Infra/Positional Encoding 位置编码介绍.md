@@ -252,6 +252,7 @@ RoPE 的核心是对 **query/key 向量进行旋转**，旋转角度与 token �
 5. **所有维度对叠加**：构成连续、多尺度、可学习的相对位置注意力
 6. **Attention 的本质**：内容匹配 × 距离匹配 的加权和
 ## 3. 数学公式
+### 3.1 理论公式
 假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
 $$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
 \begin{bmatrix} \cos \theta_i & -\sin \theta_i \\ \sin \theta_i & \cos \theta_i \end{bmatrix}
@@ -260,37 +261,24 @@ $$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
 $$
 \theta_i = \text{position} \times \omega_i
 $$
-**对单个二维向量：**
-x1′=x1cos⁡θ−x2sin⁡θx2′=x1sin⁡θ+x2cos⁡θ\begin{aligned} x'_1 &= x_1 \cos\theta - x_2 \sin\theta \\ x'_2 &= x_1 \sin\theta + x_2 \cos\theta \end{aligned}x1′​x2′​​=x1​cosθ−x2​sinθ=x1​sinθ+x2​cosθ​
-可以写成：
-x′=xcos⁡θ+(−x2,x1)sin⁡θx' = x \cos\theta + (-x_2, x_1)\sin\thetax′=xcosθ+(−x2​,x1​)sinθ
-注意：
-(−x2,x1)=rotate_half(x)(-x_2, x_1) = \text{rotate\_half}(x)(−x2​,x1​)=rotate_half(x)
-
-对整个向量 x∈Rdx \in \mathbb{R}^dx∈Rd，RoPE 是 **对每一对维度独立旋转**：
-
-x′=x⊙cos⁡θ+rotate_half(x)⊙sin⁡θx' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\thetax′=x⊙cosθ+rotate_half(x)⊙sinθ
-
-这里：
-
-- ⊙\odot⊙ 是逐元素乘法
-    
-- cos⁡θ,sin⁡θ∈Rd\cos\theta, \sin\theta \in \mathbb{R}^dcosθ,sinθ∈Rd
-
-
-
-
 - $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
 - $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。随着维度 $i$ 增大，频率 $\omega_i$ **指数级减小**，类比“d/2根角度相差指数倍的向量”。在注意力计算中，每个维度对在不同区间对注意力分数的贡献有正有负，一对维度只体现周期性的距离模式，多对=连续傅里叶基，分数累加=在相对距离轴上，用多对正弦基对 token-token 的距离关系做投影。总结，所有**维度对**体现了两个token的**相对位置**。
+### 3.2 工程公式
+公式里写的是“矩阵乘法”，但在 PyTorch 等实现中，它被等价地展开成了逐元素运算（Hadamard 运算 + 广播），从而避免显式构造旋转矩阵。
 
-x=[1,16,5,128]
+**对单个二维向量：**
+$$\begin{aligned} x'_1 &= x_1 \cos\theta - x_2 \sin\theta \\ x'_2 &= x_1 \sin\theta + x_2 \cos\theta \end{aligned}$$
+可以写成：
+$$x' = x \cos\theta + (-x_2, x_1)\sin\theta$$
+注意：
+$$(-x_2, x_1) = \text{rotate\_half}(x)$$
+**对整个向量 $x \in \mathbb{R}^d$，RoPE 是 对每一对维度独立旋转**：
+$$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
+这里：
+- $\odot$是逐元素乘法
+- $\cos\theta, \sin\theta \in \mathbb{R}^d$
+### 3.3 举例：x=[1,16,5,128]
 ![](Learning/AI%20Infra/Pasted%20image%2020260114054506.png)
-扩展到向量计算：
-$\omega(dim/2,1) \cdot \text{position}(1,num_{seq}) = \theta_t(dim/2,num_{seq}) \xrightarrow{transpose} \theta_{half}(num_{seq},dim/2)$
-$\theta_{half}(num_{seq},dim/2) \xrightarrow{concatenate} \theta(num_{seq},dim)$
-$x(num_{seq},dim) \cdot cos\theta() - x \cdot sin\theta$
-
-
 ## 4. 注意力计算中的作用
 标准自注意力：
 $$
