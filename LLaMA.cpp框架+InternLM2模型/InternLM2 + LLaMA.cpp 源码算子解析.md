@@ -489,6 +489,10 @@ $$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114054025.png)
 ### 5.1.1 获取所有维度对的旋转角度
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114203720.png)
+### 5.1.2 计算旋转后的QK矩阵
+对应公式：
 
-### 5.1.2 
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116191050.png)
+
+
 
