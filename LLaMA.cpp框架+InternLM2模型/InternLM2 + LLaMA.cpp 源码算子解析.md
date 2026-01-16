@@ -509,12 +509,6 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 8. 旋转维度对。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116233545.png)
 # 6. 维度变换
-|方法|是否改 shape|是否改维度顺序|是否拷贝|要求 contiguous|常见用途|
-|---|---|---|---|---|---|
-|`view`|是|否|否|是|高性能 reshape|
-|`reshape`|是|否|可能|否|安全 reshape|
-|`transpose`|是|是（2 维）|否|否|矩阵/特征转置|
-|`permute`|是|是（任意）|否|否|任意维度重排|
 ## 6.1 实践建议（经验法则）
 1. **首选 `reshape`**
    除非你明确需要 `view` 的零拷贝语义
@@ -523,3 +517,55 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 3. **调试维度问题**
     `print(x.shape, x.stride(), x.is_contiguous())`
 ## 6.2 pytorch 的实现
+| 方法          | 是否改 shape | 是否改维度顺序 | 是否拷贝 | 要求 contiguous | 常见用途        |
+| ----------- | --------- | ------- | ---- | ------------- | ----------- |
+| `view`      | 是         | 否       | 否    | 是             | 高性能 reshape |
+| `reshape`   | 是         | 否       | 可能   | 否             | 安全 reshape  |
+| `transpose` | 是         | 是（2 维）  | 否    | 否             | 矩阵/特征转置     |
+| `permute`   | 是         | 是（任意）   | 否    | 否             | 任意维度重排      |
+## 6.3 LLaMA.cpp 代码实现
+本质上，这些操作都是视图节点，不涉及数据操作。
+### 6.3.1 view/reshape
+- **不改变 data 指针**
+- **不允许破坏 stride 规则**
+- **不会触发 copy**
+- 如果 stride 不合法 → **构图阶段直接拒绝**
+> 换句话说：  
+> ggml 的 reshape = PyTorch 的 `view`，  
+> 而不是 `reshape`
+```
+struct ggml_tensor * ggml_reshape_3d(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        int64_t               ne0,
+        int64_t               ne1,
+        int64_t               ne2) {
+    GGML_ASSERT(ggml_is_contiguous(a)); // 内存连续断言
+    GGML_ASSERT(ggml_nelements(a) == ne0*ne1*ne2); // 元素个数断言
+
+    const int64_t ne[3] = { ne0, ne1, ne2 };
+    // reshape前后buffer均为空
+    struct ggml_tensor * result = ggml_new_tensor_impl(ctx, a->type, 3, ne, a, 0);
+    ggml_format_name(result, "%s (reshaped)", a->name);
+
+    result->op     = GGML_OP_RESHAPE;
+    result->src[0] = a;
+
+    return result;
+}
+```
+### 6.3.2 transpose
+- **只支持 2D**
+- 仅修改 shape + stride
+- **不 copy 数据**
+```
+
+```
+
+### 6.3.3 premute
+- 允许多维度重排**
+- 仅修改 shape + stride
+- **不 copy 数据**
+```
+
+```
