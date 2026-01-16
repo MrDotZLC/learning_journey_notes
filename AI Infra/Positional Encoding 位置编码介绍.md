@@ -265,7 +265,10 @@ $$
 x=[1,16,5,128]
 ![](Learning/AI%20Infra/Pasted%20image%2020260114054506.png)
 扩展到向量计算：
-$\omega_i(dim/2,1) \times \text{position}(1,num_seq)$
+$\omega(dim/2,1) \cdot \text{position}(1,num_{seq}) = \theta_t(dim/2,num_{seq}) \xrightarrow{transpose} \theta_{half}(num_{seq},dim/2)$
+$\theta_{half}(num_{seq},dim/2) \xrightarrow{concatenate} \theta(num_{seq},dim)$
+$x(num_{seq},dim) \cdot cos\theta() - x \cdot sin\theta$
+
 
 ## 4. 注意力计算中的作用
 标准自注意力：
