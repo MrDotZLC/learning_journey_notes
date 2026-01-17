@@ -53,7 +53,10 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
 ## 0.5. llama.cpp中Attention结构
 ![Pasted image 20260113211925](Pasted%20image%2020260113211925.png)
-## 0.6. InternLM2推理Graph结构
+## 0.6. InternLM2 F16精度的推理Graph结构
+num_seq是不断增加的，直到上限。
+kv cache是提前分配了足够的维度，只是多了与无效数据的计算。
+
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117045041.png)
 # 1. GET_ROWS（取值拼接）
 ## 1.1 InternLM python代码：
@@ -580,3 +583,4 @@ Graph中，以洋红框中的算子为例。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117195155.png)
 
 # 8. BATCH_MAT_MUL（batch矩阵乘）
+本质是，多个

@@ -16,4 +16,4 @@ LLaMA.cpp 将**权重 bin 文件**转成其可识别的**权重 gguf 文件**，
 
 [InternLM 概述与环境准备](InternLM%20%E6%A6%82%E8%BF%B0%E4%B8%8E%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87.md)
 
-[InternLM2 + LLaMA](InternLM2%20%2B%20LLaMA.cpp%20%E6%BA%90%E7%A0%81%E7%AE%97%E5%AD%90%E8%A7%A3%E6%9E%90.md)
+[InternLM2 + LLaMA.cpp 源码算子解析](Learning/LLaMA.cpp框架+InternLM2模型/InternLM2%20+%20LLaMA.cpp%20源码算子解析.md)
