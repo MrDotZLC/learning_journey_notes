@@ -585,7 +585,6 @@ Graph中，以洋红框中的算子为例。
 # 8. BATCH_MAT_MUL（batch矩阵乘）
 实际是，运行时创建2个容器指针，容器中分别存放1个batch的矩阵地址和目标矩阵地址，按数组进行矩阵乘。
 
-
 ```
 static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
     
@@ -623,10 +622,6 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
         alpha = &alpha_f32;
         beta  = &beta_f32;
     }
-
-    // broadcast factors
-    const int64_t r2 = ne12/ne02;
-    const int64_t r3 = ne13/ne03;
     
 	...    
     
@@ -663,7 +658,7 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
                 r2, r3);
         CUDA_CHECK(cudaGetLastError());
 
-		// 进行 ne23 次 F16*F16→F32 的矩阵乘
+		// 调用cublas库：进行 ne23 次 F16*F16→F32 的矩阵乘
         CUBLAS_CHECK(
         cublasGemmBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 ne01, ne11, ne10,
@@ -674,12 +669,9 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
     }
-#endif // GGML_USE_MUSA
-#endif
-
-    if (dst->op_params[0] == GGML_PREC_DEFAULT) {
-        const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(GGML_TYPE_F16);
-        to_fp32_cuda(dst_f16.get(), dst_ddf, ne_dst, main_stream);
-    }
+    
+    ...
 }
 ```
+
+# 9. SOFT_MAX
