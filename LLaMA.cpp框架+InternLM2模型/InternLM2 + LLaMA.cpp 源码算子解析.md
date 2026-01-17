@@ -567,4 +567,10 @@ struct ggml_tensor * ggml_reshape_3d(
 - **不 copy 数据**
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117021847.png)
 
-# 7. 
+# 7. CPY
+
+以洋红框中的算子为例。
+1. cache_k_l0：K的缓存
+2. k_cache_view-0：是cache_k_l0 的一部分，它们共享同一块内存。
+3. k_cache_view-0(copy_of_Kcur-0)：将 Kcur-0 复制到 k_cache_view-0，等价于复制到cache_k_l0。
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117172430.png)
