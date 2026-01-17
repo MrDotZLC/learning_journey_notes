@@ -602,6 +602,7 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
         const to_fp16_cuda_t to_fp16_cuda = ggml_get_to_fp16_cuda(src1->type);
         const int64_t ne_src1 = ggml_nelements(src1);
         src1_f16_alloc.alloc(ne_src1);                      // 调用RunTime API分配显存
+        // 包含一个核函数进行强制类型转换，将F32转成F16
         to_fp16_cuda(src1_ddf, src1_f16_alloc.get(), ne_src1, main_stream);
     }
     half * src1_f16 = src1->type == GGML_TYPE_F16 ? (half *) src1_ddf : src1_f16_alloc.get();
@@ -662,6 +663,7 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
                 r2, r3);
         CUDA_CHECK(cudaGetLastError());
 
+		// 进行 ne23 次 F16*F16→F32 的矩阵乘
         CUBLAS_CHECK(
         cublasGemmBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 ne01, ne11, ne10,
