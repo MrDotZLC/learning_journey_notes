@@ -583,3 +583,4 @@ Graph中，以洋红框中的算子为例。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117195155.png)
 
 # 8. BATCH_MAT_MUL（batch矩阵乘）
+实际是，有个数组指针，数组中存放1个batch的矩阵，按数组矩阵乘。
