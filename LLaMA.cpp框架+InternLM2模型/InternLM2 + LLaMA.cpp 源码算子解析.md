@@ -644,11 +644,11 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
     } else {
         // use cublasGemmBatchedEx
         const int ne23 = ne12*ne13;                  // 前2个维度乘积1*16，即batch总数
-		// 为 src0,src1 和 dst创建显存
+		// 为 src0,src1 和 dst创建容器，存放数据地址指针
 		// ptrs_src 包含 src0 和src1，所以需要*2
         ggml_cuda_pool_alloc<const void *> ptrs_src(ctx.pool(), 2*ne23);
         ggml_cuda_pool_alloc<      void *> ptrs_dst(ctx.pool(), 1*ne23);
-        // 
+        // 按维度将数据地址指针存入容器，每个线程存1个数据
         dim3 block_dims(ne13, ne12);
         k_compute_batched_ptrs<<<1, block_dims, 0, main_stream>>>(
                 src0_f16, src1_f16, dst_t,
