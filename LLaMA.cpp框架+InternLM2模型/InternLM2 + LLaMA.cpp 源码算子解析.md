@@ -568,9 +568,16 @@ struct ggml_tensor * ggml_reshape_3d(
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117021847.png)
 
 # 7. CPY
-
-以洋红框中的算子为例。
+Graph中，以洋红框中的算子为例。
 1. cache_k_l0：K的缓存
 2. k_cache_view-0：是cache_k_l0 的一部分，它们共享同一块内存。
 3. k_cache_view-0(copy_of_Kcur-0)：将 Kcur-0 复制到 k_cache_view-0，等价于复制到cache_k_l0。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117172430.png)
+## 7.1 LLaMA.cpp 代码解释
+1. block_num=80，block_dim=64，正好是5120个线程，每个线程处理一个数据。
+2. 计算维度索引（兼容不连续内存）
+3. 计算数据源 x 和目标 dst 的开始位置偏移。
+4. 使用 cpy_1_f32_f16 将 f32 的 x 数据复制到 f16 的 dst，该核函数很复杂不深入讲解。
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117195155.png)
+
+# 8. BATCH_MAT_MUL（batch矩阵乘）
