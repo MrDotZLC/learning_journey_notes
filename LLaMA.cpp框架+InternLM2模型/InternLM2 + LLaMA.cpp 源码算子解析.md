@@ -691,6 +691,4 @@ pytorch中是单个算子，llama.cpp中包含了：
     - padding token
     - causal mask 的未来位置
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023037.png)
-```
-
-```
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120040532.png)
