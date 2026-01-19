@@ -678,6 +678,24 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
 # 9. SOFT_MAX
 pytorch中是单个算子，llama.cpp中包含了：
 1. 对分数矩阵缩放$\frac{1}{\sqrt{d_k}}$：防止维度大导致梯度消失
-2. 累加mask上三角矩阵：将无效注意力权重置为负无穷
+2. 累加mask上三角矩阵：将无效注意力（padding位）权重置为负无穷，exp为0，即对soft_max分母无贡献。
 3. 计算soft_max：将分数转成权重（概率分布）
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120015744.png)
+- ggml中，softmax 通常是 **自定义 kernel**
+- 做了：
+    - max-reduction（防溢出）
+    - exp
+    - sum
+    - normalize
+- 会显式跳过：
+    - padding token
+    - causal mask 的未来位置
+## 9.1 缩放与mask
+### 9.1.1 对分数矩阵缩放$\frac{1}{\sqrt{d_k}}$
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023037.png)
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023349.png)
+### 9.1.2 跳过padding token与未来token
+
+
+## 9.2 获取最大值
+max-reduction（防溢出）
