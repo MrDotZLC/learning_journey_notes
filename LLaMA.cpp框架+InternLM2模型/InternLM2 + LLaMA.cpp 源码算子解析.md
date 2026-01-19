@@ -56,7 +56,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 ## 0.6. InternLM2 F16精度的推理Graph结构
 num_seq是不断增加的，到达上限后，删除最旧的数据，再存放新seq的数据。
 kv cache是提前分配了足够的维度，只是多了与无效数据的计算。
-[Graph-2026-01-18-0557.excalidraw](Learning/LLaMA.cpp框架+InternLM2模型/Graph-2026-01-18-0557.excalidraw.md)
+![Graph-2026-01-18-0557.excalidraw](Learning/LLaMA.cpp框架+InternLM2模型/Graph-2026-01-18-0557.excalidraw.md|666)
 
 # 1. GET_ROWS（取值拼接）
 ## 1.1 InternLM python代码：
