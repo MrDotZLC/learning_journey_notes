@@ -533,9 +533,11 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 - **不允许破坏 stride 规则**
 - **不会触发 copy**
 - 如果 stride 不合法 → **构图阶段直接拒绝**
-> 换句话说：  
+- reshape可能比view慢，因为可能会隐式调用 CONT 算子进行数据拷贝。
+> 换句话说：
 > ggml 的 reshape = PyTorch 的 `view`，  
 > 而不是 `reshape`
+
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117020723.png)
 ```
 struct ggml_tensor * ggml_reshape_3d(
@@ -692,3 +694,19 @@ pytorch中是单个算子，llama.cpp中包含了：
     - causal mask 的未来位置
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023037.png)
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120040532.png)
+
+# 10. CONT(contiguous连续内存)
+使数据内存连续，本质是CPY算子，使用场景：
+- 可能会破坏连续性的操作后
+- 需要连续性操作前
+
+|操作|是否改 shape|是否拷贝|是否保证连续|
+|---|---|---|---|
+|`view()`|是|否|否|
+|`reshape()`|是|可能|否|
+|`contiguous()`|否|可能|是|
+
+# 11. SILU
+一个 **平滑、非线性、非对称** 的激活函数。[Attention中的激活函数（SILU）](Learning/AI%20Infra/Attention中的激活函数（SILU）.md)
+$$\text{SiLU}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}$$
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120043155.png)
