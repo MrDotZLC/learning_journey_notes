@@ -690,12 +690,7 @@ pytorch中是单个算子，llama.cpp中包含了：
 - 会显式跳过：
     - padding token
     - causal mask 的未来位置
-## 9.1 缩放与mask
-### 9.1.1 对分数矩阵缩放$\frac{1}{\sqrt{d_k}}$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023037.png)
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023349.png)
-### 9.1.2 跳过padding token与未来token
+```
 
-
-## 9.2 获取最大值
-max-reduction（防溢出）
+```
