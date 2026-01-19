@@ -676,5 +676,8 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
 ```
 
 # 9. SOFT_MAX
-pytorch中是单个算子，llama.cpp中包含了对分数矩阵缩放$\frac{1}{\sqrt{d_k}}$、累加mask上三角矩阵和计算soft_max。
+pytorch中是单个算子，llama.cpp中包含了：
+1. 对分数矩阵缩放$\frac{1}{\sqrt{d_k}}$：防止维度大导致梯度消失
+2. 累加mask上三角矩阵：将无效注意力权重置为负无穷
+3. 计算soft_max：将分数转成权重（概率分布）
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120015744.png)
