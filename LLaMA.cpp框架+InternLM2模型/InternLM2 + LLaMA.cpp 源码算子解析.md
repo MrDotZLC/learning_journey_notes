@@ -583,6 +583,7 @@ Graph中，以洋红框中的算子为例。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117195155.png)
 
 # 8. BATCH_MAT_MUL（batch矩阵乘）
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260119232500.png)
 实际是，运行时创建2个容器指针，容器中分别存放1个batch的矩阵地址和目标矩阵地址，按数组进行矩阵乘。
 
 ```
