@@ -11,6 +11,52 @@ llama.cpp的学习路线：
 1. 安装相关插件：python、c++、cmake等
 2. cmake配置：Use C Make Presets设为never
    ![Pasted image 20260109203805](Pasted%20image%2020260109203805.png)
+3. debug配置：.vscode/launch.json
+```
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "CUDA C++: Launch",
+            "type": "cuda-gdb",
+            "request": "launch",
+            "program": "/your/absolute/path/llama.cpp/build/bin/llama-simple"
+        },
+        {
+            "name": "CUDA C++: Attach",
+            "type": "cuda-gdb",
+            "request": "attach"
+        },
+        {
+            "name": "Debug Transformers & PyTorch (debugpy)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+
+            // 关键：允许进入第三方库
+            "justMyCode": false,
+
+            // 强烈建议显式指定解释器（虚拟环境）
+            "python": "${workspaceFolder}/../internlm_venv/bin/python",
+
+            "args": [
+                "/your/absolute/path/.cache/huggingface/hub/models--internlm--internlm2-1_8b/snapshots/d753f1de0510e2551779f30e6a147fdbadb4a6ee",
+                "--outtype", "q8_0" // debug uint8量化
+            ],
+
+            // PyTorch / Transformers 常用环境
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+
+            // 支持 DataLoader / DDP 子进程
+            "subProcess": true
+        }
+    ]
+}
+```
 ## 4. python环境：
 建议使用虚拟python3环境与InternLM的python3环境区别开，防止包冲突。
 直接pip install -r requirments.txt

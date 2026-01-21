@@ -1,3 +1,4 @@
+环境：[InternLM 概述与环境准备](Learning/LLaMA.cpp框架+InternLM2模型/InternLM%20概述与环境准备.md)
 # 0. 先验知识
 ## 0.1. pytorch中的维度与llama.cpp中的内存跨步对比
 ![Pasted image 20260110030940](Pasted%20image%2020260110030940.png)

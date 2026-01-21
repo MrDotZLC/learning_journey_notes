@@ -10,10 +10,12 @@ LLaMA.cpp 将**权重 bin 文件**转成其可识别的**权重 gguf 文件**，
 | InternLM  | 语言模型架构 + 预训练权重 | 是        | 是      |
 | llama.cpp | 推理框架 / Runtime | 否（仅加载）   | 否      |
 
-[LLaMA](LLaMA.cpp%20%E6%A6%82%E8%BF%B0%E4%B8%8E%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87.md)
+[LLaMA.cpp 概述与环境准备](Learning/LLaMA.cpp框架+InternLM2模型/LLaMA.cpp%20概述与环境准备.md)
 
-[LLaMA](LLaMA.cpp%20%E5%B7%A5%E7%A8%8B%E6%BA%90%E7%A0%81%E7%BB%93%E6%9E%84%E8%A7%A3%E6%9E%90%EF%BC%88%E5%BE%85%E6%95%B4%E7%90%86%EF%BC%89.md)
+[LLaMA.cpp 工程源码结构解析（待整理）](Learning/LLaMA.cpp框架+InternLM2模型/LLaMA.cpp%20工程源码结构解析（待整理）.md)
 
 [InternLM 概述与环境准备](InternLM%20%E6%A6%82%E8%BF%B0%E4%B8%8E%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87.md)
 
 [InternLM2 + LLaMA.cpp 源码算子解析](Learning/LLaMA.cpp框架+InternLM2模型/InternLM2%20+%20LLaMA.cpp%20源码算子解析.md)
+
+[LLaMA.cpp 8bit量化算子解析](Learning/LLaMA.cpp框架+InternLM2模型/LLaMA.cpp%208bit量化算子解析.md)
