@@ -25,7 +25,10 @@ $$f=q*d$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123040340.png)
 
 # 二、cpp和cuda中的量化操作
-
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123053120.png)
-
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123053104.png)
+## 2.1 GET_ROW中的量化操作
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123060026.png)
+## 2.2 未使用量化的算子
+在InternLM2_1-8B模型中，所有Norm相关的权重都是未量化的，如RMSNorm和MUL算子。
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123060409.png)
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123060609.png)
+## 2.3 MUL_MAT中的量化操作
