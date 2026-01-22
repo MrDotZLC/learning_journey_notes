@@ -34,5 +34,9 @@ $$f=q*d$$
 ## 2.3 MUL_MAT中的量化操作
 在LLaMA.cpp的矩阵乘法中，根据权重精度不同，有两种策略：
 1. 一般情况，先对权重进行反量化，再进行矩阵乘。
-2. 如果权重精度是int8，则对其他src进行int8量化，再进行矩阵乘，然后对F32结果反量化。
+2. 如果权重精度是int8，则对非权重src进行int8量化，再进行矩阵乘，然后对F32结果反量化。
 接下来讲解第二种情况：
+### 2.3.1 非权重 src 量化为 int8_t
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123073806.png)
+### 2.3.2 int8_t 矩阵乘
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123073959.png)
