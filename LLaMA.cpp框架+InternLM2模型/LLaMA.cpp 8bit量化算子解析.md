@@ -16,26 +16,9 @@ InternLM2 1.8B模型的权重文件使用convert_hf_to_gguf.py。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123023313.png)
 **tofile(to_eager):**
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123040131.png)
+## 1.4 总结
 跟程序可得量化公式：
 $$q=f*{\frac{127}{\text{max}(\text{abs}(f))}}$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123040340.png)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+## 二、cpp和cuda中的量化操作
