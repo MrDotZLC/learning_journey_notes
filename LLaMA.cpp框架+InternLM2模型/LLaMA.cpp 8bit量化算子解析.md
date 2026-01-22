@@ -13,4 +13,30 @@ InternLM2 1.8B模型的权重文件使用convert_hf_to_gguf.py。
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260122230936.png)
 ## 1.3 写入张量数据
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123022727.png)
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123023313.png)
+**tofile：**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
