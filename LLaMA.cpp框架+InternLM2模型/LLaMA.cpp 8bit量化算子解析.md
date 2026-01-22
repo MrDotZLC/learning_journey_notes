@@ -25,3 +25,7 @@ $$f=q*d$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123040340.png)
 
 # 二、cpp和cuda中的量化操作
+
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123053120.png)
+
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123053104.png)
