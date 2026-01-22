@@ -10,6 +10,6 @@ InternLM2 1.8B模型的权重文件使用convert_hf_to_gguf.py。
 ## 1.2 函数入口
 函数入口：
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260122212637.png)
-
-读取tensor信息并修改为目标精度类型：
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260122230936.png)
+## 1.3 写入张量数据
 
