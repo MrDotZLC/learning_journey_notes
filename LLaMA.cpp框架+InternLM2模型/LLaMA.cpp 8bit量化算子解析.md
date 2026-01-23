@@ -5,7 +5,7 @@
 # 一、python转换程序中的量化操作
 ## 1.1 文件入口
 python文件位于LLaMA.cpp目录下，名为convert_xxx_to_gguf.py。
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260122050026.png)
+![](Pasted%20image%2020260122050026.png)
 InternLM2 1.8B模型的权重文件使用convert_hf_to_gguf.py。
 ## 1.2 函数入口
 函数入口：
@@ -46,3 +46,4 @@ $$f=q*d$$
 int8 \* int8 矩阵乘法代码解析：
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123103144.png)
 dot计算代码解析：
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123104016.png)
