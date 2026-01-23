@@ -40,3 +40,4 @@ $$f=q*d$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123073806.png)
 ### 2.3.2 int8_t 矩阵乘
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123080344.png)
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123083142.png)
