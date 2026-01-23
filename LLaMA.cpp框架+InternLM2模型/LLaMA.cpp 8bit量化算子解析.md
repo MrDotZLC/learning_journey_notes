@@ -43,3 +43,6 @@ $$f=q*d$$
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123080344.png)
 ![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123083920.png)
 #### 2.3.2.2 代码解析
+int8 \* int8 矩阵乘法代码解析：
+![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260123103144.png)
+dot计算代码解析：
