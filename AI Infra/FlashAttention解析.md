@@ -17,3 +17,5 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
 在 CMakeLists.txt 的 add_executable 中，把cu文件编译并链接到入口函数。
 ![](Pasted%20image%2020260127011355.png)
 注意：在调用核函数后，最好执行一次`cudaDeviceSynchronize();`进行设备同步，原因在于Kernel异步执行，会导致cuda-gdb attach 不到Kernel内的断点。
+![](Pasted%20image%2020260127020055.png)
+# 四、
