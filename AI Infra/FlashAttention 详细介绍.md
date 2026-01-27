@@ -80,9 +80,13 @@ $$l_t = l_{t-1} e^{m_{t-1} - m_t} + \sum_i e^{x_i^{t}-m_t}$$
   
   于是：
   $$O_t = \frac{\sum_{(x,V)\in S_{ \le t}} e^{x - m_t} V} {l_t} =  \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_t} V + \sum_{(x,V)\in S^{(t)}} e^{x - m_t} V} {l_t}$$
-  $$O_{t-1} = \frac{\sum_{(x,V)\in S_{ \le t}} e^{x - m_t} V} {l_t}$$
+  $$O_{t-1} = \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_t} V} {l_{t-1}}$$
+$$\sum_{(x,V)\in S_{ \lt t}} e^{x - m_t} V = \sum_{(x,V)\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} V $$
 
-$$O_t = \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + l_t^{(block)} e^{m_t^{(block)}-m_t} O_t^{(block)} }{l_t}$$
+$$\begin{aligned}
+O_t = \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} V + \sum_{(x,V)\in S^{(t)}} e^{x - m_t} V} {l_t} \\
+= \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + l_t^{(block)} e^{m_t^{(block)}-m_t} O_t^{(block)} }{l_t}
+\end{aligned}$$
 - 把当前 block 的贡献加进去
 - 最终保证：
 $$O=\frac{\sum_{\text{all } j} e^{x_j} V_j}{\sum_{\text{all } j} e^{x_j}}$$  
