@@ -116,4 +116,6 @@ int main() {
 
 # 五、online softmax 与 value 的点积优化
 online softmax 仍然需要两次循环和两次存取，如果能在一次循环中完成所有操作，则只需要一次存取。
+在 attention 中，softmax 结果需要和 value 做点积，求得注意力得分。
+
 
