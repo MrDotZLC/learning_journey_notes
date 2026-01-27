@@ -40,8 +40,8 @@ $$O = \sum_j \alpha_j V_j$$
 - 拆的是 **计算顺序**
 - 不是拆 **softmax 空间**
 这正是 Flash Attention 的出发点。
-## 四、方案细节：Flash Attention 是如何做到的
-### 1. 从数学上重写 attention
+# 四、方案细节：Flash Attention 是如何做到的
+## 1. 从数学上重写 attention
 attention 输出可以写成：
 $$O=\frac{\sum_j e^{x_j-m} V_j}{\sum_j e^{x_j-m}}$$
 这是一个非常关键的形式，
