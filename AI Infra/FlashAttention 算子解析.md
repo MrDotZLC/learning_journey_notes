@@ -18,4 +18,23 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
 ![](Pasted%20image%2020260127011355.png)
 注意：在调用核函数后，最好执行一次`cudaDeviceSynchronize();`进行设备同步，原因在于Kernel异步执行，会导致cuda-gdb attach 不到Kernel内的断点。
 ![](Pasted%20image%2020260127020055.png)
-# 四、
+# 四、验证online softmax的正确性
+假设有数组x=[1...n]，用三种softmax
+- base softmax
+  $$\alpha_i = \frac{e^{x_i}}{\sum_{k=1}^n e^{x_k}}, \quad 1 \le i \le n$$
+- safe softmax
+  为防止 $x_i$ 过大，导致的 exp 为0
+  $$\alpha_i = \frac{e^{x_i-m}}{\sum_k e^{x_k-m}}, \quad m=max(x), \quad 1 \le i \le n$$
+- online softmax
+  对x进行分块
+  全局最大值 $m_{t-1}$
+  全局归一化因子 $l_{t-1}​$
+  当前累积输出 $O_{t-1}​$
+
+  $$\begin{aligned}
+O_t = \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} V + \sum_{(x,V)\in S^{(t)}} e^{x - m_t} V} {l_t} \\
+= \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + \sum_i e^{x_i^t - m_t} V }{l_t}   
+\end{aligned}$$
+
+  ![](Pasted%20image%2020260128034738.png)
+
