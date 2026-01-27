@@ -2,9 +2,9 @@
 Transformer 中的 attention 在数学上非常简单。  
 对一个固定的 query，其输出定义为：
 $$O = \sum_j \alpha_j V_j,\quad  
-\alpha_j = \frac{e^{x_j}}{\sum_k e^{x_k}},\quad  
+\alpha_j = \frac{e^{x_j-m}}{\sum_k e^{x_k-m}},\quad  
 x_j = Q \cdot K_j$$
-这是一个**标准的全局 softmax 加权和**，其中：
+这是一个**标准的全局safe softmax 加权和**，其中：
 - attention 的本质是：  
     **对所有 key 的贡献做一次全局归一化**
 
@@ -43,7 +43,7 @@ $$O = \sum_j \alpha_j V_j$$
 ## 四、方案细节：Flash Attention 是如何做到的
 ### 1. 从数学上重写 attention
 attention 输出可以写成：
-$$O=\frac{\sum_j e^{x_j} V_j}{\sum_j e^{x_j}}$$
+$$O=\frac{\sum_j e^{x_j-m} V_j}{\sum_j e^{x_j-m}}$$
 这是一个非常关键的形式，
 二者都是 **对 j 的可加求和项**。
 这意味着：
@@ -61,20 +61,28 @@ $$\tilde{O}_b = \sum_{j\in b} e^{x_j - m_b} V_j$$
 > $\tilde{O}_b$ 不是 attention 输出，它只是 softmax 分子的“一部分”。
 ## 3. 在线（online）softmax 合并所有 block
 Flash Attention 在遍历 blocks 时，维护三个全局状态：
-- 全局最大值 $mt−1m_{t-1}mt−1​$
-- 全局归一化因子 $lt−1l_{t-1}lt−1$​
-- 当前累积输出 $Ot−1O_{t-1}Ot−1​$
+- 全局最大值 $m_{t-1}$
+- 全局归一化因子 $l_{t-1}$​
+- 当前累积输出 $O_{t-1}​$
 
 当处理 block t 时：
-
 - 更新最大值
 $$m_t = \max(m_{t-1}, m_t^{(block)})$$
 
 - 更新归一化因子
-$$l_t = l_{t-1} e^{m_{t-1} - m_t} + l_t^{(block)} e^{m_t^{(block)} - m_t}$$
-- 更新输出
+$$l_t = \sum_{j \le t} e^{x_j - m_t} \\ = \sum_{j \lt t} e^{x_j - m_t} + \sum_i e^{x_i^t-m_t}$$
 
-$$Ot(block)ltO_t = \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + l_t^{(block)} e^{m_t^{(block)}-m_t} O_t^{(block)} }{l_t}$$
+$$l_{t-1} = \sum_{j < t} e^{x_j - m_{t-1}}$$
+$$\sum_{j < t} e^{x_j - m_t} = \sum_{j < t} e^{x_j - m_{t-1}} \cdot e^{m_{t-1} - m_t}$$
+则：
+$$l_t = l_{t-1} e^{m_{t-1} - m_t} + \sum_i e^{x_i^{t}-m_t}$$
+- 更新输出
+  
+  于是：
+  $$O_t = \frac{\sum_{(x,V)\in S_{ \le t}} e^{x - m_t} V} {l_t} =  \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_t} V + \sum_{(x,V)\in S^{(t)}} e^{x - m_t} V} {l_t}$$
+  $$O_{t-1} = \frac{\sum_{(x,V)\in S_{ \le t}} e^{x - m_t} V} {l_t}$$
+
+$$O_t = \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + l_t^{(block)} e^{m_t^{(block)}-m_t} O_t^{(block)} }{l_t}$$
 - 把当前 block 的贡献加进去
 - 最终保证：
 $$O=\frac{\sum_{\text{all } j} e^{x_j} V_j}{\sum_{\text{all } j} e^{x_j}}$$  
