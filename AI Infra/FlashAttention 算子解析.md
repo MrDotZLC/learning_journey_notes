@@ -30,7 +30,7 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
   $$\alpha_i = \frac{e^{x_i-m}}{\sum_k e^{x_k-m}}, \quad m=max(x), \quad 1 \le i \le n$$
   ![](Pasted%20image%2020260128053240.png)
 - online softmax（2次load，1次store）
-  利用指数运算原理，在一次循环中在线计算出归一化因子（公式分母），减少循环次数。推导参考[FlashAttention 详细介绍](FlashAttention%20详细介绍.md)的第四章内容。
+  利用指数运算原理，在一次循环中在线计算出全局最大值和归一化因子（公式分母），减少循环次数。推导参考[FlashAttention 详细介绍](FlashAttention%20详细介绍.md)的第四章内容。
   1. 全局最大值 $m_{t-1}$
     $$m_t = \max(m_{t-1}, m_t^{(block)})$$
   2. 全局归一化因子 $l_{t-1}$ 
