@@ -113,9 +113,9 @@ int main() {
 ```
 
 # 五、online softmax 与 value 的点积优化
-online softmax 仍然需要两次循环和两次存取，如果能在一次循环中完成所有操作，则只需要一次存取。
-1. 在 flash attention 中，将所有 key/value 划分为若干 blocks，每次只处理一小块。
-2. 遍历每个block中，维护 softmax 的中间结果：
+online softmax 仍然需要两次循环（2次load和1次store），如果能在一次循环中完成所有操作，则只需要一次存一次取。
+因为要计算最大值和求和，online softmax 计算中已经将遍历次数优化至2次。但计算注意力权重和（softmax 点乘 V）的过程中，可以直接1次循环直接计算得到权重和。
+1. 计算更新最大值和归一化因子：
   - 全局最大值 $m_{t-1}$
     $$m_t = \max(m_{t-1}, m_t^{(block)})$$
   - 全局归一化因子 $l_{t-1}$
