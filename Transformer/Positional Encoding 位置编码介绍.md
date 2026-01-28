@@ -278,7 +278,7 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 - $\odot$是逐元素乘法
 - $\cos\theta, \sin\theta \in \mathbb{R}^d$
 ### 3.3 举例：x=[1,16,5,128]
-![](Learning/AI%20Infra/Pasted%20image%2020260114054506.png)
+![](assets/Pasted%20image%2020260114054506.png)
 ## 4. 注意力计算中的作用
 标准自注意力：
 $$

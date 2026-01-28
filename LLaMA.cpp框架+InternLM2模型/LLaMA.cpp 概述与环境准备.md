@@ -10,7 +10,7 @@ llama.cpp的学习路线：
 ## 3. vscode环境
 1. 安装相关插件：python、c++、cmake等
 2. cmake配置：Use C Make Presets设为never
-   ![Pasted image 20260109203805](Pasted%20image%2020260109203805.png)
+   ![Pasted image 20260109203805](assets/Pasted%20image%2020260109203805.png)
 3. debug配置：.vscode/launch.json
 ```
 {
@@ -63,21 +63,21 @@ llama.cpp的学习路线：
 ## 5. llama.cpp 项目代码调整：
 1. 删除预调试文件：CMakePresets.json
 2. cuda开关：llama.cpp-ggml-CMakeList.txt中GGML_CUDA设为ON
-   ![Pasted image 20260109203703](Pasted%20image%2020260109203703.png)
+   ![Pasted image 20260109203703](assets/Pasted%20image%2020260109203703.png)
 3. simple.cpp代码调整：
-   ![Pasted image 20260109210319](Pasted%20image%2020260109210319.png)
+   ![Pasted image 20260109210319](assets/Pasted%20image%2020260109210319.png)
 ## 6. 模型获取
 1. 这里选择[internlm2-1_8b](https://huggingface.co/internlm/internlm2-1_8b)模型
 2. 加载模型到本地
    需要【科学】上网，模型3.78GB。
-     ![Pasted image 20260109210741](Pasted%20image%2020260109210741.png)
+     ![Pasted image 20260109210741](assets/Pasted%20image%2020260109210741.png)
    模型缓存位置：
 	- Hugging Face缓存目录：
        windows：C:\Users\\<你的用户名>\\.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
        ubuntu：/home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\snapshots\\<模型编码>\
 	- ubuntu下，快照文件都是软链，源文件存放在:
       /home/<你的用户名>/.cache\huggingface\\hub\models--internlm--internlm2-1_8b\blob\
-	   ![Pasted image 20260109214806](Pasted%20image%2020260109214806.png)
+	   ![Pasted image 20260109214806](assets/Pasted%20image%2020260109214806.png)
 3. pytorch_modle.bin转gguf文件
 ```
    python convert_hf_to_gguf.py <gguf文件路径> --outtype <精度>

@@ -2,7 +2,7 @@
 **SiLU（又称 Swish）** 的定义是：
 $$\text{SiLU}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}$$
 它是一个 **平滑、非线性、非对称** 的激活函数。
-![](Learning/AI%20Infra/Pasted%20image%2020260120043348.png)
+![](assets/Pasted%20image%2020260120043348.png)
 # 2. LLaMA 中 SiLU 的使用位置
 LLaMA 的 FFN（MLP）结构是 **SwiGLU**，而不是传统的 ReLU FFN。
 ## 2.1 LLaMA 的 FFN 结构

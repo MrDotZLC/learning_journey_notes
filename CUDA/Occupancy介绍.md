@@ -155,7 +155,7 @@ Occupancy 常在 **25%–50%**
 4. **Execution Unit 饱和**：scheduler 无法发射
 5. **Barrier / __syncthreads()**
 ## 6.3 举例
-![Pasted image 20260104152620](Pasted%20image%2020260104152620.png)
+![Pasted image 20260104152620](assets/Pasted%20image%2020260104152620.png)
 图片出处：[比飞鸟贵重的多-CUDA调优指南](https://www.bilibili.com/video/BV1EhrTYcEdf/?spm_id_from=333.1387.collection.video_card.click&vd_source=058215bc88ce2096996ca1d20cfeab0a) 
 # 七、工程化调优流程
 ## 7.1 标准步骤

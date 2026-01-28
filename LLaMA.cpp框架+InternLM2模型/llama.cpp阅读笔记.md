@@ -13,4 +13,4 @@
 # 一、
 
 后端与设备的类关系
-![Pasted image 20260106204903](Pasted%20image%2020260106204903.png)
+![Pasted image 20260106204903](../Transformer/assets/Pasted%20image%2020260106204903.png)

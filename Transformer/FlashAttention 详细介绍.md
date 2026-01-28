@@ -41,7 +41,7 @@ $$O = \sum_j \alpha_j V_j$$
 - 不是拆 **softmax 空间**
 这正是 Flash Attention 的出发点。
 # 四、方案细节：Flash Attention 是如何做到的
-![](Pasted%20image%2020260128062413.png)
+![](assets/Pasted%20image%2020260129072911.png)
 ## 1. 从数学上重写 attention
 attention 输出可以写成：
 $$O=\frac{\sum_j e^{x_j-m} V_j}{\sum_j e^{x_j-m}}$$
@@ -142,6 +142,28 @@ $$\frac{\partial L}{\partial x_i}=
 - MemEff Attention：block 内的 $\alpha_i$ 不等于全局 $\alpha_i$
 因此：
 > **Flash Attention 是被 softmax backward“逼出来的最优解”**
+## 4. Flash Attention v1 vs v2
+### 4.1 Flash Attention 的发展主要分为 v1 和 v2 两个阶段：
+
+| 版本     | 特点                                                                                                       | 优点                                               | 缺点 / 限制                          |
+| ------ | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------- |
+| **v1** | - 基于 **单次 forward pass block-wise 计算 softmax** <br>- 存储中间 $m,l$ 用于 backward <br>- 支持 **半精度（fp16）/ bf16** | - 内存使用显著降低 <br>- 可直接重算 softmax，减少 backward 的显存压力 | - 对某些序列长度极长时仍可能 hit memory limit |
+| **v2** | - 引入 **更优化的流水线和 tile 计算** <br>- 支持 **更长序列 & 更灵活的 mixed precision** <br>- 减少重复计算，提高 GPU 利用率               | - 最大化显存效率 - forward/backward 更统一 <br>- 对大模型训练更友好 | - 实现更复杂，需要更严格的 kernel 调度         |
+### 4.2 Flash Attention v1 → v2 优化对比
+| 优化方向                     | v1 实现                                                   | v2 改进                                   | 优势 / 意义                             |
+| ------------------------ | ------------------------------------------------------- | --------------------------------------- | ----------------------------------- |
+| **计算顺序**                 | 按 block 计算 softmax，每个 block 独立 forward，backward 时需要重算 α | 引入 tile/pipeline 机制，将 block 内计算分段、流水线执行 | 提升 GPU 并行度，减少 idle 时间，提高 throughput |
+| **显存占用**                 | 需要存储每个 block 的中间 $m,l$ 值用于 backward                     | 减少中间缓存，通过更精细的 tile 控制和重算策略              | 降低显存峰值，支持更长序列                       |
+| **序列长度支持**               | 支持到一定长度，超长序列可能 OOM                                      | 支持超长序列（可动态切分 tile）                      | 适合大模型训练，Transformer 超长上下文           |
+| **精度 / mixed precision** | 支持 fp16/bf16，但部分重算可能重复累积                                | 更灵活 mixed precision，减少重复 cast，优化数值稳定性   | 提升训练稳定性和性能                          |
+| **backward 机制**          | 重算全局 softmax，存储 block 权重                                | 更智能的重算策略，避免多次重复计算                       | backward 显存消耗更低，速度更快                |
+| **GPU 利用率**              | 部分 kernel 受 block size 限制，利用率不均                         | 优化 kernel 调度，流水线 tile，使 GPU 负载均匀        | 更高吞吐量，训练大模型更高效                      |
+| **实现复杂度**                | 相对简单，v1 kernel 容易理解                                     | kernel 设计更复杂，需要严格的 block/tile 调度        | 复杂度增加，但收益明显：显存、速度、序列长度支持            |
+#### **核心总结：**
+- **v2 核心在于“tile + pipeline”**，把原本 v1 的 block 拆得更细，同时优化 forward/backward 的调度。
+- **显存优化 + 超长序列支持** 是 v2 最大亮点。
+- **GPU throughput 提升**：减少 idle kernel，充分利用计算资源。
+- **数值精度控制更好**：混合精度更稳健，减少重算误差累积。
 # 六、整体收束
 把所有线索连起来，可以得到一条非常清晰的因果链：
 - attention 的定义要求全局 softmax

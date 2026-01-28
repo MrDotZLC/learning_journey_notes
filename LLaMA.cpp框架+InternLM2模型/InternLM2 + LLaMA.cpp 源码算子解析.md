@@ -1,7 +1,7 @@
 环境：[InternLM 概述与环境准备](Learning/LLaMA.cpp框架+InternLM2模型/InternLM%20概述与环境准备.md)
 # 0. 先验知识
 ## 0.1. pytorch中的维度与llama.cpp中的内存跨步对比
-![Pasted image 20260110030940](Pasted%20image%2020260110030940.png)
+![Pasted image 20260110030940](assets/Pasted%20image%2020260110030940.png)
 ## 0.2. Token输入
 输入：Hello my name is
 token数量：5（Hello前默认有一个起始符 \<s\>）
@@ -53,7 +53,7 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 2. 维度顺序不能乱
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
 ## 0.5. llama.cpp中Attention结构
-![Pasted image 20260113211925](Pasted%20image%2020260113211925.png)
+![Pasted image 20260113211925](assets/Pasted%20image%2020260113211925.png)
 ## 0.6. InternLM2 F16精度的推理Graph结构
 num_seq是不断增加的，到达上限后，删除最旧的数据，再存放新seq的数据。
 kv cache是提前分配了足够的维度，只是多了与无效数据的计算。
@@ -61,8 +61,8 @@ kv cache是提前分配了足够的维度，只是多了与无效数据的计算
 
 # 1. GET_ROWS（取值拼接）
 ## 1.1 InternLM python代码：
-![Pasted image 20260113213148](Pasted%20image%2020260113213148.png)
-![Pasted image 20260113213346](Pasted%20image%2020260113213346.png)
+![Pasted image 20260113213148](assets/Pasted%20image%2020260113213148.png)
+![Pasted image 20260113213346](assets/Pasted%20image%2020260113213346.png)
 ## 1.2 LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
@@ -111,18 +111,18 @@ static void ggml_compute_forward_get_rows_f16(
     }
 }
 ```
-![Pasted image 20260110033758](Pasted%20image%2020260110033758.png)
+![Pasted image 20260110033758](assets/Pasted%20image%2020260110033758.png)
 
 # 2. RMS_NORM（均方根归一化）
 [RMS_norm介绍](RMS_norm%E4%BB%8B%E7%BB%8D.md)
-![Pasted image 20260111025330](Pasted%20image%2020260111025330.png)
+![Pasted image 20260111025330](assets/Pasted%20image%2020260111025330.png)
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
 ## 2.1 InternLM python代码解析：
-![Pasted image 20260113211108](Pasted%20image%2020260113211108.png)
+![Pasted image 20260113211108](assets/Pasted%20image%2020260113211108.png)
 ## 2.2 LLaMA.cpp 实现代码解析：实际只完成了红框部分的计算，红框部分乘上**权重**是下一个算子（广播乘法）。
-![Pasted image 20260111031403](Pasted%20image%2020260111031403.png)
+![Pasted image 20260111031403](assets/Pasted%20image%2020260111031403.png)
 block形状[1024,1,1]，一个 block有1024个线程和32个warp。数据形状为5 * 2048，即5个block，每个block处理一行，每个线程处理2个数据。 
-![Pasted image 20260111033734](Pasted%20image%2020260111033734.png)
+![Pasted image 20260111033734](assets/Pasted%20image%2020260111033734.png)
 ```
 template <int block_size>
 static __global__ void rms_norm_f32(const float * x, float * dst, const int ncols, const float eps) {
@@ -162,7 +162,7 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 
 # 3. MUL（RMSNorm中的广播乘法）
 ## 3.1 统一维度（维度折叠）
-![Pasted image 20260112173351](Pasted%20image%2020260112173351.png)
+![Pasted image 20260112173351](assets/Pasted%20image%2020260112173351.png)
 ```
 // 模板参数：bin_op 是一个二元 float 运算函数指针（如 add / mul）
 template<float (*bin_op)(const float, const float)>
@@ -355,10 +355,10 @@ struct bin_bcast_cuda {
 ```
 ## 3.2 广播乘法
 ### 3.2.1 python代码中，调用的是库函数。
-![Pasted image 20260114005850](Pasted%20image%2020260114005850.png)
+![Pasted image 20260114005850](assets/Pasted%20image%2020260114005850.png)
 核函数的grid、block的线程分布示意：
 z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
-![Pasted image 20260112190722](Pasted%20image%2020260112190722.png)
+![Pasted image 20260112190722](assets/Pasted%20image%2020260112190722.png)
 ### 3.2.2 LLaMA.cpp 代码解析：
 ```
 // CUDA kernel：对两个张量执行逐元素二元运算（支持 broadcast）
@@ -468,18 +468,18 @@ static __global__ void k_bin_bcast(
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
 # 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
 用Linear将权重和归一化结果，生成QKV。
-![Pasted image 20260113212008](Pasted%20image%2020260113212008.png)
+![Pasted image 20260113212008](assets/Pasted%20image%2020260113212008.png)
 ## 4.1 InternLM python代码：
 torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法，生成QKV融合矩阵，再分割成QKV。
 调用的是torch库函数，这里不再深入解析。
-![Pasted image 20260113215407](Pasted%20image%2020260113215407.png)
+![Pasted image 20260113215407](assets/Pasted%20image%2020260113215407.png)
 ## 4.2 LLaMA.cpp代码：
 权重$W_Q$、$W_K$、$W_V$在内存拷贝时分配，Attention中分别矩阵乘$X_{RMSNorm}$，得到QKV。
-![Pasted image 20260113204201](Pasted%20image%2020260113204201.png)
+![Pasted image 20260113204201](assets/Pasted%20image%2020260113204201.png)
 每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[CUDA：SGEMM单精度矩阵乘法（待整理）](Learning/CUDA/CUDA：SGEMM单精度矩阵乘法（待整理）.md)。
-![Pasted image 20260114041038](Pasted%20image%2020260114041038.png)
+![Pasted image 20260114041038](assets/Pasted%20image%2020260114041038.png)
 # 5. ROPE（旋转位置编码）
-详见[Positional Encoding 位置编码介绍](Learning/AI%20Infra/Positional%20Encoding%20位置编码介绍.md)。
+详见[Positional Encoding 位置编码介绍](../Transformer/Positional%20Encoding%20位置编码介绍.md)。
 假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
 $$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =
 \begin{bmatrix} \cos \theta_i & -\sin \theta_i \\ \sin \theta_i & \cos \theta_i \end{bmatrix}
@@ -491,18 +491,18 @@ $$
 - $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
 - $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。
 ## 5.1 InternLM python代码解析
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114054025.png)
+![](assets/Pasted%20image%2020260114054025.png)
 ### 5.1.1 获取所有维度对的旋转角度
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260114203720.png)
+![](assets/Pasted%20image%2020260114203720.png)
 ### 5.1.2 计算旋转后的QK矩阵
 公式里写的是“矩阵乘法”，但在 PyTorch 实现中，它被等价地展开成了逐元素运算（Hadamard 运算 + 广播），从而避免显式构造旋转矩阵。
 **对整个向量 $x \in \mathbb{R}^d$，RoPE 是 对每一对维度独立旋转**：
 $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116191050.png)
+![](assets/Pasted%20image%2020260116191050.png)
 
 ## 5.2 LLaMA.cpp 代码解析
 框架写死了block_dim(1,256,1)，在核函数中，实际只有(1,64,1)参与ROPE计算。
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116211949.png)
+![](assets/Pasted%20image%2020260116211949.png)
 1. $\omega_i = 10000^{-2i/d}$中与维度 i 无关的部分，提前计算成固定值theta_scale。
 2. 每个线程计算1对维度对 i0，代表相邻的2个维度$i_{2n}$和$i_{2n+1}$。
 3. 在(1,5,16,128)的矩阵中，以最后1个维度为1行，row 为第 row 行。
@@ -511,7 +511,7 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 6. 这一行对应公式$\theta_{i0} = \text{position}_{i2} \times \omega_{i0}$
 7. 将维度对 i0 拆分为维度$i_{2n}$和$i_{2n+1}$。
 8. 旋转维度对。
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260116233545.png)
+![](assets/Pasted%20image%2020260116233545.png)
 # 6. 维度变换
 ## 6.1 实践建议（经验法则）
 1. **首选 `reshape`**
@@ -539,7 +539,7 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 > ggml 的 reshape = PyTorch 的 `view`，  
 > 而不是 `reshape`
 
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117020723.png)
+![](assets/Pasted%20image%2020260117020723.png)
 ```
 struct ggml_tensor * ggml_reshape_3d(
         struct ggml_context * ctx,
@@ -565,28 +565,28 @@ struct ggml_tensor * ggml_reshape_3d(
 - **只支持 2D**
 - 仅修改 shape + stride
 - **不 copy 数据**
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117021310.png)
+![](assets/Pasted%20image%2020260117021310.png)
 ### 6.3.3 premute
 - 允许多维度重排**
 - 仅修改 shape + stride
 - **不 copy 数据**
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117021847.png)
+![](assets/Pasted%20image%2020260117021847.png)
 
 # 7. CPY
 Graph中，以洋红框中的算子为例。
 1. cache_k_l0：K的缓存
 2. k_cache_view-0：是cache_k_l0 的一部分，它们共享同一块内存。
 3. k_cache_view-0(copy_of_Kcur-0)：将 Kcur-0 复制到 k_cache_view-0，等价于复制到cache_k_l0。
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117172430.png)
+![](assets/Pasted%20image%2020260117172430.png)
 ## 7.1 LLaMA.cpp 代码解释
 1. block_num=80，block_dim=64，正好是5120个线程，每个线程处理一个数据。
 2. 计算维度索引（兼容不连续内存）
 3. 计算数据源 x 和目标 dst 的开始位置偏移。
 4. 使用 cpy_1_f32_f16 将 f32 的 x 数据复制到 f16 的 dst，该核函数很复杂不深入讲解。
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260117195155.png)
+![](assets/Pasted%20image%2020260117195155.png)
 
 # 8. BATCH_MAT_MUL（batch矩阵乘）
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260119232500.png)
+![](assets/Pasted%20image%2020260119232500.png)
 实际是，运行时创建2个容器指针，容器中分别存放1个batch的矩阵地址和目标矩阵地址，按数组进行矩阵乘。
 
 ```
@@ -683,7 +683,7 @@ pytorch中是单个算子，llama.cpp中包含了：
 1. 对分数矩阵缩放$\frac{1}{\sqrt{d_k}}$：防止维度大导致梯度消失
 2. 累加mask上三角矩阵：将无效注意力（padding位）权重置为负无穷，exp为0，即对soft_max分母无贡献。
 3. 计算soft_max：将分数转成权重（概率分布）
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120015744.png)
+![](assets/Pasted%20image%2020260120015744.png)
 - ggml中，softmax 通常是 **自定义 kernel**
 - 做了：
     - max-reduction（防溢出）
@@ -693,8 +693,8 @@ pytorch中是单个算子，llama.cpp中包含了：
 - 会显式跳过：
     - padding token
     - causal mask 的未来位置
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120023037.png)
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120040532.png)
+![](assets/Pasted%20image%2020260120023037.png)
+![](assets/Pasted%20image%2020260120040532.png)
 
 # 10. CONT(contiguous连续内存)
 使数据内存连续，本质是CPY算子，使用场景：
@@ -708,6 +708,6 @@ pytorch中是单个算子，llama.cpp中包含了：
 |`contiguous()`|否|可能|是|
 
 # 11. SILU
-一个 **平滑、非线性、非对称** 的激活函数。[Attention中的激活函数（SILU）](Learning/AI%20Infra/Attention中的激活函数（SILU）.md)
+一个 **平滑、非线性、非对称** 的激活函数。[Attention中的激活函数（SILU）](../Transformer/Attention中的激活函数（SILU）.md)
 $$\text{SiLU}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}$$
-![](Learning/LLaMA.cpp框架+InternLM2模型/Pasted%20image%2020260120043155.png)
+![](assets/Pasted%20image%2020260120043155.png)
