@@ -126,6 +126,7 @@ $$\begin{aligned}
 O_t = \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} V + \sum_{(x,V)\in S^{(t)}} e^{x - m_t} V} {l_t} \\
 = \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + \sum_i e^{x_i^t - m_t} V }{l_t}   
 \end{aligned}$$
-4. 处理完所有块时，$O=O_t$ 。
+4. 处理完所有数据时，$O=O_t$ 。
+```
 
-同第四张的例子，只有一个block，x=[1...n]：
+```
