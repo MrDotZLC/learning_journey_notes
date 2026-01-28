@@ -128,5 +128,46 @@ O_t = \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} V + \sum_
 \end{aligned}$$
 4. 处理完所有数据时，$O=O_t$ 。
 ```
+float online_softmax_dot_product(const std::vector<float> src, const std::vector<float> value) {
+    float dst = 0.f, l = 0.f, mx = -99999.f, pre_mx = -99999.f;
+    for (float f : src) {
+        mx = std::max(f, pre_mx);
+        l = l * std::exp(pre_mx - mx) + std::exp(f - mx);
+        pre_mx = mx;
+    }
+    for (int i = 0; i < src.size(); i++) {
+        dst += std::exp(src[i] - mx) / l * value[i];
+    }
+    return dst;
+}
 
+float online_softmax_dot_product_perfect(const std::vector<float> src, const std::vector<float> value) {
+    float dst = 0.f, l = 0.f, pre_l = 0.f, mx = -99999.f, pre_mx = -99999.f;
+    for (int i = 0; i < src.size(); i++) {
+        mx = std::max(src[i], pre_mx);
+        l = pre_l * std::exp(pre_mx - mx) + std::exp(src[i] - mx);
+        dst = (dst * std::exp(pre_mx - mx) * pre_l + std::exp(src[i] - mx) * value[i]) / l;
+        pre_mx = mx;
+        pre_l = l;
+    }
+    return dst;
+}
+
+int main() {
+    std::vector<float> src = {1.2f, 2.5f, 4.61f, 10.85f, 4.12f};
+
+    std::vector<float> value = {3.1f, 6.42f, 5.161f, 4.85f, 7.12f};
+    float dst3 = online_softmax_dot_product(src, value);
+    std::cout << dst3 << std::endl;
+
+    float dst4 = online_softmax_dot_product_perfect(src, value);
+    std::cout << dst4 << std::endl;
+
+    return 0;
+}
+
+// 输出
+// 4.85356
+// 4.85356
 ```
+
