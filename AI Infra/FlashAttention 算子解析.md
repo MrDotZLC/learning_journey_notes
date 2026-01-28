@@ -20,15 +20,17 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
 ![](Pasted%20image%2020260127020055.png)
 # 四、验证online softmax的正确性
 假设有数组x=[1...n]，用三种softmax
-- native softmax
+- native softmax（2次load，1次store）
+  一次循环计算出归一化因子，一次循环计算每个元素的softmax。
   $$\alpha_i = \frac{e^{x_i}}{\sum_{k=1}^n e^{x_k}}, \quad 1 \le i \le n$$
   ![](Pasted%20image%2020260128053222.png)
-- safe softmax
-  为防止 $x_i$ 过大，导致的 exp 为0
+- safe softmax（3次load，1次store）
+  为防止 $x_i$ 过大，导致的 exp 为0。
+  在native的基础上，多遍历一次求全局最大值。
   $$\alpha_i = \frac{e^{x_i-m}}{\sum_k e^{x_k-m}}, \quad m=max(x), \quad 1 \le i \le n$$
   ![](Pasted%20image%2020260128053240.png)
-- online softmax
-  在一次循环中在线计算出归一化因子（公式分母），减少循环次数。推导参考[FlashAttention 详细介绍](FlashAttention%20详细介绍.md)的第四章内容。
+- online softmax（2次load，1次store）
+  利用指数运算原理，在一次循环中在线计算出归一化因子（公式分母），减少循环次数。推导参考[FlashAttention 详细介绍](FlashAttention%20详细介绍.md)的第四章内容。
   1. 全局最大值 $m_{t-1}$
     $$m_t = \max(m_{t-1}, m_t^{(block)})$$
   2. 全局归一化因子 $l_{t-1}$ 
