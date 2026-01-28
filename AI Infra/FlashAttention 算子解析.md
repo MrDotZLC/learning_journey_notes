@@ -34,11 +34,7 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
   对x进行分块，处理一块 $x_t$ 的同时，维护下述三个变量，用于结果计算。推导参考[FlashAttention 详细介绍](FlashAttention%20详细介绍.md)的第四章内容。
   1. 全局最大值 $m_{t-1}$
   2. 全局归一化因子 $l_{t-1}​$
-  3. 当前累积输出 $O_{t-1}​$
-  $$\begin{aligned}
-O_t = \frac{\sum_{x\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} + \sum_{x\in S^{(t)}} e^{x - m_t}} {l_t} \\
-= \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + \sum_i e^{x_i^t - m_t}}{l_t}   
-\end{aligned}$$
+ 
   ![](Pasted%20image%2020260128034738.png)
 ```
 #include <vector>
@@ -48,8 +44,8 @@ O_t = \frac{\sum_{x\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} + \sum_{x\in 
 std::vector<float> native_softmax(const std::vector<float> src) {
     std::vector<float> dst(src.size());
     float sum = 0.f;
-    for (float f : src) {
-        sum += f;
+    for (int i = 0; i < src.size(); i++) {
+        sum += std::exp(src[i]);
     }
     for (int i = 0; i < src.size(); i++) {
         dst[i] = std::exp(src[i]) / sum;
@@ -76,6 +72,7 @@ std::vector<float> online_softmax(const std::vector<float> src) {
     std::vector<float> dst(src.size());
     float sum = 0.f, mx = -99999.f, pre_mx = 0.0f;
     for (float f : src) {
+        pre_mx = mx;
         mx = std::max(f, mx);
         sum = sum * std::exp(pre_mx - mx) + std::exp(f - mx);
     }
@@ -116,6 +113,18 @@ int main() {
 
 # 五、online softmax 与 value 的点积优化
 online softmax 仍然需要两次循环和两次存取，如果能在一次循环中完成所有操作，则只需要一次存取。
-在 attention 中，softmax 结果需要和 value 做点积，求得注意力得分。
+1. 在 flash attention 中，将所有 key/value 划分为若干 blocks，每次只处理一小块。
+2. 遍历每个block中，维护 softmax 的中间结果：
+  - 全局最大值 $m_{t-1}$
+    $$m_t = \max(m_{t-1}, m_t^{(block)})$$
+  - 全局归一化因子 $l_{t-1}$
+    $$l_t = l_{t-1} e^{m_{t-1} - m_t} + \sum_i e^{x_i^{t}-m_t}$$
+3. 和对应 block 的 value 做点积，求得注意力加权和 $O_t$ 。
 
+$$\begin{aligned}
+O_t = \frac{\sum_{(x,V)\in S_{ \lt t}} e^{x - m_{t-1}} e^{m_{t-1} - m} V + \sum_{(x,V)\in S^{(t)}} e^{x - m_t} V} {l_t} \\
+= \frac{ l_{t-1} e^{m_{t-1}-m_t} O_{t-1} + \sum_i e^{x_i^t - m_t} V }{l_t}   
+\end{aligned}$$
+4. 处理完所有块时，$O=O_t$ 。
 
+同第四张的例子，只有一个block，x=[1...n]：

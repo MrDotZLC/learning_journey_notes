@@ -61,7 +61,6 @@ $$\tilde{O}_b = \sum_{j\in b} e^{x_j - m_b} V_j$$
 
 > $\tilde{O}_b$ 不是 attention 输出，它只是 softmax 分子的“一部分”。
 ## 3. 在线（online）softmax 合并所有 block
-![](Pasted%20image%2020260128034738.png)
 Flash Attention 在遍历 blocks 时，维护三个全局状态：
 - 全局最大值 $m_{t-1}$
 - 全局归一化因子 $l_{t-1}$​
