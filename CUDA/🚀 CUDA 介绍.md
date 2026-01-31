@@ -252,7 +252,7 @@ float x = s[threadIdx.x];
 - **使用 `__ldg()`**：对只读数据使用只读 cache。
 - **减少全局写**：把中间结果保存在 registers/shared memory；延迟写回。
 - **压缩数据类型**：用 FP16 / BF16 / FP8 减少 bandwidth。注意计算精度需求。
-- **Tensor Core**：矩阵乘法使用 Tensor Core（WMMA、cublasLt）减少时间与带宽压力（因为 Tensor Core 做更多数学计算每次 load）。
+- **Tensor Core**：矩阵乘法使用 Tensor Core（WMMA、cublasLt）减少时间与带宽压力（因为 Tensor Core 做更多数学计算每次 load）。[Tensor Core 介绍](Tensor%20Core%20介绍.md)
 ## 6.3 线程结构优化清单
 - **Block 大小**：通常 128/256/512，保持为 32 的倍数。
 - **避免分支**：循环内尽可能减少 divergent branches；采用 predication 或数据重排。
@@ -267,6 +267,7 @@ float x = s[threadIdx.x];
 - **Kernel Fusion**：把多个小 kernel 合并为一个大 kernel，减少 kernel launch overhead 与 global memory IO。
 - **Streams / Overlap**：使用多个 streams，将 host-to-device transfers 与 kernel execution 重叠（需使用 pinned memory 支持异步 DMA）。
 ## 6.6 Tensor Core 使用（实际要点）
+[Tensor Core：HGEMM with Wmma 半精度矩阵乘](Tensor%20Core：HGEMM%20with%20Wmma%20半精度矩阵乘.md)
 - Tensor Core 对 tile 大小/数据对齐敏感（如 16×16 tile）。
 - 使用 cuBLAS/cublasLt 优先（已做高度优化），或使用 WMMA API 自行排布数据。
 - 数据精度：常见模式 FP16 × FP16 → FP32 accumulator，或 BF16；FP8 则需额外量化/scale 处理。
