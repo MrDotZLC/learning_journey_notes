@@ -36,31 +36,32 @@ $$C = \alpha \cdot op(A) \cdot op(B) + \beta \cdot C$$
 ```
 ### 例子
 ```
-// 行主序 A(3x6), B(6x4), C(3x4)
+// 行主序 A(2x3), B(3x4), C(2x4)
 float *A, *B, *C;
 float alpha = 1.0f;
 float beta  = 0.0f;
 
-/*
- * 计算的是列主序：算子外对C按照3*4进行读取即可
- * C(4x3) = Bᵀ(4x6) × Aᵀ(6x3)
- */
+auto m_C_t = std::make_shared<Matrix>(m_M, m_N, "Matrix C T");
+
 cublasGemmEx(
     handle,
-    CUBLAS_OP_N, CUBLAS_OP_N,   // 不再显式转置
-    4, 3, 6,                    // m=4, n=3, k=6   (Cᵀ 的尺寸)
+    CUBLAS_OP_T, CUBLAS_OP_T,   // 显式转置
+    2, 4, 3,                    // m=2, n=4, k=3   (C 的尺寸)
     &alpha,
-    B, CUDA_R_32F, 4,           // Bᵀ: 4x6, ldb = 4
-    A, CUDA_R_32F, 6,           // Aᵀ: 6x3, lda = 6
+    A, CUDA_R_32F, K,           // A: 3x2, ldb = 3
+    B, CUDA_R_32F, N,           // B: 4x3, lda = 4
     &beta,
-    C, CUDA_R_32F, 4,           // Cᵀ: 4x3, ldc = 4
+    m_C_t->getDevPtr(), CUDA_R_32F, M,           // C: 4*2, ldc = 2
     CUBLAS_COMPUTE_32F,
-    CUBLAS_GEMM_DEFAULT
+    CUBLAS_GEMM_DEFAULT_TENSOR_OP
 );
-
+// 在算子外，将C转置回来。
+dim3 block_size(32, 8);
+dim3 grid_size((M - 1) / block_size.x + 1, (N - 1) / block_size.y + 1);
+transpose_naive<<<grid_size, block_size>>>(m_C_t->getDevPtr(), C, N, M);
 ```
   
 ## 1.2 wmma api 介绍 
 
-# 二、V1 Native Kernel
+# 二、V1 Naive Kernel
 

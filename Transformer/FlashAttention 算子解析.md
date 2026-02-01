@@ -24,13 +24,13 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
 ![](assets/Pasted%20image%2020260127020055.png)
 ## 1.4 验证online softmax的正确性
 假设有数组x=[1...n]，用三种softmax
-- native softmax（2次load，1次store）
+- naive softmax（2次load，1次store）
   一次循环计算出归一化因子，一次循环计算每个元素的softmax。
   $$\alpha_i = \frac{e^{x_i}}{\sum_{k=1}^n e^{x_k}}, \quad 1 \le i \le n$$
   ![](assets/Pasted%20image%2020260128053222.png)
 - safe softmax（3次load，1次store）
   为防止 $x_i$ 过大，导致的 exp 为0。
-  在native的基础上，多遍历一次求全局最大值。
+  在naive的基础上，多遍历一次求全局最大值。
   $$\alpha_i = \frac{e^{x_i-m}}{\sum_k e^{x_k-m}}, \quad m=max(x), \quad 1 \le i \le n$$
   ![](assets/Pasted%20image%2020260128053240.png)
 - online softmax（2次load，1次store）
@@ -46,7 +46,7 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
 #include <iostream>
 #include <cmath>
 
-std::vector<float> native_softmax(const std::vector<float> src) {
+std::vector<float> naive_softmax(const std::vector<float> src) {
     std::vector<float> dst(src.size());
     float sum = 0.f;
     for (int i = 0; i < src.size(); i++) {
@@ -89,7 +89,7 @@ std::vector<float> online_softmax(const std::vector<float> src) {
 
 int main() {
     std::vector<float> src = {1.2f, 2.5f, 4.61f, 10.85f, 48.12f};
-    std::vector<float> dst = native_softmax(src);
+    std::vector<float> dst = naive_softmax(src);
     for (float f : dst) {
         std::cout << f << " ";
     }
