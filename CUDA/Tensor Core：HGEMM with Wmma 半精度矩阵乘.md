@@ -36,7 +36,8 @@ $$C = \alpha \cdot op(A) \cdot op(B) + \beta \cdot C$$
     cublasGemmAlgo_t algo          // GEMM 算法选择（默认或 Tensor Core）
   );
 ```
-### 例子1：显式转置（）
+### 例子1：显式转置（A^T）
+![](assets/Pasted%20image%2020260202064543.png)
 ```
 // 行主序 A(2x3), B(3x4), C(2x4)
 float *A, *B, *C;
@@ -50,11 +51,11 @@ cublasGemmEx(
     CUBLAS_OP_T, CUBLAS_OP_T,   // 显式转置
     2, 4, 3,                    // m=2, n=4, k=3   (C 的尺寸)
     &alpha,
-    A, CUDA_R_32F, K,           // A: 3x2, ldb = 3
-    B, CUDA_R_32F, N,           // B: 4x3, lda = 4
+    A, CUDA_R_16F, K,           // A: 3x2, lda = 3
+    B, CUDA_R_16F, N,           // B: 4x3, ldb = 4
     &beta,
-    m_C_t->getDevPtr(), CUDA_R_32F, M,           // C: 4*2, ldc = 2
-    CUBLAS_COMPUTE_32F,
+    m_C_t->getDevPtr(), CUDA_R_16F, M,           // C: 4*2, ldc = 2
+    CUBLAS_COMPUTE_16F,
     CUBLAS_GEMM_DEFAULT_TENSOR_OP
 );
 // 在算子外，将C转置回来。
@@ -62,7 +63,33 @@ dim3 block_size(32, 8);
 dim3 grid_size((M - 1) / block_size.x + 1, (N - 1) / block_size.y + 1);
 transpose_naive<<<grid_size, block_size>>>(m_C_t->getDevPtr(), C, N, M);
 ```
+### 例子2：公式推导
+![](assets/Pasted%20image%2020260202065510.png)
+```
+// 行主序 A(2x3), B(3x4), C(2x4)
+float *A, *B, *C;
+float alpha = 1.0f;
+float beta  = 0.0f;
 
+auto m_C_t = std::make_shared<Matrix>(m_M, m_N, "Matrix C T");
+// Cᵀ(4x3) = Bᵀ(4x3) × Aᵀ(3x2)
+cublasGemmEx(
+    handle,
+    CUBLAS_OP_N, CUBLAS_OP_N,   // 非显式转置
+    4, 2, 3,                    // m=2, n=4, k=3   (C 的尺寸)
+    &alpha,
+    B, CUDA_R_16F, N,           // B: 4x3, lda = 4
+    A, CUDA_R_16F, K,           // A: 3x2, ldb = 3
+    &beta,
+    m_C_t->getDevPtr(), CUDA_R_16F, N,           // C: 4*2, ldc = 2
+    CUBLAS_COMPUTE_16F,
+    CUBLAS_GEMM_DEFAULT_TENSOR_OP
+);
+// 在算子外，将C转置回来。
+dim3 block_size(32, 8);
+dim3 grid_size((M - 1) / block_size.x + 1, (N - 1) / block_size.y + 1);
+transpose_naive<<<grid_size, block_size>>>(m_C_t->getDevPtr(), C, N, M);
+```
 
   
 ## 1.2 wmma api 介绍 
