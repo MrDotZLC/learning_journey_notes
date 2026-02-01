@@ -1,8 +1,31 @@
-# 1. Tensor Core 概念
-
+# 1. Tensor Core 和 WMMA
+## 1.1 Tensor Core
 **Tensor Core** 是 NVIDIA 在 Volta 架构（2017）首次引入的专用矩阵运算单元，之后在 Turing、Ampere、Hopper 等架构上继续演进。其核心目标是加速深度学习中的 **矩阵乘法-累加（Matrix Multiply-Accumulate, MMA）** 运算，这是神经网络计算的核心。
 
 与传统 CUDA 核心不同，Tensor Core 专为 **高吞吐量矩阵计算** 设计，可在单个时钟周期内完成大量乘加操作。
+## 1.2 WMMA (Warp Matrix Multiply-Accumulate)
+- **定义**：WMMA 是 CUDA 提供的 **API/指令级接口**，允许程序员在 GPU 上使用 Tensor Core 执行 MMA 操作。
+- **特点**：
+    - 属于 **Warp 级别** 的操作，每个 warp（32 个线程）可以合作完成一个小矩阵乘加（例如 16x16x16）。
+    - CUDA 里有 `wmma` namespace，比如 `wmma::fragment` 用来表示矩阵块。
+- **作用**：
+    - CUDA 开发者通过 WMMA 调用 Tensor Core 的 MMA 硬件，而不用手动写低级汇编。
+    - 是软件到硬件的桥梁。
+
+## 名词解释
+| 名称          | 全称<br>                          | 类型       | 功能                          | 层级/作用            |
+| ----------- | ------------------------------- | -------- | --------------------------- | ---------------- |
+| Tensor Core | -                               | 硬件单元     | 执行 MMA                      | 底层硬件             |
+| MMA         | Matrix Multiply-Accumulate      | 算法操作     | 矩阵乘加 (D=A*B+C)              | Tensor Core 做的运算 |
+| WMMA        | Warp Matrix Multiply-Accumulate | CUDA API | 调用 Tensor Core 的 MMA（warp级） | 软件接口/编程层         |
+
+| 名称    | 全称                                              | 功能         | 公式              | 数据类型           | BLAS等级  |
+| ----- | ----------------------------------------------- | ---------- | --------------- | -------------- | ------- |
+| GEMM  | General Matrix Multiply                         | 通用矩阵乘法     | C = α·A·B + β·C | 任意（FP32/FP16等） | Level-3 |
+| HGEMM | Half-precision General Matrix Multiply          | 半精度矩阵乘法    | C = α·A·B + β·C | FP16/BF16      | Level-3 |
+| HGEMV | Half-precision General Matrix-Vector Multiply   | 半精度矩阵-向量乘法 | y = α·A·x + β·y | FP16/BF16      | Level-2 |
+| SGEMM | Single-precision General Matrix Multiply        | 单精度矩阵乘法    | C = α·A·B + β·C | FP32           | Level-3 |
+| SGEMV | Single-precision General Matrix-Vector Multiply | 单精度矩阵-向量乘法 | y = α·A·x + β·y | FP32           | Level-2 |
 
 # 2. Tensor Core 的工作原理
 Tensor Core 的基本运算是 **矩阵乘法累加**：
