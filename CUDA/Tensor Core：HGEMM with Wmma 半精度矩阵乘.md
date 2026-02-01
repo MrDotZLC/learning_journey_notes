@@ -36,7 +36,7 @@ $$C = \alpha \cdot op(A) \cdot op(B) + \beta \cdot C$$
     cublasGemmAlgo_t algo          // GEMM 算法选择（默认或 Tensor Core）
   );
 ```
-### 例子
+### 例子1：显式转置（）
 ```
 // 行主序 A(2x3), B(3x4), C(2x4)
 float *A, *B, *C;
@@ -44,7 +44,7 @@ float alpha = 1.0f;
 float beta  = 0.0f;
 
 auto m_C_t = std::make_shared<Matrix>(m_M, m_N, "Matrix C T");
-
+// 列主序读取并转置 == 逻辑行主序
 cublasGemmEx(
     handle,
     CUBLAS_OP_T, CUBLAS_OP_T,   // 显式转置
@@ -62,6 +62,8 @@ dim3 block_size(32, 8);
 dim3 grid_size((M - 1) / block_size.x + 1, (N - 1) / block_size.y + 1);
 transpose_naive<<<grid_size, block_size>>>(m_C_t->getDevPtr(), C, N, M);
 ```
+
+
   
 ## 1.2 wmma api 介绍 
 
