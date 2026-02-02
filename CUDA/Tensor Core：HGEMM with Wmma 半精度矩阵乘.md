@@ -90,9 +90,9 @@ dim3 block_size(32, 8);
 dim3 grid_size((M - 1) / block_size.x + 1, (N - 1) / block_size.y + 1);
 transpose_naive<<<grid_size, block_size>>>(m_C_t->getDevPtr(), C, N, M);
 ```
-
   
 ## 1.2 wmma api 介绍 
+
 
 # 二、V1 Naive Kernel
 
