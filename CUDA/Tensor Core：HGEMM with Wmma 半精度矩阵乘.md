@@ -92,7 +92,59 @@ transpose_naive<<<grid_size, block_size>>>(m_C_t->getDevPtr(), C, N, M);
 ```
   
 ## 1.2 wmma api 介绍 
-
-
+CUDA 提供的 **warp 级 Tensor Core 编程接口**，本质是**手写 cuBLAS Tensor Core 内核**。
+**1 warp 计算 1 个矩阵 tile**，block 至少 32 threads，多 warp/block ≠ 多 tile（需手动设计）。
+数学语义：D = A × B + C。
+### 1.2.1 fragment 的三种用法
+声明乘加运算 $C/D=AB+C$中的A、B、C/D，
+#### 1.2.1.1 matrix_a / matrix_b
+保存 A（M×K）或 B（K×N）的一个 tile，只用于 `load_matrix_sync`
+```
+wmma::fragment<
+    wmma::matrix_a | wmma::matrix_b,
+    M, N, K,
+    half | bf16 | tf32,
+    wmma::row_major | wmma::col_major // layout 表示内存布局，行/列主序
+>
+```
+#### 1.2.1.2 accumulator
+保存 C/D（M×N）的一个 tile，FP16/BF16/TF32 → **FP32 累加**
+```
+wmma::fragment<
+    wmma::accumulator,
+    M, N, K,
+    float // accumulator 必须是 `float`
+>
+```
+#### 1.2.1.3 fragment 精度与 Matrix 大小
+wmma中，fragment 精度和 Matrix 大小都有固定搭配，不能随意设置。
+![](assets/Pasted%20image%2020260202122232.png)
+### 1.2.2 fill_fragment
+初始fragment。
+```
+wmma::fill_fragment(C_frag, 0.0f);
+```
+### 1.2.3 load_matrix_sync
+warp所有线程从 global / shared memory 加载 tile。
+`lda`（leading dimension）表示行主序一行的元素个数，列主序同理。
+```
+wmma::load_matrix_sync(
+	A_frag, 
+	A_ptr,   // 数据源指针，必须256位对齐
+	lda      // 连续行/列的元素步长，只有累加器 accumulator 需要填写
+); 
+```
+### 1.2.4 mma_sync（Tensor Core）
+warp 同步执行乘加操作。
+```
+wmma::mma_sync(C_frag, A_frag, B_frag, C_frag);
+```
+### 1.2.5 store_matrix_sync
+写回内存
+自动做 **float → half**
+支持 row / col major
+```
+wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
+```
 # 二、V1 Naive Kernel
 
