@@ -159,6 +159,24 @@ wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 # 四、V3 （m16n16k16，mma4x2，warp2x4）
 让每个 warp 多干点活（16 * 16 -> 2 * 4 * 16 * 16）。
 ![](assets/Pasted%20image%2020260205222154.png)
-
+![](assets/Pasted%20image%2020260205233757.png)
 
 # 五、V4 double buffer async（m16n16k16，mma4x2，warp2x4）
+## 思路
+tile_n的赋值和tile_n-1的计算是异步的，不等待所有数据全部传输，实现数据传输与计算分tile异步进行。
+![](assets/Pasted%20image%2020260205234904.png)
+**cp.async** 是Ampere 架构（SM80）引入的新功能。
+传统赋值操作（“=”）会阻塞线程，而 cp.async 不会阻塞线程，完全隐藏load延时。
+![](assets/Pasted%20image%2020260205234211.png)
+## 耗时对比
+- L = 每轮 K tile 的 global memory load latency
+- C = 每轮 K tile 的 compute latency
+- N = K 方向 tile 数量（num_tiles）
+
+| 方法             | 时间公式                       | 理想加速                    |
+| -------------- | -------------------------- | ----------------------- |
+| 单缓冲            | $(N \cdot (L + C))$        | baseline                |
+| 双缓冲            | $(L + N \cdot \max(L, C))$ | 避免部分 idle               |
+| cp.async + 双缓冲 | $(L + N \cdot C)$          | 理论最优，load latency几乎完全隐藏 |
+## 代码
+![](assets/Pasted%20image%2020260206000938.png)
