@@ -146,12 +146,17 @@ wmma::mma_sync(C_frag, A_frag, B_frag, C_frag);
 ```
 wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 ```
-# 二、V1 Naive Kernel
+# 二、V1 Naive Kernel（m16n16k16）
 什么都不考虑。
 ![](assets/Pasted%20image%2020260205123640.png)
 ![](assets/Pasted%20image%2020260205123408.png)
 
-# 三、V1 Shared Memory
+# 三、V2 Shared Memory（m16n16k16，mma4x2）
 每个线程处理 1tile（16 * 16），每个元素需要从 Global Memory 中加载**16次**，使用 Shared Memory 缓存矩阵，将数据加载的资源消耗**降低至1/16**。
 把 tile 扩大至64 * 32，A 缓存64 * 16，B 缓存16 * 32，每 tile 分成8个 warp，一个 warp 处理16 * 16。
 ![](assets/Pasted%20image%2020260205123925.png)
+![](assets/Pasted%20image%2020260205211317.png)
+# 四、V3 （m16n16k16，mma4x2，warp2x4）
+
+
+# 五、V4 double buffer async（m16n16k16，mma4x2，warp2x4）
