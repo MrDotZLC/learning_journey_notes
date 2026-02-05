@@ -157,6 +157,8 @@ wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 ![](assets/Pasted%20image%2020260205123925.png)
 ![](assets/Pasted%20image%2020260205211317.png)
 # 四、V3 （m16n16k16，mma4x2，warp2x4）
+让每个 warp 多干点活（16 * 16 -> 2 * 4 * 16 * 16）。
+![](assets/Pasted%20image%2020260205222154.png)
 
 
 # 五、V4 double buffer async（m16n16k16，mma4x2，warp2x4）
