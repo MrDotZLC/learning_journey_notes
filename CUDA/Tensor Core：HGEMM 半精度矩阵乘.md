@@ -156,7 +156,8 @@ wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 - `{layout_a/b/c}`：矩阵存储布局（`row` 或 `col`）
 - `aligned`：数据对齐，确保 tensor core 可以高效加载
 - `sync`：warp 内线程协作同步执行
-  #### 1.3.1.1 例子
+  
+#### 1.3.1.1 例子
 `mma.sync.aligned.m16n16k16.row.col.row d, a, b, c;`
 - **d**：输出累加 fragment
 - **a, b**：输入矩阵 fragment
@@ -179,6 +180,7 @@ $$D_{16×16} = A_{16×16} × B_{16×16} + C_{16×16}$$
 - 因此 PTX MMA 指令**不能单线程使用**
 
 ### 1.3.2 ldmatrix 
+#### 1.3.2.1 api介绍
 **全称**：Load Matrix to Shared Memory / Register Tile
 把 global memory 或 shared memory 中的 tile 高效加载到 寄存器 tile（fragment）。
 ```
@@ -186,28 +188,37 @@ $$D_{16×16} = A_{16×16} × B_{16×16} + C_{16×16}$$
 ldmatrix.sync.aligned.shape.num{.trans}{.ss}.type     r, [p];
 ldmatrix.sync.aligned.m8n16.num{.ss}.dst_fmt.src_fmt  r, [p];
 ldmatrix.sync.aligned.m16n16.num.trans{.ss}.dst_fmt.src_fmt r, [p];
+# param
+.shape ={.m8n8,.m16n8}; 
+.num ={.x1,.x2,.x4}; 
+.ss ={.shared{::cta}}; 
+.type ={.b16,.b8};
 
 # example
 ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%r0,%r1,%r2,%r3}, [%r_shared];
 
 ```
+#### 1.3.2.2 参数介绍
 
-|字段 / 修饰符|可选值 / 范围|含义|说明 / 典型用途|
-|---|---|---|---|
-|`sync`|必选|Warp 内同步|确保 warp 32 个线程协作完成 tile 加载|
-|`aligned`|必选|对齐访问|数据地址必须按 tile 对齐，提高访存效率|
-|`shape`|`.m8n8`, `.m8n16`, `.m16n16`|tile 行列尺寸|定义要加载的矩阵 tile 尺寸|
-|`num`|`.x1`, `.x2`, `.x4`|一条指令加载 tile 数量|控制寄存器输出和 warp 内分片方式|
-|`.trans`|可选|tile 转置|将矩阵在载入寄存器时转置（行列互换）|
-|`.ss`|可选|stride swizzle|优化 shared memory bank conflict|
-|`type`|`.b16`, `.b8`|数据类型|16-bit / 8-bit 等，用于 Tensor Core 输入|
-|`.dst_fmt`|`.b8x16`|输出寄存器格式|控制寄存器 fragment 的 unpack/pack 格式|
-|`.src_fmt`|`.b6x16_p32`, `.b4x16_p64`|输入 memory 格式|控制 packed memory 读取方式，低精度矩阵场景使用|
-|`{r}`|寄存器列表|输出目标寄存器|warp 内每个线程分片 tile，组合成 fragment|
-|`[p]`|memory 地址|源地址|tile 在 shared/global memory 中的起始地址|
+| 字段 / 修饰符   | 可选值 / 范围                     | 含义             | 说明 / 典型用途                          |
+| ---------- | ---------------------------- | -------------- | ---------------------------------- |
+| `sync`     | 必选                           | Warp 内同步       | 确保 warp 32 个线程协作完成 tile 加载         |
+| `aligned`  | 必选                           | 对齐访问           | 数据地址必须按 tile 对齐，提高访存效率             |
+| `shape`    | `.m8n8`, `.m8n16`, `.m16n16` | tile 行列尺寸      | 定义要加载的矩阵 tile 尺寸                   |
+| `num`      | `.x1`, `.x2`, `.x4`          | 一条指令加载 tile 数量 | 控制寄存器输出和 warp 内分片方式                |
+| `.trans`   | 可选                           | tile 转置        | 将矩阵在载入寄存器时转置（行列互换）                 |
+| `.ss`      | 可选                           | stride swizzle | 优化 shared memory bank conflict     |
+| `type`     | `.b16`, `.b8`                | 数据类型           | 16-bit / 8-bit 等，用于 Tensor Core 输入 |
+| `.dst_fmt` | `.b8x16`                     | 输出寄存器格式        | 控制寄存器 fragment 的 unpack/pack 格式    |
+| `.src_fmt` | `.b6x16_p32`, `.b4x16_p64`   | 输入 memory 格式   | 控制 packed memory 读取方式，低精度矩阵场景使用    |
+| `{r}`      | 寄存器列表                        | 输出目标寄存器        | warp 内每个线程分片 tile，组合成 fragment     |
+| `[p]`      | memory 地址                    | 源地址            | tile 在 shared/global memory 中的起始地址 |
  ![](assets/Pasted%20image%2020260206135707.png)
  ![](assets/Pasted%20image%2020260206135727.png)
- 
+ ![](assets/Pasted%20image%2020260206170958.png)
+
+idmatrix参数是相互协作的、遵循上述表格规则的。
+**type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8× 8小矩阵，寄存器{%r0,%r1,%r2,%r3}分别存储小矩阵的首地址。**
 
 ## 1.4 Swizzle介绍
 
