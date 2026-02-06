@@ -213,21 +213,23 @@ ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%r0,%r1,%r2,%r3}, [%r_shared];
 | `.src_fmt` | `.b6x16_p32`, `.b4x16_p64`   | 输入 memory 格式   | 控制 packed memory 读取方式，低精度矩阵场景使用    |
 | `{r}`      | 寄存器列表                        | 输出目标寄存器        | warp 内每个线程分片 tile，组合成 fragment     |
 | `[p]`      | memory 地址                    | 源地址            | tile 在 shared/global memory 中的起始地址 |
- #### 1.3.2.3 参数规则
+ 
+#### 1.3.2.3 参数规则
 idmatrix参数是相互协作的、遵循下述表格规则的。
-图表1-1：the matrix load case for each .shape.
+图表1-1：每个 .shape 的矩阵加载实例。
 ![](assets/Pasted%20image%2020260206135707.png)
-图表1-2：the valid use of 6-bit or 4-bit data load.
+图表1-2：6 位或 4 位数据加载的有效用法
  ![](assets/Pasted%20image%2020260206135727.png)
-图表1-3：The eight addresses required for each matrix are provided by eight threads, depending upon the value of .num
+图表1-3：每个矩阵所需的八个地址由八个线程提供，具体取决于.num的值
  ![](assets/Pasted%20image%2020260206170958.png)
-图表1-4：stmatrix fragment layout for one 8x8 matrix with 16-bit elements
+图表1-4：用于单个 8×8 矩阵（16 位元素）的 stmatrix 片段布局。
  ![](assets/Pasted%20image%2020260206173243.png)
 1. type、num、寄存器r之间的关系
 type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8×8 tile，寄存器{%r0,%r1,%r2,%r3}分别存储tile的首地址，每个线程对应tile行地址，如图表1-3。
 2. 源地址的语义
    是每个 warp 提供的是「矩阵 tile 的基地址集合」，而不是「每个线程要加载的地址」。
    参考图表1-4，每行4个线程，每个线程处理2个half。
+   每个线程计算寄存器地址（图表1-3）和处理数据的位置（图表1-4），是不相关的，不要混淆。
    
    
 ## 1.4 Swizzle介绍
