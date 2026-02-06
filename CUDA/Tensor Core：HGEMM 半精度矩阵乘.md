@@ -215,13 +215,13 @@ ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%r0,%r1,%r2,%r3}, [%r_shared];
 | `[p]`      | memory 地址                    | 源地址            | tile 在 shared/global memory 中的起始地址 |
  #### 1.3.2.3 参数规则
 idmatrix参数是相互协作的、遵循下述表格规则的。
-图表1-1：
+图表1-1：the matrix load case for each .shape.
 ![](assets/Pasted%20image%2020260206135707.png)
-图表1-2：
+图表1-2：the valid use of 6-bit or 4-bit data load.
  ![](assets/Pasted%20image%2020260206135727.png)
-图表1-3：
+图表1-3：The eight addresses required for each matrix are provided by eight threads, depending upon the value of .num
  ![](assets/Pasted%20image%2020260206170958.png)
-图表1-4：8 × 8
+图表1-4：stmatrix fragment layout for one 8x8 matrix with 16-bit elements
  ![](assets/Pasted%20image%2020260206173243.png)
 1. type、num、寄存器r之间的关系
 type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8×8 tile，寄存器{%r0,%r1,%r2,%r3}分别存储tile的首地址，每个线程对应tile行地址，如图表1-3。
