@@ -267,7 +267,7 @@ float x = s[threadIdx.x];
 - **Kernel Fusion**：把多个小 kernel 合并为一个大 kernel，减少 kernel launch overhead 与 global memory IO。
 - **Streams / Overlap**：使用多个 streams，将 host-to-device transfers 与 kernel execution 重叠（需使用 pinned memory 支持异步 DMA）。
 ## 6.6 Tensor Core 使用（实际要点）
-[Tensor Core：HGEMM with Wmma 半精度矩阵乘](Tensor%20Core：HGEMM%20with%20Wmma%20半精度矩阵乘.md)
+[Tensor Core：HGEMM 半精度矩阵乘](Tensor%20Core：HGEMM%20半精度矩阵乘.md)
 - Tensor Core 对 tile 大小/数据对齐敏感（如 16×16 tile）。
 - 使用 cuBLAS/cublasLt 优先（已做高度优化），或使用 WMMA API 自行排布数据。
 - 数据精度：常见模式 FP16 × FP16 → FP32 accumulator，或 BF16；FP8 则需额外量化/scale 处理。

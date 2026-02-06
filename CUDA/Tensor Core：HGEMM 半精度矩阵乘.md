@@ -146,29 +146,37 @@ wmma::mma_sync(C_frag, A_frag, B_frag, C_frag);
 ```
 wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 ```
-# 二、V1 Naive Kernel（m16n16k16）
+## 1.3 mma api介绍
+本质是PTX指令。
+
+
+## 1.4 Swizzle介绍
+
+
+# 二、WMMA
+## 2.1 V1 Naive Kernel（m16n16k16）
 什么都不考虑。
 ![](assets/Pasted%20image%2020260205123640.png)
 ![](assets/Pasted%20image%2020260205123408.png)
 
-# 三、V2 Shared Memory（m16n16k16，mma4x2）
+## 2.2 V2 Shared Memory（m16n16k16，mma4x2）
 每个线程处理 1tile（16 * 16），每个元素需要从 Global Memory 中加载**16次**，使用 Shared Memory 缓存矩阵，将数据加载的资源消耗**降低至1/16**。
 把 tile 扩大至64 * 32，A 缓存64 * 16，B 缓存16 * 32，每 tile 分成8个 warp，一个 warp 处理16 * 16。
 ![](assets/Pasted%20image%2020260205123925.png)
 ![](assets/Pasted%20image%2020260205211317.png)
-# 四、V3 （m16n16k16，mma4x2，warp2x4）
+## 2.3 V3 （m16n16k16，mma4x2，warp2x4）
 让每个 warp 多干点活（16 * 16 -> 2 * 4 * 16 * 16）。
 ![](assets/Pasted%20image%2020260205222154.png)
 ![](assets/Pasted%20image%2020260205233757.png)
 
-# 五、V4 double buffer async（m16n16k16，mma4x2，warp2x4）
-## 思路
+## 2.4 V4 double buffer async（m16n16k16，mma4x2，warp2x4）
+### 2.4.1 思路
 tile_n的赋值和tile_n-1的计算是异步的，不等待所有数据全部传输，实现数据传输与计算分tile异步进行。
 ![](assets/Pasted%20image%2020260205234904.png)
 **cp.async** 是Ampere 架构（SM80）引入的新功能。
 传统赋值操作（“=”）会阻塞线程，而 cp.async 不会阻塞线程，完全隐藏load延时。
 ![](assets/Pasted%20image%2020260205234211.png)
-## 耗时对比
+### 2.4.2 耗时对比
 - L = 每轮 K tile 的 global memory load latency
 - C = 每轮 K tile 的 compute latency
 - N = K 方向 tile 数量（num_tiles）
@@ -178,5 +186,7 @@ tile_n的赋值和tile_n-1的计算是异步的，不等待所有数据全部传
 | 单缓冲            | $(N \cdot (L + C))$        | baseline                |
 | 双缓冲            | $(L + N \cdot \max(L, C))$ | 避免部分 idle               |
 | cp.async + 双缓冲 | $(L + N \cdot C)$          | 理论最优，load latency几乎完全隐藏 |
-## 代码
+### 2.4.3 代码
 ![](assets/Pasted%20image%2020260206000938.png)
+
+# 三、MMA

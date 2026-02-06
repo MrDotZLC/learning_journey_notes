@@ -1,107 +1,162 @@
-# 1. Tensor Core 和 WMMA
-## 1.1 Tensor Core
-**Tensor Core** 是 NVIDIA 在 Volta 架构（2017）首次引入的专用矩阵运算单元，之后在 Turing、Ampere、Hopper 等架构上继续演进。其核心目标是加速深度学习中的 **矩阵乘法-累加（Matrix Multiply-Accumulate, MMA）** 运算，这是神经网络计算的核心。
+# 1. Tensor Core 总览
+## 1.1 Tensor Core（硬件层）
+**Tensor Core** 是 NVIDIA 在 Volta 架构（2017）首次引入的**专用矩阵运算硬件单元**，用于高吞吐执行 **矩阵乘法-累加（Matrix Multiply-Accumulate, MMA）**：
+$$D = A \times B + C$$
+其核心目标是：
+- 以远高于 CUDA Core 的吞吐率执行小规模、稠密矩阵计算
+- 通过**低/混合精度**换取数量级性能提升
+- 面向深度学习训练、推理及部分 HPC 场景
+Tensor Core 并非独立核心，而是**集成在 SM（Streaming Multiprocessor）内部**，以 **warp 级协同**方式工作。
+## 1.2 相关名词与算子对照
+### 概念层级
 
-与传统 CUDA 核心不同，Tensor Core 专为 **高吞吐量矩阵计算** 设计，可在单个时钟周期内完成大量乘加操作。
-## 1.2 WMMA (Warp Matrix Multiply-Accumulate)
-- **定义**：WMMA 是 CUDA 提供的 **API/指令级接口**，允许程序员在 GPU 上使用 Tensor Core 执行 MMA 操作。
-- **特点**：
-    - 属于 **Warp 级别** 的操作，每个 warp（32 个线程）可以合作完成一个小矩阵乘加（例如 16x16x16）。
-    - CUDA 里有 `wmma` namespace，比如 `wmma::fragment` 用来表示矩阵块。
-- **作用**：
-    - CUDA 开发者通过 WMMA 调用 Tensor Core 的 MMA 硬件，而不用手动写低级汇编。
-    - 是软件到硬件的桥梁。
+|名称|全称|类型|功能|所在层级|
+|---|---|---|---|---|
+|Tensor Core|-|硬件单元|执行 MMA|GPU 硬件|
+|MMA|Matrix Multiply-Accumulate|算法|D=A×B+C|Tensor Core 运算本质|
+### BLAS / GEMM 术语
 
-## 名词解释
-| 名称          | 全称<br>                          | 类型       | 功能                          | 层级/作用            |
-| ----------- | ------------------------------- | -------- | --------------------------- | ---------------- |
-| Tensor Core | -                               | 硬件单元     | 执行 MMA                      | 底层硬件             |
-| MMA         | Matrix Multiply-Accumulate      | 算法操作     | 矩阵乘加 (D=A*B+C)              | Tensor Core 做的运算 |
-| WMMA        | Warp Matrix Multiply-Accumulate | CUDA API | 调用 Tensor Core 的 MMA（warp级） | 软件接口/编程层         |
-
-| 名称    | 全称                                              | 功能         | 公式              | 数据类型           | BLAS等级  |
-| ----- | ----------------------------------------------- | ---------- | --------------- | -------------- | ------- |
-| GEMM  | General Matrix Multiply                         | 通用矩阵乘法     | C = α·A·B + β·C | 任意（FP32/FP16等） | Level-3 |
-| HGEMM | Half-precision General Matrix Multiply          | 半精度矩阵乘法    | C = α·A·B + β·C | FP16/BF16      | Level-3 |
-| HGEMV | Half-precision General Matrix-Vector Multiply   | 半精度矩阵-向量乘法 | y = α·A·x + β·y | FP16/BF16      | Level-2 |
-| SGEMM | Single-precision General Matrix Multiply        | 单精度矩阵乘法    | C = α·A·B + β·C | FP32           | Level-3 |
-| SGEMV | Single-precision General Matrix-Vector Multiply | 单精度矩阵-向量乘法 | y = α·A·x + β·y | FP32           | Level-2 |
-|       |                                                 |            |                 |                |         |
-
+|名称|全称|公式|数据类型|BLAS 等级|
+|---|---|---|---|---|
+|GEMM|General Matrix Multiply|C=αAB+βC|任意|Level-3|
+|HGEMM|Half GEMM|同上|FP16/BF16|Level-3|
+|SGEMM|Single GEMM|同上|FP32|Level-3|
+|GEMV|Matrix-Vector|y=Ax|各精度|Level-2|
 # 2. Tensor Core 的工作原理
-Tensor Core 的基本运算是 **矩阵乘法累加**：
-$$D = A \times B + C$$  
-其中：
-- (A, B) 是输入矩阵
-- (C) 是累加矩阵（可初始化为 0）
-- (D) 是输出矩阵
+## 2.1 基本计算模型
+Tensor Core 原生支持 **tile 级 MMA**。大规模 GEMM 会被拆分为多个固定尺寸 tile，由多个 warp 并行完成。
+- 输入矩阵 A、B 通常来自 **寄存器或共享内存**
+- 累加矩阵 C 多采用更高精度（如 FP32）
+- 输出 D 写回寄存器/内存
+## 2.2 数据类型支持（随架构演进）
 
-## 2.1 数据类型支持
-Tensor Core 支持多种数据类型，主要用于平衡 **精度** 与 **性能**：
-
-|架构|支持的数据类型|
+|架构|支持类型|
 |---|---|
-|Volta|FP16 输入 + FP32 输出累加|
-|Turing|FP16, INT8, INT4 输入 + FP32 输出累加|
-|Ampere|FP16, BF16, TF32, INT8, INT4|
-|Hopper|FP8, FP16, BF16, TF32, INT8, INT4|
+|Volta|FP16 → FP32 累加|
+|Turing|FP16, INT8, INT4|
+|Ampere|FP16, BF16, TF32, INT8, INT4（含稀疏）|
+|Hopper|FP8（E4M3/E5M2）, FP16, BF16, TF32|
+> Tensor Core 的性能提升主要来自**低精度输入 + 高吞吐并行**，而非单次运算更快。
 
-> **说明**：Tensor Core 的引入让深度学习训练和推理的吞吐量相比传统 CUDA 核心提升 3~12 倍，尤其在 FP16/BF16 训练中效果显著。
-## 2.2 并行策略
-Tensor Core 以 **矩阵块（tile）为单位** 并行执行：
-- Volta: 每个 Tensor Core 执行 (4 \times 4) FP16 矩阵乘法
-- Ampere: 支持 (8 \times 8) 或 (16 \times 16) tile
-- Hopper: 支持更大 tile，增加 FP8 和稀疏矩阵加速
+## 2.3 并行与 Tile 策略
+- **Warp 级并行**：一个 warp 驱动一次 MMA
+- **Tile 分层**：
+    - Block tile → Shared Memory
+    - Warp tile → Registers
+    - MMA tile → Tensor Core
 
-这种 tile 并行允许 **SIMD（单指令多数据）式执行**，充分利用 GPU 的吞吐能力。
-# 3. Tensor Core 架构
-Tensor Core 通常位于每个 **SM（Streaming Multiprocessor）** 内，和 CUDA 核心、共享内存、寄存器紧密结合。
-结构特点：
-1. **矩阵乘加单元（MMA Unit）**：执行 D = A×B+C 运算
-2. **加载/存储路径优化**：从寄存器或共享内存高效读取矩阵 tile
-3. **可配置精度累加**：例如 FP16 输入，FP32 累加
+不同架构支持的 tile 大小不同：
+- Volta：4×4
+- Ampere：8×8 / 16×16
+- Hopper：更大 tile + WGMMA
+# 3. Tensor Core 架构位置
+Tensor Core 位于 SM 内部，与 CUDA Core、寄存器、共享内存紧密耦合：
+- 多个 Tensor Core/SM
+- 可与 CUDA Core **并行执行**（控制流、激活函数等）
+- Ampere/Hopper 支持 **Sparse Tensor Core**，2:4 结构化稀疏可带来 ~2× 吞吐
+# 4. Tensor Core 开发技术栈（全景）
+```
+应用 / 框架
+PyTorch / TF / JAX
+        ↓
+混合精度与数值策略
+AMP / TF32 / FP8 Engine
+        ↓
+高性能库
+cuBLAS / cuBLASLt / cuDNN / TensorRT
+        ↓
+Kernel 生成与模板
+CUTLASS / Triton / TVM
+        ↓
+CUDA 编程模型
+CUDA C++ / WMMA / Inline PTX
+        ↓
+指令级
+PTX mma → SASS HMMA / WGMMA
+        ↓
+硬件
+SM → Tensor Core
+```
+开发者主要决策点在 **数据类型、算子形态、kernel 路线选择**。
+# 5. Tensor Core 开发的不同路线
+## 5.1 库驱动（工程首选）
+- **AMP + cuBLAS / cuBLASLt / cuDNN**
+- 自动触发 Tensor Core
+- 稳定、可维护、覆盖 90% 场景
+## 5.2 模板驱动（高阶优化）
+- **CUTLASS**
+- 显式控制 tile、pipeline、epilogue
+- 适合非标准 GEMM / Transformer 内核
+## 5.3 DSL / 编译器驱动
+- **Triton / TVM / MLIR**
+- 快速开发、自动映射 Tensor Core
+- 性能依赖生成质量
+## 5.4 手写 WMMA / PTX（极限）
+[Tensor Core：HGEMM 半精度矩阵乘](Tensor%20Core：HGEMM%20半精度矩阵乘.md)
+- 仅用于研究或极限优化
+- 可维护性差、强架构绑定
+# 6. 必须配合的关键技术
+- **混合精度**：FP16/BF16/TF32/FP8 + FP32 累加
+- **内存优化**：Shared Memory、double buffering、cp.async
+- **算子融合**：bias / activation / scaling（epilogue）
+- **量化技术**：INT8/FP8 scale、zero-point
+- **Profiling**：Nsight Compute（Tensor Core 利用率）
+# 7. 性能示例（A100）
 
-在 Ampere 架构中：
-- 每个 SM 包含多个 Tensor Core
-- Tensor Core 可以与 CUDA 核心同时工作
-- 支持稀疏矩阵优化（Sparse Tensor Core），在 Transformer 模型推理中性能提升约 2 倍
-# 4. Tensor Core 的应用场景
-Tensor Core 的设计目标主要集中在深度学习：
-1. **训练**
-    - CNN、RNN、Transformer 等网络
-    - 支持混合精度训练（FP16/BF16 + FP32 累加）
-    - 大幅减少显存占用，提高吞吐量
-2. **推理**
-    - FP16、INT8、INT4 推理加速
-    - Transformer、LLM 模型推理（ChatGPT、BERT、GPT 系列）
-3. **科学计算**
-    - 高性能矩阵运算（线性代数、物理仿真）
-    - 可以用 FP16 或 TF32 提升矩阵运算速度
-# 5. 编程和优化
-## 5.1 CUDA / cuBLAS / cuDNN
-Tensor Core 可以通过 NVIDIA 的深度学习库直接调用：
-- **cuBLAS**: GEMM 运算 (矩阵乘法)
-- **cuDNN**: CNN、RNN 层加速
-- **CUTLASS**: 高度可定制矩阵乘法模板
-## 5.2 关键优化策略
-1. **数据对齐**：矩阵 tile 对齐 16/32 字节可提升吞吐
-2. **混合精度训练**：FP16/BF16 输入 + FP32 累加
-3. **利用共享内存**：减少全局内存访问
-4. **稀疏矩阵优化**：AMPERE/Hopper 架构可利用稀疏 Tensor Core
-# 6. 性能提升示例
-以 Ampere 架构为例（A100 GPU）：
-- 单精度 FP32 GEMM：≈ 19.5 TFLOPS
-- Tensor Core FP16 GEMM：≈ 312 TFLOPS（16 倍提升）
-- Tensor Core TF32 GEMM：≈ 156 TFLOPS
-- INT8 GEMM：≈ 624 TOPS
+|精度|峰值性能|
+|---|---|
+|FP32|~19.5 TFLOPS|
+|TF32 Tensor Core|~156 TFLOPS|
+|FP16 Tensor Core|~312 TFLOPS|
+|INT8|~624 TOPS|
+# 8. 推理工程师（Inference Engineer）需要重点掌握的内容
+推理工程师关注的核心目标与训练阶段不同：
+> **在可接受精度下降的前提下，最大化吞吐、最小化延迟、最小化成本。**
+Tensor Core 在推理阶段几乎是**必选硬件路径**，但使用方式与训练有明显差异。
+## 8.1 推理工程师的 Tensor Core 全景职责
+从工程视角，推理工程师需要覆盖以下层次：
+```
+模型结构 → 数值精度 → 算子形态 → Kernel → 硬件利用率
+```
+Tensor Core 贯穿其中的 **数值精度、算子实现、kernel 选择** 三层。
+## 8.2 推理阶段最重要的数值体系
+### 8.2.1 FP16 / BF16 推理
+- 最基础、风险最低
+- 常用于中小模型或延迟敏感场景
+### 8.2.2 INT8 / INT4 量化推理
+- Post-Training Quantization (PTQ)
+- Quantization-Aware Training (QAT)
+- Per-tensor vs Per-channel scale
+- Tensor Core 在 INT8/INT4 推理中提供极高吞吐
+### 8.2.3 FP8（Hopper / LLM 推理）
+- Hopper 支持 FP8（E4M3/E5M2）
+- 动态 scaling 与饱和控制
+- 配合 Transformer Engine / TensorRT
+## 8.3 推理阶段的算子视角
 
-> 可见 Tensor Core 对 **AI 推理和训练** 有革命性提升。
+|算子|Tensor Core 角色|
+|---|---|
+|GEMM / Batched GEMM|核心计算|
+|Attention (QKV)|多个 GEMM 叠加|
+|Linear / MLP|Tensor Core 主战场|
+|Conv（推理）|隐式 GEMM|
+## 8.4 推理阶段的关键工程技术
+- Kernel 融合（epilogue fusion、attention fusion）
+- Layout 与 padding 处理
+- 内存与带宽优化（L2 cache, KV Cache）
+## 8.5 推理工程师常用工具链
 
-# 7. 总结
-Tensor Core 是 NVIDIA 针对 **深度学习矩阵运算**专门设计的硬件单元，通过：
-- 高吞吐量的矩阵乘加运算
-- 多精度和稀疏矩阵支持
-- 与 CUDA 核心协同工作
+|工具|作用|
+|---|---|
+|TensorRT|推理图优化 + Tensor Core|
+|cuBLASLt|高度可控 GEMM|
+|CUTLASS|自定义推理 kernel|
+|Nsight Compute|Tensor Core 利用率|
+|Nsight Systems|端到端延迟|
+## 8.6 推理工程师能力分级
+- 初级：会用 FP16 / AMP，TensorRT，知道 Tensor Core
+- 中级：掌握 INT8，理解启用条件，判断是否用上 Tensor Core
+- 高级：设计 Tensor Core 友好模型，优化关键算子，延迟/吞吐/精度权衡
+## 8.7 推理工程师总结
+> Tensor Core 是推理性能和成本的物理上限，而不是一个可选加速器。
 
-极大地提升了 AI 模型训练和推理性能。  
-它的核心优势在于 **tile 并行 + 专用矩阵硬件 + 灵活精度支持**。
