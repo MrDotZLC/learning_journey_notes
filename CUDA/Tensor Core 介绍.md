@@ -26,6 +26,7 @@
 | HGEMV | Half-precision General Matrix-Vector Multiply   | 半精度矩阵-向量乘法 | y = α·A·x + β·y | FP16/BF16      | Level-2 |
 | SGEMM | Single-precision General Matrix Multiply        | 单精度矩阵乘法    | C = α·A·B + β·C | FP32           | Level-3 |
 | SGEMV | Single-precision General Matrix-Vector Multiply | 单精度矩阵-向量乘法 | y = α·A·x + β·y | FP32           | Level-2 |
+|       |                                                 |            |                 |                |         |
 
 # 2. Tensor Core 的工作原理
 Tensor Core 的基本运算是 **矩阵乘法累加**：
