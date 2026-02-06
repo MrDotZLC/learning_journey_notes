@@ -215,13 +215,20 @@ ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%r0,%r1,%r2,%r3}, [%r_shared];
 | `[p]`      | memory 地址                    | 源地址            | tile 在 shared/global memory 中的起始地址 |
  #### 1.3.2.3 参数规则
 idmatrix参数是相互协作的、遵循下述表格规则的。
+图表1-1：
 ![](assets/Pasted%20image%2020260206135707.png)
+图表1-2：
  ![](assets/Pasted%20image%2020260206135727.png)
+图表1-3：
  ![](assets/Pasted%20image%2020260206170958.png)
+图表1-4：8 × 8
+ ![](assets/Pasted%20image%2020260206173243.png)
 1. type、num、寄存器r之间的关系
-type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8× 8小矩阵，寄存器{%r0,%r1,%r2,%r3}分别存储小矩阵的首地址。
+type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8×8 tile，寄存器{%r0,%r1,%r2,%r3}分别存储tile的首地址，每个线程对应tile行地址，如图表1-3。
 2. 源地址的语义
    是每个 warp 提供的是「矩阵 tile 的基地址集合」，而不是「每个线程要加载的地址」。
+   参考图表1-4，每行4个线程，每个线程处理2个half。
+   
    
 ## 1.4 Swizzle介绍
 
