@@ -146,10 +146,89 @@ wmma::mma_sync(C_frag, A_frag, B_frag, C_frag);
 ```
 wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 ```
-## 1.3 mma 
+## 1.3 MMA 相关的 PTX 指令
 **CUDA 11+ / Hopper 及 CUTLASS 中**的一个操作接口。
 `mma.sync` PTX 指令或者 CUTLASS kernel template 的 `mma` 模板。
+### 1.3.1 mma
+`mma.sync.aligned.m{M}n{N}k{K}.{type_a}.{type_b}.{type_c}.{layout_a}.{layout_b}.{layout_c} d, a, b, c;`
+- `m{M}n{N}k{K}`：tile 尺寸，表示矩阵 A(M×K) × B(K×N) → C(M×N)
+- `{type_a/b/c}`：数据类型（`f16`/`bf16`/`s8`/`u8`/`tf32` 等）
+- `{layout_a/b/c}`：矩阵存储布局（`row` 或 `col`）
+- `aligned`：数据对齐，确保 tensor core 可以高效加载
+- `sync`：warp 内线程协作同步执行
+  #### 1.3.1.1 例子
+`mma.sync.aligned.m16n16k16.row.col.row d, a, b, c;`
+- **d**：输出累加 fragment
+- **a, b**：输入矩阵 fragment
+- **c**：累加源 fragment（初始值可以为零）
+- 执行：
+$$D_{16×16} = A_{16×16} × B_{16×16} + C_{16×16}$$
+> 注意：每个 warp 内 32 个线程合作完成这个操作。
+#### 1.3.1.2 数据类型支持
 
+|数据类型|说明|
+|---|---|
+|`f16`|FP16|
+|`bf16`|BF16|
+|`tf32`|TensorFloat32|
+|`s8`/`u8`|INT8/UINT8|
+|`f32`|FP32（通过 accumulate）|
+#### 1.3.1.3 Warp 内协作
+- 每条 `mma.sync` 指令执行需要 **整个 warp（32 threads）**
+- GPU 自动做 **lane 分配和矩阵分片**
+- 因此 PTX MMA 指令**不能单线程使用**
+
+### 1.3.2 ldmatrix 
+**全称**：Load Matrix to Shared Memory / Register Tile
+把 global memory 或 shared memory 中的 tile 高效加载到 寄存器 tile（fragment）。
+```
+ldmatrix.sync.aligned.shape.num{.trans}{.ss}.type     r, [p];
+ldmatrix.sync.aligned.m8n16.num{.ss}.dst_fmt.src_fmt  r, [p];
+ldmatrix.sync.aligned.m16n16.num.trans{.ss}.dst_fmt.src_fmt r, [p];
+
+∕∕Loadasingle8x8matrixusing 64-bitaddressing
+.reg.b64addr;
+.reg.b32d;
+ldmatrix.sync.aligned.m8n8.x1.shared::cta.b16 {d},[addr];
+∕∕Loadtwo8x8matrices incolumn-majorformat
+.reg.b64addr;
+.reg.b32d<2>;
+ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16{d0,d1},[addr];
+∕∕Loadfour8x8matrices
+.reg.b64addr;
+.reg.b32d<4>;
+ldmatrix.sync.aligned.m8n8.x4.b16 {d0,d1,d2,d3},[addr];
+∕∕Loadone16x16matricesof64-bitelements andtransposethem
+.reg.b64addr;
+.reg.b32d<2>;
+ldmatrix.sync.aligned.m16n16.x1.trans.shared.b8 {d0,d1},[addr];
+∕∕Loadtwo16x16matricesof64-bitelements andtransposethem
+.reg.b64addr;
+.reg.b32d<4>;
+ldmatrix.sync.aligned.m16n16.x2.trans.shared::cta.b8{d0,d1,d2,d3},[addr];
+∕∕Loadtwo16x16matricesof6-bit elementsandtransposethem
+.reg.b64addr;
+.reg.b32d<4>;
+ldmatrix.sync.aligned.m16n16.x2.trans.shared::cta.b8x16.b6x16_p32{d0,d1,d2,d3},￿
+→[addr];
+```
+
+|字段 / 修饰符|可选值 / 范围|含义|说明 / 典型用途|
+|---|---|---|---|
+|`sync`|必选|Warp 内同步|确保 warp 32 个线程协作完成 tile 加载|
+|`aligned`|必选|对齐访问|数据地址必须按 tile 对齐，提高访存效率|
+|`shape`|`.m8n8`, `.m8n16`, `.m16n16`|tile 行列尺寸|定义要加载的矩阵 tile 尺寸|
+|`num`|`.x1`, `.x2`, `.x4`|一条指令加载 tile 数量|控制寄存器输出和 warp 内分片方式|
+|`.trans`|可选|tile 转置|将矩阵在载入寄存器时转置（行列互换）|
+|`.ss`|可选|stride swizzle|优化 shared memory bank conflict|
+|`type`|`.b16`, `.b8`|数据类型|16-bit / 8-bit 等，用于 Tensor Core 输入|
+|`.dst_fmt`|`.b8x16`|输出寄存器格式|控制寄存器 fragment 的 unpack/pack 格式|
+|`.src_fmt`|`.b6x16_p32`, `.b4x16_p64`|输入 memory 格式|控制 packed memory 读取方式，低精度矩阵场景使用|
+|`{r}`|寄存器列表|输出目标寄存器|warp 内每个线程分片 tile，组合成 fragment|
+|`[p]`|memory 地址|源地址|tile 在 shared/global memory 中的起始地址|
+ ![](assets/Pasted%20image%2020260206135707.png)
+ ![](assets/Pasted%20image%2020260206135727.png)
+ 
 
 ## 1.4 Swizzle介绍
 
