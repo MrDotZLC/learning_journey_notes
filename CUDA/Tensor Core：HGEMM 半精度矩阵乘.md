@@ -146,8 +146,9 @@ wmma::mma_sync(C_frag, A_frag, B_frag, C_frag);
 ```
 wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 ```
-## 1.3 mma api介绍
-本质是PTX指令。
+## 1.3 mma 
+**CUDA 11+ / Hopper 及 CUTLASS 中**的一个操作接口。
+`mma.sync` PTX 指令或者 CUTLASS kernel template 的 `mma` 模板。
 
 
 ## 1.4 Swizzle介绍
