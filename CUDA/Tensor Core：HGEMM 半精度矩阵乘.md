@@ -182,35 +182,14 @@ $$D_{16×16} = A_{16×16} × B_{16×16} + C_{16×16}$$
 **全称**：Load Matrix to Shared Memory / Register Tile
 把 global memory 或 shared memory 中的 tile 高效加载到 寄存器 tile（fragment）。
 ```
+# api:
 ldmatrix.sync.aligned.shape.num{.trans}{.ss}.type     r, [p];
 ldmatrix.sync.aligned.m8n16.num{.ss}.dst_fmt.src_fmt  r, [p];
 ldmatrix.sync.aligned.m16n16.num.trans{.ss}.dst_fmt.src_fmt r, [p];
 
-∕∕Loadasingle8x8matrixusing 64-bitaddressing
-.reg.b64addr;
-.reg.b32d;
-ldmatrix.sync.aligned.m8n8.x1.shared::cta.b16 {d},[addr];
-∕∕Loadtwo8x8matrices incolumn-majorformat
-.reg.b64addr;
-.reg.b32d<2>;
-ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16{d0,d1},[addr];
-∕∕Loadfour8x8matrices
-.reg.b64addr;
-.reg.b32d<4>;
-ldmatrix.sync.aligned.m8n8.x4.b16 {d0,d1,d2,d3},[addr];
-∕∕Loadone16x16matricesof64-bitelements andtransposethem
-.reg.b64addr;
-.reg.b32d<2>;
-ldmatrix.sync.aligned.m16n16.x1.trans.shared.b8 {d0,d1},[addr];
-∕∕Loadtwo16x16matricesof64-bitelements andtransposethem
-.reg.b64addr;
-.reg.b32d<4>;
-ldmatrix.sync.aligned.m16n16.x2.trans.shared::cta.b8{d0,d1,d2,d3},[addr];
-∕∕Loadtwo16x16matricesof6-bit elementsandtransposethem
-.reg.b64addr;
-.reg.b32d<4>;
-ldmatrix.sync.aligned.m16n16.x2.trans.shared::cta.b8x16.b6x16_p32{d0,d1,d2,d3},￿
-→[addr];
+# example
+ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%r0,%r1,%r2,%r3}, [%r_shared];
+
 ```
 
 |字段 / 修饰符|可选值 / 范围|含义|说明 / 典型用途|
