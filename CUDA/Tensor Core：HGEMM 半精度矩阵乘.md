@@ -1,6 +1,8 @@
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
 工具代码来自[cuda_hgemm](https://github.com/Bruce-Lee-LY/cuda_hgemm/tree/master/src/common)
 算子代码来自[LeetCUDA](https://github.com/xlite-dev/LeetCUDA/blob/main/kernels/hgemm/wmma/hgemm_wmma.cu)（强无敌的开源库）
+WMMA代码使用简单但不灵活，可能存在bank conflict 且无法优化。MMA PTX更底层、更灵活，结合Swizzle机制，能够很好避免bank conflict。
+本篇重点介绍WMMA、MMA PTX、Swizzle。
 # 一、API 介绍
 ## 1.1 cublasGemmEx 函数介绍
 ### 概念
