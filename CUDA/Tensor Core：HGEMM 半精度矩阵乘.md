@@ -150,14 +150,18 @@ wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 **CUDA 11+ / Hopper 及 CUTLASS 中**的一个操作接口。
 `mma.sync` PTX 指令或者 CUTLASS kernel template 的 `mma` 模板。
 ### 1.3.1 mma
-`mma.sync.aligned.m{M}n{N}k{K}.{type_a}.{type_b}.{type_c}.{layout_a}.{layout_b}.{layout_c} d, a, b, c;`
-- `m{M}n{N}k{K}`：tile 尺寸，表示矩阵 A(M×K) × B(K×N) → C(M×N)
-- `{type_a/b/c}`：数据类型（`f16`/`bf16`/`s8`/`u8`/`tf32` 等）
-- `{layout_a/b/c}`：矩阵存储布局（`row` 或 `col`）
-- `aligned`：数据对齐，确保 tensor core 可以高效加载
-- `sync`：warp 内线程协作同步执行
-  
-#### 1.3.1.1 例子
+#### 1.3.1.1 API 介绍
+```
+mma.sync.aligned.m{M}n{N}k{K}.{type_a}.{type_b}.{type_c}.{layout_a}.{layout_b}.{layout_c} d, a, b, c;
+
+m{M}n{N}k{K}：tile 尺寸，表示矩阵 A(M×K) × B(K×N) → C(M×N)
+{type_a/b/c}：数据类型（f16/bf16/s8/u8/tf32 等）
+{layout_a/b/c}：矩阵存储布局（row 或 col）
+aligned：数据对齐，确保 tensor core 可以高效加载
+sync：warp 内线程协作同步执行
+```
+![](assets/Pasted%20image%2020260207160249.png)
+#### 1.3.1.2 例子
 `mma.sync.aligned.m16n16k16.row.col.row d, a, b, c;`
 - **d**：输出累加 fragment
 - **a, b**：输入矩阵 fragment
@@ -165,7 +169,7 @@ wmma::store_matrix_sync(C_ptr, C_frag, ldc, wmma::mem_row_major);
 - 执行：
 $$D_{16×16} = A_{16×16} × B_{16×16} + C_{16×16}$$
 > 注意：每个 warp 内 32 个线程合作完成这个操作。
-#### 1.3.1.2 数据类型支持
+#### 1.3.1.3 数据类型支持
 
 |数据类型|说明|
 |---|---|
@@ -174,7 +178,7 @@ $$D_{16×16} = A_{16×16} × B_{16×16} + C_{16×16}$$
 |`tf32`|TensorFloat32|
 |`s8`/`u8`|INT8/UINT8|
 |`f32`|FP32（通过 accumulate）|
-#### 1.3.1.3 Warp 内协作
+#### 1.3.1.4 Warp 内协作
 - 每条 `mma.sync` 指令执行需要 **整个 warp（32 threads）**
 - GPU 自动做 **lane 分配和矩阵分片**
 - 因此 PTX MMA 指令**不能单线程使用**
@@ -233,7 +237,6 @@ idmatrix参数是相互协作的、遵循下述表格规则的。
    参考图表1-4，每行4个线程，每个线程处理2个half。
    每个线程计算寄存器地址（图表1-3）和处理数据的位置（图表1-4），是不相关的，不要混淆。
    ![](assets/Pasted%20image%2020260206174846.png)![](assets/Pasted%20image%2020260206174752.png)
-   
    
 ## 1.4 Swizzle介绍
 
