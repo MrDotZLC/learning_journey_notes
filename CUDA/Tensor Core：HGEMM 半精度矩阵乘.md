@@ -161,6 +161,10 @@ aligned：数据对齐，确保 tensor core 可以高效加载
 sync：warp 内线程协作同步执行
 ```
 ![](assets/Pasted%20image%2020260207160249.png)
+mma.sync中传入A、B、C的寄存器地址，其中B是转置后的（合并访存），如下三图所示。
+![](assets/Pasted%20image%2020260207161107.png)
+![](assets/Pasted%20image%2020260207161113.png)
+![](assets/Pasted%20image%2020260207161118.png)
 #### 1.3.1.2 例子
 `mma.sync.aligned.m16n16k16.row.col.row d, a, b, c;`
 - **d**：输出累加 fragment
