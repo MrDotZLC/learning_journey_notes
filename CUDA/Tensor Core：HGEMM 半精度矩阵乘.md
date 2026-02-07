@@ -284,16 +284,17 @@ tile_n的赋值和tile_n-1的计算是异步的，不等待所有数据全部传
 ![](assets/Pasted%20image%2020260206000938.png)
 
 # 三、MMA
+**注：受限于设备，本小节的代码没有实际运行，读者自行验证。**
 ## 3.1 V1 Naive Kernel（m16n8k16）
 GMem到SMem的数据传输，没有conflict。
 SMem到Reg的数据传输，一次warp处理有2路conflict，ldmatrix有4个（沿用前例），共8路。
 ![](assets/Pasted%20image%2020260207174551.png)
 ![](assets/Pasted%20image%2020260207174634.png)
-
-
+![](assets/Pasted%20image%2020260207182117.png)
+![](assets/Pasted%20image%2020260207182501.png)
 ## 3.2 V2 Kernel（SMem Padding，m16n8k16，warp4x4）
 ![](assets/Pasted%20image%2020260207174527.png)
-
+![](assets/Pasted%20image%2020260207181932.png)
 # 四、Swizzle
 
 ![](assets/Pasted%20image%2020260207180148.png)
