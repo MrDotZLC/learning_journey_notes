@@ -285,6 +285,3 @@ tile_n的赋值和tile_n-1的计算是异步的，不等待所有数据全部传
 
 # 三、MMA
 ## 3.1 V1 Naive Kernel（m16n8k16）
-![](assets/Pasted%20image%2020260206194703.png)
-![](assets/Pasted%20image%2020260206195020.png)
-
