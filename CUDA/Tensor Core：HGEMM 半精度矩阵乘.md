@@ -299,5 +299,10 @@ SMem到Reg的数据传输，一次warp处理有2路conflict，ldmatrix有4个（
 [Swizzle 介绍](Swizzle%20介绍.md)
 对索引或数据布局做可逆的置换（permutation）。
 ![](assets/Pasted%20image%2020260207180148.png)
-行索引不变，列索引改变。
+**原理：** 行索引不变，列索引改变。
+**地址变换级 Swizzle ：**
 ![](assets/Pasted%20image%2020260208022539.png)
+**索引变换级Swizzle：**
+`j' = ((j >> step) ^ (i >> phase)) % tiles;`
+`addr = &s[i][j']`
+![](assets/Pasted%20image%2020260208024104.png)
