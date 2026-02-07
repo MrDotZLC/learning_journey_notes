@@ -296,5 +296,5 @@ SMem到Reg的数据传输，一次warp处理有2路conflict，ldmatrix有4个（
 ![](assets/Pasted%20image%2020260207174527.png)
 ![](assets/Pasted%20image%2020260207181932.png)
 # 四、Swizzle
-
+对索引或数据布局做可逆的置换（permutation）
 ![](assets/Pasted%20image%2020260207180148.png)
