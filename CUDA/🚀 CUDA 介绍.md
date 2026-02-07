@@ -228,7 +228,7 @@ float x = s[threadIdx.x];
 
 ```
 - 常见列访问运算：转置 / stencil / reduction / attention。
-- **规避手段：**
+- **规避手段：[Swizzle 介绍](Swizzle%20介绍.md)**
 	- padding（在行尾加上若干元素）：使得 Shared memory 的一维长度不是 32 的整数倍，避免列访问bank冲突。
 	- 调整访问模式使得访问地址分布跨 bank。
 - 特例（Broadcast）：
