@@ -8,6 +8,7 @@
 
 ---
 # 二、GEMM
-
+**[代码](https://github.com/MrDotZLC/cuda_practice/blob/main/6_cutlass_study/v2_turing_tensorop_gemm.cu)**
 ![](assets/Pasted%20image%2020260208165004.png)
-
+![](assets/Pasted%20image%2020260208215023.png)
+![](assets/Pasted%20image%2020260208215245.png)
