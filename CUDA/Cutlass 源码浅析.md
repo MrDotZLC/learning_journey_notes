@@ -37,5 +37,5 @@ Kernel 内执行mma计算前的准备：将矩阵ABC进行拆解tile迭代器
 执行 Warp MMA：
 ![](assets/Pasted%20image%2020260209154553.png)
 # 六、Epilogue 后处理
-保存MMA结果，用于紧接着的其他操作，比如加法、广播乘。
+**Epilogue 管理的是“乘完之后、逐元素级别的数据流”**，是 accumulator → output 的映射与后处理。
 ![](assets/Pasted%20image%2020260209160130.png)
