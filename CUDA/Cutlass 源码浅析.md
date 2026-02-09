@@ -34,4 +34,4 @@ Kernel 内执行mma计算前的准备：将矩阵ABC进行拆解tile迭代器
 ---
 # 五、Warp & Thread 层
 执行 Warp MMA：
-![](assets/Pasted%20image%2020260208231846.png)
+![](assets/Pasted%20image%2020260209154553.png)
