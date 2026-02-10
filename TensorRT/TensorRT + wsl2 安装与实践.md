@@ -3,6 +3,7 @@
    cuda版本：12.6
 2. **下载TensorRT Debian仓库包**
    从 [TensorRT 下载页面](https://developer.nvidia.com/tensorrt)，下载适用于你的 CUDA 版本和作系统的 Debian 仓库包。
+   ![](assets/Pasted%20image%2020260210163102.png)
 3. **安装仓库包**
 	```
    sudo dpkg -i nv-tensorrt-local-repo-ubuntu2404-10.15.1-cuda-12.9_1.0-1_amd64.deb
@@ -26,4 +27,17 @@ sudo apt-get update
 		sudo apt-get install python3-libnvinfer-dev
      ```
    - 虚拟Python环境
+     1. 去 NVIDIA TensorRT 下载页，下载tar包
+        ![](assets/Pasted%20image%2020260210163126.png)
+     2. 进入虚拟环境
+        ```
+        source trt-env/bin/activate
+        ```
+     3. 解压安装
+     ```
+	     python.exe -m pip install tensorrt-*-cp3x-none-win_amd64.whl
+	     python.exe -m pip install tensorrt_lean-*-cp3x-none-win_amd64.whl
+	     python.exe -m pip install tensorrt_dispatch-*-cp3x-none-win_amd64.whl
+     ```
+	     
      
