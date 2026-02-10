@@ -35,9 +35,20 @@ sudo apt-get update
         ```
      3. 解压安装
      ```
-	     python.exe -m pip install tensorrt-*-cp3x-none-win_amd64.whl
-	     python.exe -m pip install tensorrt_lean-*-cp3x-none-win_amd64.whl
-	     python.exe -m pip install tensorrt_dispatch-*-cp3x-none-win_amd64.whl
+	     python -m pip install numpy
+	     python -m pip install tensorrt-*-cp3x-none-win_amd64.whl
+	     python -m pip install tensorrt_lean-*-cp3x-none-win_amd64.whl
+	     python -m pip install tensorrt_dispatch-*-cp3x-none-win_amd64.whl
      ```
-	     
-     
+     ![](assets/Pasted%20image%2020260210171351.png)
+     4. （可选）安装 ONNX Graph Surgeon
+        ```
+        python -m pip install numpy onnx onnx-graphsurgeon
+        ```
+
+8. **验证**
+   ```
+		# 验证 TensorRT 软件包
+		dpkg-query -W tensorrt
+		# 
+   ```
