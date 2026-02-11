@@ -48,9 +48,10 @@ sudo apt-get update
 
 2. **验证**
 	 1. 验证 TensorRT 软件包   
-   ```
+	    ```
 		# 验证 TensorRT 软件包
 		dpkg-query -W tensorrt
-   ```
-	![](assets/Pasted%20image%2020260211144406.png)
-			   1. 
+	    ```
+	    ![](assets/Pasted%20image%2020260211144406.png)
+	2. 
+	
