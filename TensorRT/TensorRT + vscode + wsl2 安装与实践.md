@@ -1,6 +1,8 @@
 1. **确认系统环境**
    系统：Ubuntu24.04(wsl2)
-   cuda版本：12.6
+   cuda：12.6
+   vscode：
+   CMake：3.28.3
 2. **下载TensorRT Debian仓库包**
    从 [TensorRT 下载页面](https://developer.nvidia.com/tensorrt)，下载适用于你的 CUDA 版本和作系统的 Debian 仓库包。
    ![](assets/Pasted%20image%2020260210163102.png)
@@ -59,7 +61,31 @@ sudo apt-get update
 		cd TensorRT
 		git submodule update --init --recursive
 		```
-	3. 
+	3. 修改根目录 CMakeLists.txt
+	   TensorRT 10.15.1 GA 默认CUDA=13.1、GPU_ARCHS=110。使用vscode的CMake插件，有三种方式去build：
+		  1. 在 .vsocde/settings.json 中配置
+		   2. 使用 CMakePresets.json 配置
+		   3. 修改 CMakeLists.txt 配置
+	   这里使用第三种：修改 CMakeLists.txt
+	   ```
+	    # CUDA targets
+		set(DEFAULT_CUDA_VERSION 12.6.85)
+		set_ifndef(CUDA_VERSION ${DEFAULT_CUDA_VERSION})
+		message(STATUS "CUDA version set to ${CUDA_VERSION}")
+		
+		# GPU targets
+		set(DEFAULT_GPU_ARCHS 75)
+		set_ifndef(GPU_ARCHS ${DEFAULT_GPU_ARCHS})
+		message(STATUS "CUDA version set to ${GPU_ARCHS}")
+	   ```
+	   ![](assets/Pasted%20image%2020260211165029.png)
+	
+	4. 构建 protobuf 和 sample_onnx_mnist
+	   sample_onnx_mnist 依赖 protobuf，需要先构建 protobuf。
+	   ctrl+shift+p -> Set Build Target -> third_party.protobuf -> build
+	   ctrl+shift+p -> Set Build Target -> sample_onnx_mnist -> build
+	   
+	5. 
 	   
 	   
 	
