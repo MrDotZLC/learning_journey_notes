@@ -53,7 +53,13 @@ sudo apt-get update
 		dpkg-query -W tensorrt
 	    ```
 	    ![](assets/Pasted%20image%2020260211144406.png)
-	2. 下载 TensorRT 例子
-	   [TensorRT Demo](https://github.com/NVIDIA/TensorRT/tree/main/samples/sampleOnnxMNIST)
+	2.  下载 TensorRT OSS
+		```
+		git clone -b main https://github.com/nvidia/TensorRT TensorRT
+		cd TensorRT
+		git submodule update --init --recursive
+		```
+	3. 
+	   
 	   
 	
