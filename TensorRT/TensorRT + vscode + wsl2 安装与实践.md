@@ -55,13 +55,20 @@ sudo apt-get update
 		dpkg-query -W tensorrt
 	    ```
 	    ![](assets/Pasted%20image%2020260211144406.png)
+	    
 	2.  下载 TensorRT OSS
 		```
 		git clone -b main https://github.com/nvidia/TensorRT TensorRT
 		cd TensorRT
 		git submodule update --init --recursive
 		```
-	3. 修改根目录 CMakeLists.txt
+		
+	3. 下载 Demo 数据集
+	   [官网指导](https://github.com/NVIDIA/TensorRT/blob/main/samples/README.md#preparing-sample-data)
+	   下载后，解压到任意位置（官方指导的位置也可），将 TRT_DATADIR 写入~/.bashrc（zsh 则是 ~/.zshrc）（按照下述写死的办法，这一步可忽略）
+	   `export TRT_DATADIR=~/trt-data`
+	   
+	4. 修改根目录 CMakeLists.txt
 	   TensorRT 10.15.1 GA 默认CUDA=13.1、GPU_ARCHS=110。使用vscode的CMake插件，有三种方式去build：
 		  1. 在 .vsocde/settings.json 中配置
 		   2. 使用 CMakePresets.json 配置
@@ -80,12 +87,18 @@ sudo apt-get update
 	   ```
 	   ![](assets/Pasted%20image%2020260211165029.png)
 	
-	4. 构建 protobuf 和 sample_onnx_mnist
+	5. 构建 protobuf 和 sample_onnx_mnist
 	   sample_onnx_mnist 依赖 protobuf，需要先构建 protobuf。
 	   ctrl+shift+p -> Set Build Target -> third_party.protobuf -> build
 	   ctrl+shift+p -> Set Build Target -> sample_onnx_mnist -> build
 	   
-	5. 
+	6. 修改 dataDirs 和 dlaCore
+	   这一步为了方便我选择写死，也可以在
+	   ![](assets/Pasted%20image%2020260211172507.png)
+	7. 运行
+	   终端运行`/Your/Project/Path/TensorRT/build/sample_onnx_mnist_debug -d ~/trt-data/mnist`
+	   结果应该为：
+	   
 	   
 	   
 	
