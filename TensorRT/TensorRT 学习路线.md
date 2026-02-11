@@ -21,8 +21,8 @@
 
 1. TensorRT 架构：
 	  - Parser（解析模型）
-	  - Runtime（运行 engine）
 	  - Builder（构建 engine）
+	  - Runtime（运行 engine）
 2. 数据精度：
 	  - INT8 Calibration 原理
 	  - FP32 / FP16 / INT8 精度降级
@@ -42,15 +42,15 @@
 学习内容：
 
 1. **Python API 或 C++ API**
-   * 网络解析 `trt.OnnxParser` / `trt.Builder`
-   * Engine 构建与序列化
-   * 推理执行 (`context.execute_v2`)
-1. **动态输入 / Batch**
-   * `set_binding_shape` 与动态形状支持
-   * 多 batch 性能调优
-1. **Memory Management**
-   * GPU 内存分配 / Tensor reuse
-   * Workspace 调优
+	* 网络解析 `trt.OnnxParser` / `trt.Builder`
+	* Engine 构建与序列化
+	* 推理执行 (`context.execute_v2`)
+2. **动态输入 / Batch**
+	* `set_binding_shape` 与动态形状支持
+	* 多 batch 性能调优
+3. **Memory Management**
+	* GPU 内存分配 / Tensor reuse
+	* Workspace 调优
 
 练习建议：
 * 将 llama.cpp 模型转换为 ONNX，再用 TensorRT Engine 执行推理
@@ -63,14 +63,14 @@
 目标：将你的低级优化经验与 TensorRT 结合，提升性能
 学习内容：
 1. **INT8 Calibration**
-   * 量化精度与性能权衡
-   * 使用 representative dataset 进行校准
-1. **Layer/Graph Fusion**
-   * 理解 TensorRT 的 layer fusion 逻辑
-   * 对比自定义 CUTLASS kernel 与 TensorRT engine 性能
-1. **Tensor Core 最大化**
-   * 确保 FP16/INT8 推理充分利用 Tensor Core
-   * 分析 kernel 调用与利用率
+	* 量化精度与性能权衡
+	* 使用 representative dataset 进行校准
+2. **Layer/Graph Fusion**
+	* 理解 TensorRT 的 layer fusion 逻辑
+	* 对比自定义 CUTLASS kernel 与 TensorRT engine 性能
+3. **Tensor Core 最大化**
+	* 确保 FP16/INT8 推理充分利用 Tensor Core
+	* 分析 kernel 调用与利用率
 
 练习建议：
 * 用你熟悉的 llama 模型或 GPT 模型做 INT8 推理
