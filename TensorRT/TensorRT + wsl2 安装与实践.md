@@ -27,7 +27,7 @@ sudo apt-get update
 		sudo apt-get install python3-libnvinfer-dev
      ```
    - 虚拟Python环境
-     1. 去 NVIDIA TensorRT 下载页，下载tar包
+	 1. 去 NVIDIA TensorRT 下载页，下载tar包
         ![](assets/Pasted%20image%2020260210163126.png)
      2. 进入虚拟环境
         ```
@@ -46,9 +46,11 @@ sudo apt-get update
         python -m pip install numpy onnx onnx-graphsurgeon
         ```
 
-8. **验证**
+2. **验证**
+	 1. 验证 TensorRT 软件包   
    ```
 		# 验证 TensorRT 软件包
 		dpkg-query -W tensorrt
-		# 
    ```
+	![](assets/Pasted%20image%2020260211144406.png)
+			   1. 
