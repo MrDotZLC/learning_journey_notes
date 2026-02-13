@@ -98,7 +98,7 @@ TensorRT Runtime
 | FP16 | 速度快、精度损失小 | 主流推理         |
 | INT8 | 极致性能      | 边缘设备 / 大规模部署 |
 ### INT8 校准（Calibration）
-[TensorRT INT8 Calibration 原理](TensorRT%20INT8%20Calibration%20原理.md)
+[TensorRT INT8 Calibration 原理](../量化/TensorRT%20INT8%20Calibration%20原理.md)
 * 使用少量代表性数据
 * 统计激活值分布
 * 自动计算 scale / zero-point
