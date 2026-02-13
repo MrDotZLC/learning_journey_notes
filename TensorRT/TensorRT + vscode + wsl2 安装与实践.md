@@ -93,8 +93,10 @@ sudo apt-get update
 	   ctrl+shift+p -> Set Build Target -> sample_onnx_mnist -> build
 	   
 	6. 修改 dataDirs 和 dlaCore
-	   这一步为了方便我选择写死，也可以在
-	   ![](assets/Pasted%20image%2020260211172507.png)
+	   - 这一步为了方便我选择写死，也可以在CMakeLists.txt中设置运行参数。
+	   - DLA默认为-1，需要看下自己的 N 系显卡没有 DLA 核心。
+	   - 路径最好为**完全展开的绝对路径**，避免找不到 onnx 文件
+	   ![](assets/Pasted%20image%2020260213024653.png)
 	7. 运行
 	   终端运行`/Your/Project/Path/TensorRT/build/sample_onnx_mnist_debug -d ~/trt-data/mnist`
 	   结果应该为：
