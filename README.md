@@ -1,5 +1,5 @@
 本仓库是本人从 C++ 转向 AI 过程中的学习笔记（大部分 GPT 回答生成），包括Leetcode算法、C++八股文、Transformer、LLaMA.cpp框架浅析、CUDA（Tensor Core、Cutlass）及相关算子代码浅析等。
-
+![](assets/NotebookLM%20Mind%20Map.png)
 # 0. 特别鸣谢
 感谢我老婆咕咕。感谢下文所有github上传者、[bilibili博主：比飞鸟贵重的多_HKL](https://space.bilibili.com/218427631/?spm_id_from=333.788.upinfo.detail.click)、[bilibili博主：灵茶山艾府](https://space.bilibili.com/206214?spm_id_from=333.1387.follow.user_card.click)、所有截图贴出的博客博主。
 
