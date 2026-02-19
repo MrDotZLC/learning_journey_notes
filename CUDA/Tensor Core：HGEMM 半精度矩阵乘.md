@@ -1,6 +1,3 @@
----
-render_with_liquid: false
----
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
 工具代码来自[cuda_hgemm](https://github.com/Bruce-Lee-LY/cuda_hgemm/tree/master/src/common)
 算子代码来自[LeetCUDA](https://github.com/xlite-dev/LeetCUDA/blob/main/kernels/hgemm/wmma/hgemm_wmma.cu)（强无敌的开源库）
@@ -208,7 +205,7 @@ ldmatrix.sync.aligned.m16n16.num.trans{.ss}.dst_fmt.src_fmt r, [p];
 .type ={.b16,.b8};
 
 # example
-ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%r0,%r1,%r2,%r3}, [%r_shared];
+ldmatrix.sync.aligned.m8n8.x4.shared.b16 {r0,r1,r2,r3}, [%r_shared];
 
 ```
 #### 1.3.2.2 参数介绍
@@ -238,7 +235,7 @@ idmatrix参数是相互协作的、遵循下述表格规则的。
 图表1-4：用于单个 8×8 矩阵（16 位元素）的 stmatrix 片段布局。
  ![](assets/Pasted%20image%2020260206173243.png)
 1. **type、num、寄存器r之间的关系**
-   type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8×8 tile，寄存器{%r0,%r1,%r2,%r3}分别存储tile的首地址，每个线程对应 tile 的行地址，如图表1-3。
+   type为b16时，shape只能是8×8，如果矩阵是16 * 16，num则是x4，分成4个8×8 tile，寄存器{r0,r1,r2,r3}分别存储tile的首地址，每个线程对应 tile 的行地址，如图表1-3。
    ![](assets/Pasted%20image%2020260206174908.png)
 
 2. **源地址的语义**
