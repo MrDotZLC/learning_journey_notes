@@ -45,8 +45,6 @@ $$Y = XW_0 + sXAB$$
 $$A \sim \mathcal{N}(0, \sigma^2),\quad B = 0$$
 确保训练起始：
 $$\Delta W_{t=0} = 0$$
-
----
 ## **1.2 严密梯度链式推导 (Rigorous Gradient Derivation)**
 ### **1.2.0 问题设定**
 输入：
@@ -116,42 +114,32 @@ $$(r \times d)(d \times n)(n \times k)
 = r \times k $$ 
 ### **1.2.5 梯度路径解释**
 梯度传播链：
-[  
-\mathcal{L}  
+$$\mathcal{L}  
 \rightarrow Y  
 \rightarrow XAB  
-\rightarrow A,B  
-]
+\rightarrow A,B$$
 关键观察：
 - 梯度不流向 (W_0)（冻结）
 - 梯度被限制于低秩结构：
-[  
-\nabla_W \mathcal{L}  
+$$\nabla_W \mathcal{L}  
 \approx s X^T G  
-\Rightarrow \text{rank constrained}  
-]
----
+\Rightarrow \text{rank constrained}$$
 ## **1.3 LoRA 低秩有效性解释**
----
 ### **1.3.1 一阶泰勒近似**
-[  
-f(W_0 + \Delta W)  
+$$f(W_0 + \Delta W)  
 \approx  
-f(W_0) + J_{W_0} \Delta W  
-]
+f(W_0) + J_{W_0} \Delta W$$
 若梯度主导方向低维：
 $$\Delta W \approx AB$$
----
 ### **1.3.2 谱角度解释**
 经验现象：
 $$\sigma_1 \gg \sigma_2 \gg \dots$$
 更新矩阵奇异值快速衰减 ⇒ 低秩近似损失小。
+
 ---
 # 2. QLoRA (Quantized LoRA) 与存储压缩
----
 ## **2.1 机制定义**
 QLoRA 将底座模型 (W_0) 压缩至 4-bit（NF4），显存需求降低约 75%，LoRA 路径用于补偿任务适配与量化误差。
----
 ## **2.2 量化路径数学展开**
 底座权重：
 $$W_0 \xrightarrow{\text{Quant}} W_q$$
@@ -159,7 +147,6 @@ $$W_0 \xrightarrow{\text{Quant}} W_q$$
 $$\hat{W}_0 = \text{Dequant}(W_q)$$
 最终权重：
 $$W = \hat{W}_0 + sAB$$
----
 ## **2.3 量化误差分解**
 定义误差：
 $$E = W_0 - \hat{W}_0$$
@@ -170,25 +157,21 @@ $$sAB \approx E + \Delta W^*$$
 ⇒ LoRA 同时补偿：
 - 任务适配
 - 量化误差
----
 ## **2.4 双重量化 (Double Quantization, DQ)**
 scale 数量：
 $$\frac{P}{B_1}$$
 scale 再量化：
 $$\frac{P}{B_1 B_2}$$
 额外 bits：
-# [  
-\text{Overhead}
+$$\text{Overhead}
 \frac{8}{B_1}  
 +  
-\frac{32}{B_1 B_2}  
-]
+\frac{32}{B_1 B_2}$$
 典型：
-[  
-B_1=64,; B_2=256  
-\Rightarrow 0.127 \text{ bits/param}  
-]
+$$B_1=64,; B_2=256  
+\Rightarrow 0.127 \text{ bits/param}$$
 ⚠️ 表示 **scale 存储额外开销**
+
 ---
 ## **2.5 分页优化器 (Paged Optimizers)**
 机制：
@@ -196,16 +179,13 @@ B_1=64,; B_2=256
 - Adam 状态页级换出 CPU RAM
 延迟隐藏：
 $$\text{cudaMemPrefetchAsync}$$
----
 ## **2.6 量化误差补偿**
-[  
-W_{\text{final}} =  
-\text{Dequant}(W_{NF4}) + sAB  
-]
+$$W_{\text{final}} =  
+\text{Dequant}(W_{NF4}) + sAB$$
 LoRA 路径学习量化残差结构。
+
 ---
 # 3. bitsandbytes (bnb) 底层技术
----
 ## **3.1 NF4 最优性推导逻辑**
 目标：
 $$\min_q \mathbb{E}[(w - q(w))^2]$$
@@ -214,32 +194,32 @@ $$w \sim \mathcal{N}(0,1)$$
 最优标量量化边界：
 $$P(w \in \text{bin}_i) = \text{constant}$$
 ⇒ 使用分位数
+
 ---
 ## **3.2 分位数量化表达**
 $$q_i = \Phi^{-1}(p_i)$$
 $$p_i = \frac{i + 0.5}{16}$$
 （概念表达，实际码本经数值优化）
+
 ---
 ## **3.3 LLM.int8() 与异常值处理**
 $$|x| > \alpha,\quad \alpha \approx 6$$
+
 |维度|计算|
 |---|---|
 |Outlier|FP16|
 |Normal|INT8|
+
 ---
 # 4. CUDA 工程实现 (C++ / Cutlass 视角)
----
 ## **4.1 反量化数学表达**
 $$w_{fp16} = \text{LUT}[code] \times scale$$
 Kernel 流程：
-[  
-\text{Load} \rightarrow  
+$$\text{Load} \rightarrow  
 \text{Unpack} \rightarrow  
 \text{LUT} \rightarrow  
 \text{Scale} \rightarrow  
-\text{MMA}  
-]
----
+\text{MMA}$$
 ## **4.2 计算-访存重叠目标**
 理想：
 $$T_{dequant} \subseteq T_{mma}$$
@@ -247,35 +227,24 @@ $$T_{dequant} \subseteq T_{mma}$$
 - shared LUT
 - vectorized load
 - warp pipeline
----
 ## **4.3 显存足迹计算公式 (VRAM Footprint)**
-[  
-\mathcal{M}  
+$$\mathcal{M}  
 \approx  
 \underbrace{\Phi \cdot 0.5 (1+\epsilon)}_{\text{NF4+DQ}}  
 +  
 \underbrace{\sum 2r(d_l+k_l)\cdot 4}_{\text{Adapters}}  
 +  
-\mathcal{A}(bs, seq)  
-]
+\mathcal{A}(bs, seq)$$
 $$\epsilon \approx 0.03$$
 ---
 # 5. 总结与逻辑闭环
----
 ### **数学层面**
 - 内在维度 → 低秩结构
 - LoRA 梯度 → 显式矩阵微分
 - NF4 → 高斯分位数量化
----
 ### **系统层面**
 - 4-bit + DQ 降低存储
 - Paged Optimizer 降低 VRAM 峰值
----
 ### **工程层面**
 - Fused Dequant + W4A16 GEMM
 - Latency hiding 为核心优化目标
----
-如需下一步深化，可扩展：
-✔ LoRA 与 Hessian 近似  
-✔ Rank 与泛化误差  
-✔ TensorRT / vLLM kernel 映射
