@@ -4,7 +4,7 @@ K-Quant 是 llama.cpp 引入的**非均匀、分组混合精度**量化方案，
 
 ---
 # 2. 均匀量化基础（对比参照）
-给定浮点权重 $x \in \mathbb{R}$，均匀量化到 $b$ bit：
+给定浮点权重 $x \in \mathbb{R}$，均匀h量化到 $b$ bit：
 $$ q = \text{round}\left(\frac{x}{s}\right) + z $$
 $$ \hat{x} = s \cdot (q - z) $$
 其中：
