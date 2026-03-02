@@ -1,6 +1,6 @@
 # 第 1 阶段（1 周）：基础概念理解
 学习材料：
-- “什么是 Transformer”[🚀 Transformer解析](%F0%9F%9A%80%20Transformer%E8%A7%A3%E6%9E%90.md)
+- “什么是 Transformer”[🚀 Transformer解析](../Transformer/🚀%20Transformer解析.md)
 - “自注意力如何工作”[注意力和自注意力（Attention vs Self-Attention）](../Transformer/注意力和自注意力（Attention%20vs%20Self-Attention）.md)
 - “什么是 KV Cache”[KV Cache介绍](../Transformer/KV%20Cache介绍.md)
 - “prefill vs decode”[🚀 大模型推理流程](%F0%9F%9A%80%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E6%8E%A8%E7%90%86%E6%B5%81%E7%A8%8B.md)第3章、[动态批处理（Continuous Batching）](动态批处理（Continuous%20Batching）.md)
@@ -64,7 +64,7 @@
 
 - [x] 3. **从零讲 KV Cache（最重要的概念）**
 
-- [ ] 4. **从零讲 Continuous Batching（怎么并发跑多个用户）**
+- [x] 4. **从零讲 Continuous Batching（怎么并发跑多个用户）** ✅ 2026-03-03
 
 - [ ] 5. **迷你 vLLM 项目的代码结构 & 每个模块如何写**
 
