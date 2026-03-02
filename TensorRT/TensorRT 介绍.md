@@ -78,6 +78,7 @@ TensorRT Runtime
  ---
 # 四、TensorRT 的核心优化技术
 ## 1️⃣ 计算图级优化（Graph Optimization）
+[TensorRT 与 TensorRT-LLM 图优化与层融合底层机制](TensorRT%20与%20TensorRT-LLM%20图优化与层融合底层机制.md)
 - **算子融合（Layer Fusion）**
 * Conv + Bias + ReLU → 单 kernel
 * 消除冗余节点
