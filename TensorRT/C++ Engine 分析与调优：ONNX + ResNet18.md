@@ -76,6 +76,7 @@ WHERE text IN ('H2D', 'Infer', 'D2H', 'benchmark_iter')
 GROUP BY text
 ORDER BY avg_ms DESC;
 ```
+![](assets/Pasted%20image%2020260302073824.png)
 ### WSL2 注意事项
 - CUPTI kernel-level tracing 不可用（无 `CUPTI_ACTIVITY_KIND_KERNEL` 表）
 - NVTX 事件正常采集，存入 `NVTX_EVENTS` 表
