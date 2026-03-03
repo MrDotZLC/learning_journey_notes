@@ -1,4 +1,4 @@
-# 1 PagedAttention + FlashAttention Kernel 融合实现
+## 1 PagedAttention + FlashAttention Kernel 融合实现
 >PagedAttention 解决 **KV cache 管理问题**。  
 >FlashAttention 解决 **Attention 访存复杂度问题**。
 
@@ -17,6 +17,7 @@ FlashAttention Streaming Kernel
 | TensorRT-LLM | FMHA kernel                     |
 | SGLang       | Paged FlashAttention            |
 | TGI          | FlashAttention                  |
+
 核心思想：
 ```
 block streaming
@@ -29,9 +30,11 @@ register accumulation
 ```
 QK^T matrix
 ```
+
 ---
-# 2 Tile Streaming Attention
-## 2.1 Attention 复杂度
+
+## 2 Tile Streaming Attention
+### 2.1 Attention 复杂度
 标准 Attention：
 $$S = QK^T$$
 维度：
@@ -46,8 +49,9 @@ $$O(T_q T_k)$$
 |seq_len|matrix size|
 |---|---|
 |4096|64MB|
+
 GPU 显存压力巨大。
-## 2.2 Streaming Attention
+### 2.2 Streaming Attention
 FlashAttention 使用 **Tile Streaming**：
 将 KV 分块：
 ```
@@ -66,7 +70,7 @@ for block in KV_blocks:
 无需保存 score matrix。
 内存复杂度：
 $$O(T)$$
-## 2.3 Tile 数学推导
+### 2.3 Tile 数学推导
 设 block 大小：
 $$B$$
 则：

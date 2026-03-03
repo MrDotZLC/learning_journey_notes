@@ -1,4 +1,4 @@
-# 第 1 阶段（1 周）：基础概念理解
+## 第 1 阶段（1 周）：基础概念理解
 学习材料：
 - “什么是 Transformer”[🚀 Transformer解析](../Transformer/🚀%20Transformer解析.md)
 - “自注意力如何工作”[注意力和自注意力（Attention vs Self-Attention）](../Transformer/注意力和自注意力（Attention%20vs%20Self-Attention）.md)
@@ -8,7 +8,7 @@
 
 ---
 
-# 🎯 第 2 阶段（1–2 周）：CUDA 必备知识
+## 🎯 第 2 阶段（1–2 周）：CUDA 必备知识
 
 只需要学：
 - 线程模型（block / grid / warp）
@@ -23,7 +23,7 @@
 
 ---
 
-# 🎯 第 3 阶段（3–4 周）：LLM Serving（核心）
+## 🎯 第 3 阶段（3–4 周）：LLM Serving（核心）
 
 学：
 - 动态批处理（Continuous Batching）[动态批处理（Continuous Batching）](动态批处理（Continuous%20Batching）.md)
@@ -40,9 +40,9 @@
 
 ---
 
-# 🎯 第 4 阶段（2–4 周）：做一个简历项目（必须）
+## 🎯 第 4 阶段（2–4 周）：做一个简历项目（必须）
 
-## 最推荐的项目：
+### 最推荐的项目：
 
 **“迷你版 vLLM：用 C++ + CUDA 实现一个 LLM 推理服务”**
 功能：

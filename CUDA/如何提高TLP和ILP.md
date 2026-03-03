@@ -68,6 +68,7 @@ ILP 核心目标：**让单个 warp / 线程内的指令尽量并行执行**，�
 | --- | ----------------------------------------- | ------------------------- |
 | TLP | 增加线程/block/grid，减少资源占用，避免 warp divergence | 过多线程 → 寄存器/SMEM 压力 → 占用下降 |
 | ILP | 循环展开，多独立计算链，prefetch                      | 增加寄存器占用 → 可能降低 TLP        |
+
 **原则**：
 1. **Memory-bound kernel** → 优先提升 TLP
 2. **Compute-bound kernel** → 提升 ILP

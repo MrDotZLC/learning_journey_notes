@@ -1,4 +1,4 @@
-# 1. 操作系统视角的内存模型：Virtual Memory
+## 1. 操作系统视角的内存模型：Virtual Memory
 现代操作系统（Linux / Windows）采用 **虚拟内存 (Virtual Memory)** 机制。
 CPU 访问的地址并不是物理地址，而是 **虚拟地址 (Virtual Address)**。  
 操作系统通过 **页表 (Page Table)** 维护如下映射关系：
@@ -11,8 +11,9 @@ $$\text{Page Size} \approx 4,KB \quad (\text{x86 Linux 默认})$$
 系统通过 **MMU (Memory Management Unit)** 完成地址转换。
 
 ---
-# 2. 可分页内存（Pageable Memory）
-## 2.1 定义
+
+## 2. 可分页内存（Pageable Memory）
+### 2.1 定义
 **Pageable Memory** 是默认的用户态内存分配方式，例如：
 ```cpp
 malloc()
@@ -29,12 +30,12 @@ float* ptr = new float[N];
 ```
 malloc → glibc allocator → mmap/brk
 ```
-## 2.2 操作系统行为
+### 2.2 操作系统行为
 当物理内存紧张时，OS 会执行 **页面置换 (Paging)**：
-### Swap Out
+#### Swap Out
 将不活跃页面写入磁盘：
 $$\text{RAM} \rightarrow \text{Swap Disk}$$
-### Swap In
+#### Swap In
 当再次访问该页时：
 1. 触发 **Page Fault**
 2. OS 从磁盘加载数据
@@ -51,13 +52,14 @@ OS loads page from disk
      ↓
 Update page table
 ```
-## 2.3 核心问题
+### 2.3 核心问题
 Pageable Memory 具有两个关键特性：
 
 |特性|说明|
 |---|---|
 |物理地址不稳定|OS 可以随时重新映射|
 |可能不在 RAM|可能被 swap 到磁盘|
+
 因此：
 ```
 Virtual Address ≠ 固定 Physical Address
@@ -65,8 +67,9 @@ Virtual Address ≠ 固定 Physical Address
 这对 GPU DMA 传输是致命问题。
 
 ---
-# 3. 页锁定内存（Pinned Memory / Page-Locked Memory）
-## 3.1 定义
+
+## 3. 页锁定内存（Pinned Memory / Page-Locked Memory）
+### 3.1 定义
 Pinned Memory 是 **锁定在物理 RAM 的内存**。
 CUDA API：
 ```cpp
@@ -78,7 +81,7 @@ cudaHostAlloc()
 float* data;
 cudaMallocHost((void**)&data, N * sizeof(float));
 ```
-## 3.2 操作系统约束
+### 3.2 操作系统约束
 Pinned Memory 具有以下性质：
 
 |属性|说明|
@@ -86,14 +89,17 @@ Pinned Memory 具有以下性质：
 |不可 Swap|永远不会被写入磁盘|
 |物理地址固定|Page Table 不允许重新映射|
 |RAM 常驻|始终存在于物理内存|
+
 形式化约束：
 $$PA(t) = \text{constant}$$
 即：
 ```
 Physical Address 在整个生命周期保持不变
 ```
+
 ---
-# 4. GPU 传输机制：DMA
+
+## 4. GPU 传输机制：DMA
 CPU 与 GPU 的数据传输通过 **PCIe DMA 控制器**完成。
 DMA（Direct Memory Access）特点：
 
@@ -102,6 +108,7 @@ DMA（Direct Memory Access）特点：
 |不经过 CPU|硬件直接读写|
 |使用物理地址|不理解虚拟地址|
 |传输期间地址必须稳定|否则数据损坏|
+
 DMA 访问流程：
 ```
 GPU DMA Engine
@@ -116,9 +123,11 @@ $$DMA: \quad \text{requires fixed physical memory}$$
 ```
 DMA 只能访问 Pinned Memory
 ```
+
 ---
-# 5. 为什么 cudaMemcpyAsync 在 Pageable Memory 上退化为同步
-## 5.1 示例代码
+
+## 5. 为什么 cudaMemcpyAsync 在 Pageable Memory 上退化为同步
+### 5.1 示例代码
 ```cpp
 cudaMemcpyAsync(
     d_dst,
@@ -133,7 +142,7 @@ cudaMemcpyAsync(
 h_src_pageable = malloc/new/std::vector
 ```
 即 **Pageable Memory**。
-## 5.2 CUDA Driver 的内部处理
+### 5.2 CUDA Driver 的内部处理
 CUDA 驱动不能直接让 DMA 访问 Pageable Memory。
 否则如果 OS 重新映射页面：
 ```
@@ -144,7 +153,7 @@ DMA → invalid physical address
 - Kernel panic
 - 系统 crash
 因此 CUDA Driver 使用 **Staging Buffer 机制**。
-## 5.3 Staging Buffer 机制
+### 5.3 Staging Buffer 机制
 内部流程：
 ```
 Step1  分配隐藏 Pinned Buffer
@@ -180,16 +189,18 @@ Async API → 实际同步行为
 ```
 CPU-GPU Overlap 失效
 ```
+
 ---
-# 6. 常见认知误区：vector vs float*
-## 6.1 错误理解
+
+## 6. 常见认知误区：vector vs float*
+### 6.1 错误理解
 错误结论：
 ```
 vector<float> = pageable
 float* = pinned
 ```
 该说法是错误的。
-## 6.2 本质：分配方式决定内存类型
+### 6.2 本质：分配方式决定内存类型
 指针类型 **不决定内存属性**。
 ```
 float* 只是地址变量
@@ -200,7 +211,8 @@ float* 只是地址变量
 |---|---|
 |malloc/new|Pageable|
 |cudaMallocHost|Pinned|
-## 6.3 std::vector 的行为
+
+### 6.3 std::vector 的行为
 标准 vector 使用：
 ```cpp
 std::allocator
@@ -217,8 +229,10 @@ malloc
 ```
 std::vector → Pageable Memory
 ```
+
 ---
-## 6.4 float* 成员变量的真实情况
+
+### 6.4 float* 成员变量的真实情况
 示例：
 ```cpp
 class MyClass {
@@ -246,10 +260,12 @@ Pageable Memory
 变量类型 ≠ 内存类型
 分配 API 才决定内存属性
 ```
+
 ---
-# 7. 为什么不能全部使用 Pinned Memory
+
+## 7. 为什么不能全部使用 Pinned Memory
 Pinned Memory 并非免费资源。
-## 7.1 分配成本高
+### 7.1 分配成本高
 Pinned Memory 分配涉及：
 ```
 OS page lock
@@ -261,7 +277,7 @@ kernel syscall
 cudaMallocHost >> malloc
 ```
 分配延迟明显更高。
-## 7.2 消耗系统 RAM
+### 7.2 消耗系统 RAM
 Pinned Memory **强制占用物理内存**：
 $$Pinned + System + Applications \le RAM$$
 如果锁定大量内存：
@@ -277,14 +293,18 @@ Swap 使用 ↑
 ```
 Pinned Memory < 50% RAM
 ```
+
 ---
-# 8. 工程实践：Pinned std::vector
+
+## 8. 工程实践：Pinned std::vector
 为了同时获得：
 - vector 自动管理
 - Pinned Memory
 需要 **Custom Allocator**。
+
 ---
-# 9. CUDA Pinned Allocator 实现
+
+## 9. CUDA Pinned Allocator 实现
 ```cpp
 #include <vector>
 #include <cuda_runtime.h>
@@ -320,8 +340,10 @@ using pinned_vector = std::vector<T, CudaPinnedAllocator<T>>;
 ```cpp
 pinned_vector<float> data(N);
 ```
+
 ---
-# 10. 为什么 pinned_vector 可以实现真正异步
+
+## 10. 为什么 pinned_vector 可以实现真正异步
 调用：
 ```cpp
 cudaMemcpyAsync(
@@ -356,8 +378,10 @@ cudaMemcpyAsync 立即返回
 ```
 CPU-GPU Overlap
 ```
+
 ---
-# 11. 带宽提升原因
+
+## 11. 带宽提升原因
 Pageable Memory 传输：
 ```
 Pageable
@@ -380,8 +404,10 @@ PCIe 有效带宽通常提升：
 ```
 20% ~ 50%
 ```
+
 ---
-# 12. 生命周期管理
+
+## 12. 生命周期管理
 Pinned Memory 在异步传输中必须保持有效。
 错误示例：
 ```cpp
@@ -407,8 +433,10 @@ cudaEventSynchronize(event);
 ```
 DMA 完成 → 再释放内存
 ```
+
 ---
-# 13. CUDA Host Memory 使用策略
+
+## 13. CUDA Host Memory 使用策略
 工程建议：
 
 |场景|建议|
@@ -417,6 +445,7 @@ DMA 完成 → 再释放内存
 |临时 CPU 数据|使用 Pageable|
 |大规模 Host Buffer|控制比例|
 |高频分配|使用 Memory Pool|
+
 推荐模式：
 ```
 Pinned Memory Pool
@@ -429,8 +458,10 @@ GPU Transfer
 ```
 cudaMallocHost / cudaFreeHost 高频调用
 ```
+
 ---
-# 14. 总结
+
+## 14. 总结
 核心规律：
 ```
 DMA 只能访问固定物理地址
@@ -447,6 +478,7 @@ GPU Async Copy → 必须使用 Pinned Memory
 |Swap|允许|禁止|
 |DMA|不安全|安全|
 |cudaMemcpyAsync|退化同步|真异步|
+
 工程原则：
 ```
 Pinned 用于 GPU IO

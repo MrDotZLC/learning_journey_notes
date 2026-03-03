@@ -1,4 +1,4 @@
-# 一、背景：attention 的数学定义与工程现实之间的矛盾
+## 一、背景：attention 的数学定义与工程现实之间的矛盾
 Transformer 中的 attention 在数学上非常简单。  
 对一个固定的 query，其输出定义为：
 $$O = \sum_j \alpha_j V_j,\quad  

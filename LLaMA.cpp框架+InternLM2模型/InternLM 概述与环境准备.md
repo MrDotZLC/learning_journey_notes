@@ -3,7 +3,7 @@
 1. 通过Transformers库加载模型到本地，并执行推理。
 2. 基于llama.cpp框架运行调试internlm2-1_8b模型，精度按设备情况选择F16/F32转成gguf文件（详见llama.cpp-convert_hf_to_gguf.py）。
 以下环境需根据设备情况进行调整，故不提供详细版本号，自行AI/搜索。
-# 环境准备
+## 环境准备
 1. Ubuntu系统（或windows下的wsl2）
 2. vscode及相关插件环境（python、c++、cmake等）
 3. cuda环境（driver、cuda toolkit等）

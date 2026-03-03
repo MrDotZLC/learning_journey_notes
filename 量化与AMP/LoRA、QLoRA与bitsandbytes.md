@@ -1,5 +1,5 @@
-# 0. 背景与系统瓶颈 (Background & System Bottlenecks)
-## **0.1 内在维度假说 (Intrinsic Dimension)**
+## 0. 背景与系统瓶颈 (Background & System Bottlenecks)
+### **0.1 内在维度假说 (Intrinsic Dimension)**
 Aghajanyan 等人指出，预训练大语言模型（LLM）处于严重的过参数化状态。在特定下游任务微调时，参数更新的“内在维度”极低，即梯度主要分布在低秩子空间中。
 核心推论：
 $$W \in \mathbb{R}^{d \times k}  

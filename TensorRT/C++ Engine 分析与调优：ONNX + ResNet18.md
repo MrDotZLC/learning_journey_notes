@@ -1,15 +1,18 @@
-# 环境
+## 环境
+
 |项目|版本|
 |---|---|
 |GPU|GTX 1660 Ti (Turing, SM 7.5)|
 |TensorRT|10.15.1|
 |CUDA|12.6|
 |nsys|2024.5.1|
+
 ***
-# 1. NVTX 标注 + nsys Profiling
-## 思路
+
+## 1. NVTX 标注 + nsys Profiling
+### 思路
 默认 `nsys timeline` 只显示 CUDA kernel 乱码名称。加入 NVTX 标注后，可在 timeline 上看到清晰的阶段标签（H2D / Infer / D2H）。
-## 变动代码
+### 变动代码
 **`src/infer.cpp` — 顶部加头文件：**
 ```cpp
 #include <nvtx3/nvToolsExt.h>
@@ -73,13 +76,15 @@ WHERE text IN ('H2D', 'Infer', 'D2H', 'benchmark_iter')
 GROUP BY text
 ORDER BY avg_ms DESC;
 ```
-## WSL2 注意事项
+### WSL2 注意事项
 - CUPTI kernel-level tracing 不可用（无 `CUPTI_ACTIVITY_KIND_KERNEL` 表）
 - NVTX 事件正常采集，存入 `NVTX_EVENTS` 表
 - `.nsys-rep` 需使用与命令行版本一致的 GUI（2024.5.1）打开
+
 ***
-# 2. Pageable vs Pinned Memory
-## 问题发现
+
+## 2. Pageable vs Pinned Memory
+### 问题发现
 `nsys stats` 查询结果：
 
 |阶段|优化前|优化后|改善|
@@ -87,9 +92,10 @@ ORDER BY avg_ms DESC;
 |H2D|1.49 ms|0.036 ms|41×|
 |Infer|1.16 ms|~1.1 ms|持平|
 |D2H|**22.306 ms**|**0.014 ms**|**1593×**|
-## 根因
+
+### 根因
 WSL2 下 `std::vector`（Pageable Memory）执行 `cudaMemcpyAsync` 会退化为同步拷贝，触发内核态内存锁定，导致巨大开销。
-## 变动代码
+### 变动代码
 **`src/infer.hpp` — 新增 Pinned Memory 成员：**
 ```cpp
 float* m_pinned_input  = nullptr;
@@ -131,15 +137,18 @@ cudaStreamSynchronize(m_stream);
 return std::vector<float>(m_pinned_output,
                           m_pinned_output + batchSize * k_CLS);
 ```
-## Pinned Memory 使用原则
+### Pinned Memory 使用原则
+
 |场景|建议|
 |---|---|
 |ResNet18（~10MB）|无限制|
 |多模型并发|注意总量，避免挤压系统内存|
 |LLM（GB 级）|谨慎评估物理内存容量|
+
 ***
-# 3. Multi-Batch 性能曲线
-## 变动代码
+
+## 3. Multi-Batch 性能曲线
+### 变动代码
 **`src/infer.hpp` — `benchmark()` 改为返回结构体：**
 ```cpp
 struct BenchResult {
@@ -178,7 +187,8 @@ for (int bs : batch_sizes) {
               << "\n";
 }
 ```
-## 结果
+### 结果
+
 |Batch|FP32 (img/s)|FP16 (img/s)|INT8 (img/s)|
 |---|---|---|---|
 |1|583|813|770|
@@ -186,14 +196,17 @@ for (int bs : batch_sizes) {
 |4|868|1383|1591|
 |8|956|1597|1942|
 |16|1014|1655|**2070**|
-## 结论
+
+### 结论
 - `batch = 8` 附近 GPU 接近饱和，`batch = 16` 边际收益有限
 - INT8 在 `batch = 1` 时略慢于 FP16（kernel launch overhead 占比高）
 - `batch ≥ 4` 后 INT8 优势明显
 - INT8 最大加速比 **2.04×**（vs FP32，batch=16）
+
 ***
-# 4. Workspace 调优
-## 变动代码
+
+## 4. Workspace 调优
+### 变动代码
 **`src/builder.hpp` — 加 workspace 参数：**
 ```cpp
 void buildEngine(const std::string& onnxPath,
@@ -228,12 +241,14 @@ for (auto& [wt, build_sec] : ws_results) {
               << "\n";
 }
 ```
-## 结论
+### 结论
 ResNet18 规模较小，workspace 对 build 时间与推理性能均无明显影响。  
 `32MB` workspace 已足够。该参数主要影响大型模型（如 Transformer / LLM）的 kernel tactic 搜索空间。
+
 ***
-# 5. INT8 Calibration：随机数据 vs 真实数据
-## 变动代码
+
+## 5. INT8 Calibration：随机数据 vs 真实数据
+### 变动代码
 **`src/calibrator.hpp` — 新增成员：**
 ```cpp
 std::string              m_calib_data_dir;
@@ -328,13 +343,15 @@ if __name__ == "__main__":
 ```
 **/calib_data/
 ```
-## 精度对比
+### 精度对比
+
 |指标|随机数据|真实数据|
 |---|---|---|
 |cosine_sim|0.9959|**0.9980**|
 |max_abs_diff|1.125|**0.458**|
 |mse|0.0315|**0.0143**|
 |Top-1 match|全部一致|全部一致|
-## 生产环境建议
+
+### 生产环境建议
 - 校准图片数量 **≥ 500**，覆盖真实部署数据分布
 - `calib_cache.bin` 必须与模型版本绑定，模型更新需重新校准

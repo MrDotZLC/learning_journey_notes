@@ -1,10 +1,12 @@
-# 一、行业背景与技术定位
+## 一、行业背景与技术定位
 截至 2025 年，在 NVIDIA 的 Hopper / Blackwell 架构力推 FP8 的同时，大量存量 NVIDIA A100、NVIDIA A10 与 Ada Lovelace GPU 仍以 **INT8 (W8A8)** 作为推理主力精度。
 **SmoothQuant** 已成为主流推理栈（如 vLLM 与 TensorRT-LLM）的核心 PTQ 组件，其本质作用：
 > 将激活侧的量化难度迁移到权重侧，在保持数学等价的前提下，使 W8A8 静态量化成为可工业落地方案。
+
 ---
-# 二、核心痛点：Channel-wise Outlier 的数学根源
-## 2.1 线性层表达式
+
+## 二、核心痛点：Channel-wise Outlier 的数学根源
+### 2.1 线性层表达式
 Transformer 中线性层：
 $$Y = XW$$
 其中：
@@ -13,8 +15,10 @@ $$Y = XW$$
 经验事实：
 - 权重 W：近似零均值高斯分布 → 易量化
 - 激活 X：存在 **通道级离群值 (Channel-wise Outliers)**
+
 ---
-## 2.2 对称静态量化的坍塌机制
+
+### 2.2 对称静态量化的坍塌机制
 对称 INT8 量化步长：
 $$\Delta = \frac{\max(|X|)}{2^{b-1}-1}  
 = \frac{\max(|X|)}{127}$$

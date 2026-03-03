@@ -1,18 +1,18 @@
-# 一、硬件视角：为什么 GPU “需要” swizzle
-## 1. Shared Memory 的物理结构
+## 一、硬件视角：为什么 GPU “需要” swizzle
+### 1. Shared Memory 的物理结构
 以主流 NVIDIA 架构（Volta+）为例：
 * Shared memory 被划分为 **32 个 bank**
 * 每个 bank：
   * 宽度通常为 **4 bytes（32-bit）**
 * 一个 warp = 32 threads
   → **理想情况**：warp 中每个线程命中一个不同的 bank
-### 地址到 bank 的映射
+#### 地址到 bank 的映射
 ```
 bank_id = (address / 4) % 32
 ```
 👉 **问题根源**：
 当多个线程访问地址 stride 相同、对齐关系相同 → bank_id 冲突。
-## 2. 为什么二维 tile 特别容易冲突
+### 2. 为什么二维 tile 特别容易冲突
 典型 GEMM tile：
 ```cpp
 __shared__ float A[BM][BK];  // row-major
@@ -27,7 +27,7 @@ A[ty][k]
   → stride = BK
   → 若 BK 是 32 的倍数，**整 warp 命中同一个 bank**
 这是 swizzle 最常见的触发点。
-# 二、Swizzle 的数学本质
+## 二、Swizzle 的数学本质
 **Swizzle = 一个低成本、可逆的索引置换函数**
 满足：
 1. 逻辑访问顺序不变
@@ -47,8 +47,8 @@ new_idx = (idx & mask1) | ((idx << s) & mask2)
 stride = original_stride + 1
 ```
 👉 GPU 偏爱 **位运算 swizzle**：快、无分支、可编译期展开。
-# 三、Shared Memory Swizzle（最核心）
-## 1. 经典 32×32 tile 冲突分析
+## 三、Shared Memory Swizzle（最核心）
+### 1. 经典 32×32 tile 冲突分析
 ```cpp
 __shared__ float tile[32][32];
 float v = tile[ty][tx];
@@ -67,7 +67,7 @@ float v = tile[tx][ty];
 bank = (tx * 32 + ty) % 32 = ty
 ```
 👉 **warp 内所有线程访问同一个 bank**（32-way conflict）
-## 2. Padding Swizzle（结构级）
+### 2. Padding Swizzle（结构级）
 ```cpp
 __shared__ float tile[32][33];
 ```
@@ -83,12 +83,12 @@ bank = (tx * 33 + ty) % 32
 缺点：
 * 多占 shared memory
 * 不适合 Tensor Core 对齐
-## 3. XOR Index Swizzle（逻辑级，主流）
+### 3. XOR Index Swizzle（逻辑级，主流）
 ```cpp
 int sx = tx ^ ((ty & 1) << 4);
 float v = tile[ty][sx];
 ```
-### 原理
+#### 原理
 * `(ty & 1)` 控制是否 swizzle
 * `<< 4` 影响 bank 高位
 * 保证：
@@ -97,8 +97,8 @@ float v = tile[ty][sx];
   ```
   warp 内均匀分布
 👉 **Ampere / Hopper kernel 中最常见**
-# 四、Warp-Level Swizzle（计算模式）
-## 1. Butterfly / XOR 网络
+## 四、Warp-Level Swizzle（计算模式）
+### 1. Butterfly / XOR 网络
 ```cpp
 int peer = lane ^ 1;
 val += __shfl_sync(0xffffffff, val, peer);
@@ -114,7 +114,7 @@ lane 2 ↔ 3
 * prefix-sum
 * FFT
 * attention score 累加
-## 2. Lane Mapping Swizzle
+### 2. Lane Mapping Swizzle
 ```cpp
 int lane = threadIdx.x & 31;
 int row = lane >> 3;
@@ -123,8 +123,8 @@ int col = lane & 7;
 👉 通过 bit swizzle：
 * 一个 warp 映射为 8×4 或 16×2 tile
 * 每个线程“假装”是二维线程
-# 五、Tensor Core Swizzle（工业级）
-## 1. 为什么 Tensor Core 必须 swizzle
+## 五、Tensor Core Swizzle（工业级）
+### 1. 为什么 Tensor Core 必须 swizzle
 Tensor Core：
 * 按 **fragment** 取数据
 * fragment 中：
@@ -132,7 +132,7 @@ Tensor Core：
 * 若按普通 row-major：
   * bank conflict
   * fragment 装载失败
-## 2. WMMA 中的隐藏 swizzle
+### 2. WMMA 中的隐藏 swizzle
 ```cpp
 wmma::load_matrix_sync(a_frag, shmem_ptr, stride);
 ```
@@ -141,7 +141,7 @@ wmma::load_matrix_sync(a_frag, shmem_ptr, stride);
 * lane → element 映射
 * shared memory swizzle
 👉 **你看到的是 row-major，硬件看到的是 swizzled layout**
-## 3. 手写 MMA（CUTLASS 风格）
+### 3. 手写 MMA（CUTLASS 风格）
 典型 layout 名称：
 * `RowMajorInterleaved`
 * `ColumnMajorTensorOp`
@@ -152,8 +152,8 @@ logical (m, n)
 → swizzle(m, n)
 → physical address
 ```
-# 六、Global Memory / Cache Swizzle
-## 1. Block-linear / Z-order
+## 六、Global Memory / Cache Swizzle
+### 1. Block-linear / Z-order
 ```
 (x, y) → morton(x, y)
 ```
@@ -166,7 +166,7 @@ logical (m, n)
 CUDA 中：
 * 显式少
 * 多为硬件隐式 swizzle
-# 七、如何判断“该不该 swizzle”
+## 七、如何判断“该不该 swizzle”
 ### Nsight Compute 指标
 重点看：
 * `shared_load_bank_conflicts`
@@ -177,7 +177,7 @@ CUDA 中：
 2. 再 padding
 3. 最后 XOR swizzle
 4. Tensor Core → 查官方 layout
-# 八、工程经验总结
+## 八、工程经验总结
 > **Swizzle 是“硬件友好型作弊”**
 > 不改变算法，只改变“看起来的顺序”，让 GPU 跑得更快。
 **牢记三点**：

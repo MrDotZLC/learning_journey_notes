@@ -1,13 +1,13 @@
 环境：[InternLM 概述与环境准备](Learning/LLaMA.cpp框架+InternLM2模型/InternLM%20概述与环境准备.md)
-# 0. 先验知识
-## 0.1. pytorch中的维度与llama.cpp中的内存跨步对比
+## 0. 先验知识
+### 0.1. pytorch中的维度与llama.cpp中的内存跨步对比
 ![Pasted image 20260110030940](assets/Pasted%20image%2020260110030940.png)
-## 0.2. Token输入
+### 0.2. Token输入
 输入：Hello my name is
 token数量：5（Hello前默认有一个起始符 \<s\>）
-## 0.3. 广播机制
+### 0.3. 广播机制
 在对不同形状（shape）的张量进行逐元素运算时，框架在不显式复制数据的前提下，**自动扩展维度较小的张量，使其在逻辑上与较大张量对齐**。
-### 以 PyTorch / NumPy 为例）
+#### 以 PyTorch / NumPy 为例）
 假设对两个张量 `A` 和 `B` 进行逐元素运算（如加、减、乘、除）：
 1. 从**最后一个维度开始对齐**
 2. 对齐的维度满足以下条件之一即可广播：
@@ -15,15 +15,15 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
     - 其中一个维度为 1
 3. 若某个维度不满足上述条件 → **无法广播，直接报错**
 4. 缺失的高维度视为 1
-### 示例
+#### 示例
 `A: (batch, seq_len, hidden) B: (hidden)`
 逻辑上等价于：
 `B → (1, 1, hidden) → (batch, seq_len, hidden)`
-### 注意：LLaMA.cpp中不能运行时广播，因为内存都是提前分配好的。LLaMA.cpp解决维度不匹配的方式：
+#### 注意：LLaMA.cpp中不能运行时广播，因为内存都是提前分配好的。LLaMA.cpp解决维度不匹配的方式：
 1. graph构建前，**计算好tensor的维度**，提前消除维度不一致。
 2. 利用**维度折叠**，“消灭”不匹配的维度。
 3. 在kernel中显式做“**逻辑广播**”，“写死”在index计算里。
-## 0.4. 维度折叠（LLaMA）
+### 0.4. 维度折叠（LLaMA）
 将多个逻辑维度合并为一个物理维度，或在计算前后进行 reshape/view，使计算在更低维或更规则的张量形态上完成。
 典型形式：
 `(B, H, L, D) → (B·H, L, D)`
@@ -31,39 +31,39 @@ token数量：5（Hello前默认有一个起始符 \<s\>）
 前提条件：
 - 折叠前后的 **元素总数不变**
 - 折叠的维度在语义上 **彼此独立或可等价处理**
-### 从系统与硬件角度看，原因非常明确：
-#### 1. 符合 BLAS / GEMM 接口
+#### 从系统与硬件角度看，原因非常明确：
+##### 1. 符合 BLAS / GEMM 接口
 - GEMM 本质是 **二维矩阵运算**
 - 高维张量需要先 reshape 才能高效调用
-#### 2. 提升 GPU 利用率
+##### 2. 提升 GPU 利用率
 - 连续内存访问
 - 更好的 warp / tile 映射
 - 减少 stride 带来的 cache miss
-#### 3. 简化算子与代码路径
+##### 3. 简化算子与代码路径
 - 少写多维循环
 - 复用成熟 kernel
 - 降低实现复杂度与维护成本
-#### 4. 与广播机制配合使用
+##### 4. 与广播机制配合使用
 - 折叠维度 → 广播参数
 - 广播 mask → 折叠 batch/head
 
 二者是 LLM 张量工程的“左右手”。
-### 注意事项：
+#### 注意事项：
 1. 数据一定要内存连续，非连续数据需要 contiguous()
 2. 维度顺序不能乱
 3. 折叠逻辑要与其他变量的维度对齐，如KV cache
-## 0.5. llama.cpp中Attention结构
+### 0.5. llama.cpp中Attention结构
 ![Pasted image 20260113211925](assets/Pasted%20image%2020260113211925.png)
-## 0.6. InternLM2 F16精度的推理Graph结构
+### 0.6. InternLM2 F16精度的推理Graph结构
 num_seq是不断增加的，到达上限后，删除最旧的数据，再存放新seq的数据。
 kv cache是提前分配了足够的维度，只是多了与无效数据的计算。
 ![Graph-2026-01-18-0557.excalidraw](Learning/LLaMA.cpp框架+InternLM2模型/Graph-2026-01-18-0557.excalidraw.md|666)
 
-# 1. GET_ROWS（取值拼接）
-## 1.1 InternLM python代码：
+## 1. GET_ROWS（取值拼接）
+### 1.1 InternLM python代码：
 ![Pasted image 20260113213148](assets/Pasted%20image%2020260113213148.png)
 ![Pasted image 20260113213346](assets/Pasted%20image%2020260113213346.png)
-## 1.2 LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
+### 1.2 LLaMA.cpp 核心代码：等价于dst\[i\] = src0\[src1\[i\]\]
 根据索引从weight矩阵中取值拼接。
 GET_ROWS算子是CPU后端进行计算。
 采用cuda并行计算方式，每个线程处理多个数据。
@@ -113,13 +113,13 @@ static void ggml_compute_forward_get_rows_f16(
 ```
 ![Pasted image 20260110033758](assets/Pasted%20image%2020260110033758.png)
 
-# 2. RMS_NORM（均方根归一化）
+## 2. RMS_NORM（均方根归一化）
 [RMS_norm介绍](RMS_norm%E4%BB%8B%E7%BB%8D.md)
 ![Pasted image 20260111025330](assets/Pasted%20image%2020260111025330.png)
 对2048进行mean，得到[1,5,1]，再对源输入进行广播。 
-## 2.1 InternLM python代码解析：
+### 2.1 InternLM python代码解析：
 ![Pasted image 20260113211108](assets/Pasted%20image%2020260113211108.png)
-## 2.2 LLaMA.cpp 实现代码解析：实际只完成了红框部分的计算，红框部分乘上**权重**是下一个算子（广播乘法）。
+### 2.2 LLaMA.cpp 实现代码解析：实际只完成了红框部分的计算，红框部分乘上**权重**是下一个算子（广播乘法）。
 ![Pasted image 20260111031403](assets/Pasted%20image%2020260111031403.png)
 block形状[1024,1,1]，一个 block有1024个线程和32个warp。数据形状为5 * 2048，即5个block，每个block处理一行，每个线程处理2个数据。 
 ![Pasted image 20260111033734](assets/Pasted%20image%2020260111033734.png)
@@ -160,8 +160,8 @@ static __global__ void rms_norm_f32(const float * x, float * dst, const int ncol
 }
 ```
 
-# 3. MUL（RMSNorm中的广播乘法）
-## 3.1 统一维度（维度折叠）
+## 3. MUL（RMSNorm中的广播乘法）
+### 3.1 统一维度（维度折叠）
 ![Pasted image 20260112173351](assets/Pasted%20image%2020260112173351.png)
 ```
 // 模板参数：bin_op 是一个二元 float 运算函数指针（如 add / mul）
@@ -353,13 +353,13 @@ struct bin_bcast_cuda {
     }
 };
 ```
-## 3.2 广播乘法
-### 3.2.1 python代码中，调用的是库函数。
+### 3.2 广播乘法
+#### 3.2.1 python代码中，调用的是库函数。
 ![Pasted image 20260114005850](assets/Pasted%20image%2020260114005850.png)
 核函数的grid、block的线程分布示意：
 z表示3/4维，用ne3做除法和取模，结果分别为第3维和第4维。
 ![Pasted image 20260112190722](assets/Pasted%20image%2020260112190722.png)
-### 3.2.2 LLaMA.cpp 代码解析：
+#### 3.2.2 LLaMA.cpp 代码解析：
 ```
 // CUDA kernel：对两个张量执行逐元素二元运算（支持 broadcast）
 // bin_op : 二元 float 运算（如 add / mul / max）
@@ -461,24 +461,24 @@ static __global__ void k_bin_bcast(
 }
 
 ```
-## 3.3 为什么 GGML 不把stride设为0
+### 3.3 为什么 GGML 不把stride设为0
 1. **保持 stride 的“物理含义不变”**：把 broadcast 作为“逻辑索引规则”处理，而不是“内存布局规则”。
 2. **保证 collapse / reshape / view 的正确性**：避免 index 从空间塌缩成一个点，进而 debug 困难。
 3. **让 kernel 保持统一、可组合、可维护**：避免分支特判，或生成多套 kernel 。
 4. **用极小的 `%` 成本换取整体架构稳定性**：不是性能瓶颈。
-# 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
+## 4. MAT_MUL（Attention 中的矩阵乘法，Linear / GEMM）
 用Linear将权重和归一化结果，生成QKV。
 ![Pasted image 20260113212008](assets/Pasted%20image%2020260113212008.png)
-## 4.1 InternLM python代码：
+### 4.1 InternLM python代码：
 torch融合QKV权重为一个大矩阵，一次Linear中进行一次矩阵乘法，生成QKV融合矩阵，再分割成QKV。
 调用的是torch库函数，这里不再深入解析。
 ![Pasted image 20260113215407](assets/Pasted%20image%2020260113215407.png)
-## 4.2 LLaMA.cpp代码：
+### 4.2 LLaMA.cpp代码：
 权重$W_Q$、$W_K$、$W_V$在内存拷贝时分配，Attention中分别矩阵乘$X_{RMSNorm}$，得到QKV。
 ![Pasted image 20260113204201](assets/Pasted%20image%2020260113204201.png)
 每个矩阵乘法都是调用cuda库函数，不在深入解析，cuda 矩阵乘法可参考[CUDA：SGEMM单精度矩阵乘法（待整理）](Learning/CUDA/CUDA：SGEMM单精度矩阵乘法（待整理）.md)。
 ![Pasted image 20260114041038](assets/Pasted%20image%2020260114041038.png)
-# 5. ROPE（旋转位置编码）
+## 5. ROPE（旋转位置编码）
 详见[Positional Encoding 位置编码介绍](../Transformer/Positional%20Encoding%20位置编码介绍.md)。
 假设 token embedding 向量 $x \in \mathbb{R}^d$，将其拆成每两个维度一组$(x_{2i}, x_{2i+1})$，对每组应用旋转矩阵：
 $$\begin{bmatrix} x'_{2i} \\ x'_{2i+1} \end{bmatrix} =

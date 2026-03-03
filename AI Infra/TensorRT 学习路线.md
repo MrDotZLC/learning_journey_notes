@@ -1,4 +1,4 @@
-# **TensorRT 学习路线（基于你已有基础）**
+## **TensorRT 学习路线（基于你已有基础）**
 
 ### **阶段 0：前置准备（你已掌握）**
 
@@ -122,12 +122,9 @@
   * 当 TensorRT 不支持特定算子时，用你 CUDA / CUTLASS 技能自定义
 * 学习 TensorRT 对大模型的支持策略（分块推理 / Pipeline 执行 / Sparse / Low-rank 优化）
 
+## **TensorRT 学习步骤清单**
 
-
-# **TensorRT 学习步骤清单**
-
-
-## **阶段 1：理解 TensorRT 基础**
+### **阶段 1：理解 TensorRT 基础**
 
 **目标**：理解 TensorRT 架构、优化逻辑和推理流程
 
@@ -154,18 +151,16 @@
     - 层融合（Conv + BN + Activation）
         
     - 内存复用 / Tensor Memory Planning
-        
 
 **练习**：
 
 - 用一个小型 ONNX 模型（如 ResNet18）构建 engine
     
 - 对比 FP32、FP16、INT8 推理性能和精度
-    
 
 ---
 
-## **阶段 2：掌握 TensorRT API 与推理流程**
+### **阶段 2：掌握 TensorRT API 与推理流程**
 
 **目标**：熟练使用 TensorRT API 执行模型推理
 
@@ -190,18 +185,16 @@
     - 分配输入输出 buffer
         
     - 调整 workspace size
-        
 
 **练习**：
 
 - 将 llama.cpp 模型或 ONNX 模型用 TensorRT engine 执行推理
     
 - 尝试不同 batch size，记录吞吐量和延迟
-    
 
 ---
 
-## **阶段 3：高级优化**
+### **阶段 3：高级优化**
 
 **目标**：提升性能，最大化 Tensor Core 利用率和吞吐量
 
@@ -228,7 +221,6 @@
     - 调整 workspace size
         
     - 尝试不同 optimization profile
-        
 
 **练习**：
 
@@ -237,11 +229,10 @@
 - 与你自写的 CUTLASS kernel 性能对比
     
 - 调整 layer fusion / workspace 参数，提高吞吐量
-    
 
 ---
 
-## **阶段 4：工程化部署**
+### **阶段 4：工程化部署**
 
 **目标**：将 TensorRT 推理应用到生产或测试环境
 
@@ -266,7 +257,6 @@
     - 分析 latency / throughput
         
     - 查找 kernel 层级瓶颈
-        
 
 **练习**：
 
@@ -275,11 +265,10 @@
 - 使用 profiler 检查性能瓶颈
     
 - 记录不同 batch size、精度、dynamic shape 的推理性能
-    
 
 ---
 
-## **阶段 5：扩展与自定义**
+### **阶段 5：扩展与自定义**
 
 **目标**：掌握 TensorRT 高级功能和自定义插件
 
@@ -300,7 +289,6 @@
     - 与自写 CUTLASS kernel 性能对比
         
     - 分析精度损失 vs 性能收益
-        
 
 **练习**：
 
@@ -309,7 +297,6 @@
 - 将 plugin 集成到 engine 中进行推理
     
 - 比较与原生 engine 性能差距
-    
 
 ---
 

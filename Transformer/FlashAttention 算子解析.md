@@ -2,8 +2,8 @@
 手搓 flash attention 算子的代码库[flash-attention-minimal](https://github.com/MrDotZLC/flash-attention-minimal)。
 研究LLaMA.cpp中的flash attn 需要打开对应的开关。
 
-# 一、手搓 flash attention 算子
-## 1.1 寻找切入点
+## 一、手搓 flash attention 算子
+### 1.1 寻找切入点
 思考：如何快速debug一个算子？调试完整的flash-attention太笨重。
 
 github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attention-minimal)，发现其通过pytorch运行单个forward前向运算，本身是通过python调用C++代码访问cuda核函数。
@@ -13,16 +13,16 @@ github找一个[flash-attention demo](https://github.com/tspeterkim/flash-attent
 
 通过python调用CUDA C++的方式，也能够用cuda-gdb进行debug，在此不做深入探讨。
 
-## 1.2 配置debug环境
+### 1.2 配置debug环境
 下载解压 libtorch ，并在 CMakeLists.txt 中设置 CMAKE_PREFIX_PATH ，不要忘记打开-G。
 ![](assets/Pasted%20image%2020260127011246.png)
 具体代码参考[CMakeLists.txt](https://github.com/MrDotZLC/flash-attention-minimal/blob/main/CMakeLists.txt)。
-## 1.3 运行一个demo
+### 1.3 运行一个demo
 在 CMakeLists.txt 的 add_executable 中，把cu文件编译并链接到入口函数。
 ![](assets/Pasted%20image%2020260127011355.png)
 注意：在调用核函数后，最好执行一次`cudaDeviceSynchronize();`进行设备同步，原因在于Kernel异步执行，会导致cuda-gdb attach 不到Kernel内的断点。
 ![](assets/Pasted%20image%2020260127020055.png)
-## 1.4 验证online softmax的正确性
+### 1.4 验证online softmax的正确性
 假设有数组x=[1...n]，用三种softmax
 - naive softmax（2次load，1次store）
   一次循环计算出归一化因子，一次循环计算每个元素的softmax。
@@ -116,7 +116,7 @@ int main() {
 // 0.0493478 0.181072 1.49352 765.966 1.17588e+19
 ```
 
-## 1.5 online softmax 与 value 的点积优化
+### 1.5 online softmax 与 value 的点积优化
 online softmax 仍然需要两次循环（2次load和1次store），如果能在一次循环中完成所有操作，则只需要一次存一次取。
 因为要计算最大值和求和，online softmax 计算中已经将遍历次数优化至2次。但计算注意力权重和（softmax 点乘 V）的过程中，可以直接1次循环直接计算得到权重和。
 1. 计算更新最大值和归一化因子：

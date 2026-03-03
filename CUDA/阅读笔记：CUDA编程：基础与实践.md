@@ -1,9 +1,9 @@
 [代码链接](https://github.com/MrDotZLC/cuda_practice)
 
-# 零、目录
+## 零、目录
 11. CUDA流
 12. 统一内存编程
-# 十一、CUDA流
+## 十一、CUDA流
 ### 核函数内部的并行
 - 主要指的是在核函数内部的并行计算，利用线程、线程块以及多级线程层次结构进行并行处理。
 ### 核函数外部的并行
@@ -93,30 +93,27 @@ Stream 3：              H2D -> KER -> D2H
 Stream 4：                     H2D -> KER -> D2H
 ```
 
-
-
-
-# 十二、统一内存编程
-## 12.1 基本概念
+## 十二、统一内存编程
+### 12.1 基本概念
 - **统一内存（UM/Managed Memory）**：CPU 与 GPU 共享的一块虚拟内存空间。
 - **核心特点**：
     1. 单一指针访问：CPU 和 GPU 使用同一个指针。
     2. 自动数据迁移：系统根据访问模式自动在 CPU/GPU 之间迁移数据。
     3. 简化编程：无需显式调用 `cudaMemcpy`。
-## 12.2 **工作原理**
+### 12.2 **工作原理**
 - 基于 **虚拟内存机制** 和 **页表（Page Table）**。
 - **页粒度管理**：
     - 默认 4 KB 页大小。
     - GPU 或 CPU 访问不在本地的页会触发 **页错误（Page Fault）**，CUDA 驱动负责迁移。
 - **单一视图一致性（Single View Consistency）**：CPU 和 GPU 看到的都是同一块逻辑内存。
-## 12.3 **声明与使用**
-### 12.3.1 动态统一内存
-#### 1 内存分配
+### 12.3 **声明与使用**
+#### 12.3.1 动态统一内存
+##### 1 内存分配
 ```cpp
 float *data;
 cudaMallocManaged(&data, N * sizeof(float)); // N为元素数量
 ```
-#### 2 CPU/GPU 访问
+##### 2 CPU/GPU 访问
 ```cpp
 // CPU访问
 for (int i = 0; i < N; i++) data[i] = i;
@@ -129,15 +126,15 @@ cudaDeviceSynchronize();
 float sum = 0;
 for (int i = 0; i < N; i++) sum += data[i];
 ```
-#### 3 释放内存
+##### 3 释放内存
 ```cpp
 cudaFree(data);
 ```
-#### 4 可选标志
+##### 4 可选标志
 - `cudaMemAttachGlobal`：全局可访问（默认）
 - `cudaMemAttachHost`：仅CPU可见，设备访问需显式迁移
 - `cudaMemAttachSingle`：仅分配它的GPU可访问
-### 12.3.2 静态统一内存
+#### 12.3.2 静态统一内存
 在所有函数外，使用\_\_device\_\_和\_\_managed\_\_修饰符。
 ```
 __device__ __managed__ int ret[1000];
@@ -156,29 +153,29 @@ int main(int argc, char *argv[])
     }
 }
 ```
-## 12.4 **页错误（Page Fault）机制**
-### 4.1 定义
+### 12.4 **页错误（Page Fault）机制**
+#### 4.1 定义
 - 页错误是 **访问不在本地内存的统一内存页时触发的事件**。
 - CUDA 驱动捕获页错误，并自动迁移数据到访问方内存。
-### 4.2 触发条件
+#### 4.2 触发条件
 1. GPU访问CPU内存中的数据。
 2. CPU访问GPU内存中的数据。
 3. 随机访问不同页，跨页访问。
-### 4.3 内部机制
+#### 4.3 内部机制
 1. GPU访问统一内存：
     - 检查页是否在本GPU显存。
     - 否 → 触发 Page Fault → CUDA 驱动迁移页 → 更新页表 → 重试访问。
 2. CPU访问统一内存：
     - 检查页是否在主机内存。
     - 否 → 页错误 → 迁移页回CPU → 访问继续。
-## 12.5 **性能影响**
+### 12.5 **性能影响**
 - **Page Fault 延迟**：迁移数据涉及 PCIe/NVLink，开销大。
 - **频繁页错误（Thrashing）**：
     - 随机访问不同页导致频繁迁移。
     - 性能可能下降十倍以上。
 - **顺序访问优化**：
     - 避免随机跨页访问，减少页错误。
-## 12.6 **性能优化策略**
+### 12.6 **性能优化策略**
 1. **预取（Prefetch）**：
 ```cpp
 cudaMemPrefetchAsync(data, N*sizeof(float), device_id);
@@ -189,7 +186,7 @@ cudaMemPrefetchAsync(data, N*sizeof(float), device_id);
     - 隐藏迁移延迟。
 4. **减少 CPU/GPU 交替访问**：
     - 在 GPU 内核连续完成操作，再回 CPU。
-## 12.7 **优缺点总结**
+### 12.7 **优缺点总结**
 
 | 特性    | 统一内存           | 显式 cudaMemcpy |
 | ----- | -------------- | ------------- |
@@ -199,7 +196,8 @@ cudaMemPrefetchAsync(data, N*sizeof(float), device_id);
 | 大数据支持 | 支持（依赖系统内存）     | 受限于GPU内存      |
 | 使用场景  | 快速原型、CPU/GPU协同 | 高性能核心计算       |
 |       |                |               |
-## 12.8 **页错误与迁移示意**
+
+### 12.8 **页错误与迁移示意**
 ```
 CPU/GPU访问统一内存
        │
@@ -219,5 +217,4 @@ CPU/GPU访问统一内存
 - 顺序访问：连续访问同页，页错误少，性能高。
 - 随机访问：跨页访问，频繁触发 Page Fault，性能低。
 
-
-# 
+## 

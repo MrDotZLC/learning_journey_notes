@@ -1,15 +1,19 @@
-# 环境
+## 环境
+
 | 项目       | 版本                           |     |
 | -------- | ---------------------------- | --- |
 | TensorRT | 10.15.1                      |     |
 | CUDA     | 12.6                         |     |
 | GPU      | GTX 1660 Ti (Turing, SM 7.5) |     |
 | C++      | 17                           |     |
+
 **GTX 1660 Ti 硬件特性：**
 - 无 FP16 Tensor Core → FP16 加速来自显存带宽减半，非计算加速
 - 有 INT8 Tensor Core → INT8 有实质性计算加速
+
 ---
-# 项目结构
+
+## 项目结构
 ```plaintext
 trt_practice/
 ├── CMakeLists.txt          # 顶层，add_subdirectory
@@ -24,8 +28,10 @@ trt_practice/
         ├── infer.hpp      / infer.cpp         # 推理 + Benchmark
         └── main.cpp
 ```
+
 ---
-# 导出 ONNX 模型
+
+## 导出 ONNX 模型
 ```python
 import torch
 import torchvision.models as models
@@ -38,9 +44,11 @@ torch.onnx.export(
     opset_version=17
 )
 ```
+
 ---
-# CMakeLists.txt
-## 顶层
+
+## CMakeLists.txt
+### 顶层
 ```cmake
 cmake_minimum_required(VERSION 3.18)
 project(trt_practice LANGUAGES CXX)
@@ -50,7 +58,7 @@ include_directories(${CMAKE_SOURCE_DIR}/common)
 
 add_subdirectory(0_resnet18_onnx)
 ```
-## resnet18/CMakeLists.txt
+### resnet18/CMakeLists.txt
 ```cmake
 cmake_minimum_required(VERSION 3.18)
 project(trt_practice LANGUAGES CXX)
@@ -95,9 +103,11 @@ target_compile_definitions(trt_resnet18 PRIVATE
 
 target_compile_options(trt_resnet18 PRIVATE -Wno-deprecated-declarations)
 ```
+
 ---
-# 核心概念
-## TRT 构建阶段对象链
+
+## 核心概念
+### TRT 构建阶段对象链
 ```plaintext
 IBuilder
   ├── INetworkDefinition   （从 ONNX 解析的网络结构）
@@ -108,27 +118,28 @@ IBuilder
         ├── Kernel auto-tuning（枚举候选 CUDA kernel，选最快）
         └── INT8 Calibration（统计激活分布，确定 scale）
 ```
-## TRT 推理阶段对象链
+### TRT 推理阶段对象链
 ```plaintext
 IRuntime
   └── ICudaEngine          （反序列化 engine，加载编译好的 kernel）
         └── IExecutionContext  （推理状态，动态 shape 绑定）
 ```
-## 动态 Shape Profile
+### 动态 Shape Profile
 ```cpp
 // 必须声明 min/opt/max，TRT 针对 opt 选择最优 kernel
 profile->setDimensions("input", kMIN, Dims4{1,  3, 224, 224});
 profile->setDimensions("input", kOPT, Dims4{8,  3, 224, 224});
 profile->setDimensions("input", kMAX, Dims4{16, 3, 224, 224});
 ```
-## 推理异步流程
+### 推理异步流程
 ```plaintext
 H2D（cudaMemcpyAsync）→ enqueueV3 → D2H（cudaMemcpyAsync）→ cudaStreamSynchronize
 ```
 同一 stream 内顺序执行，保证依赖关系正确。
 
 ---
-# INT8 量化原理
+
+## INT8 量化原理
 **映射公式：**
 ```plaintext
 x_int8 = clamp( round(x_fp32 / scale), -128, 127 )
@@ -139,9 +150,11 @@ x_int8 = clamp( round(x_fp32 / scale), -128, 127 )
 3. 用 KL 散度最小化（EntropyCalibrator2）确定各层 scale
 4. scale 写入 cache 文件，下次跳过校准
 **注意：** TRT 10.15 将隐式量化（`kINT8` flag + Calibrator）标记为废弃，推荐迁移至 Q/DQ 显式量化。当前阶段仍可用。
+
 ---
-# 关键代码
-## common/logger.hpp
+
+## 关键代码
+### common/logger.hpp
 ```cpp
 #pragma once
 #include <NvInfer.h>
@@ -165,7 +178,7 @@ private:
     Severity mMinSeverity;
 };
 ```
-## src/builder.hpp
+### src/builder.hpp
 ```c++
 #pragma once
 #include <NvInfer.h>
@@ -224,7 +237,7 @@ void buildEngine(const std::string& onnxPath,
                  Precision precision,
                  Logger& logger);
 ```
-## src/builder.cpp
+### src/builder.cpp
 ```cpp
 #include "builder.hpp"
 #include "calibrator.hpp"
@@ -375,7 +388,7 @@ void buildEngine(const std::string &onnxPath, const std::string &enginePath,
 }
 
 ```
-## src/infer.hpp
+### src/infer.hpp
 ```
 #pragma once
 #include <NvInfer.h>
@@ -476,7 +489,7 @@ private:
     cudaStream_t m_stream = nullptr;
 };
 ```
-## src/infer.cpp（推理核心片段）
+### src/infer.cpp（推理核心片段）
 ```cpp
 #include "infer.hpp"
 #include <fstream>
@@ -677,7 +690,7 @@ void InferSession::benchmark(int batchSize, int nWarmup, int nRun) {
               << "  throughput=" << throughput << " img/s\n";
 }
 ```
-## src/calibrator.hpp
+### src/calibrator.hpp
 ```cpp
 #pragma once
 #include <NvInfer.h>
@@ -763,7 +776,7 @@ private:
 
 };    
 ```
-## src/calibrator.cpp
+### src/calibrator.cpp
 ```
 #include "calibrator.hpp"
 #include <cuda_runtime.h>
@@ -859,7 +872,7 @@ void Int8Calibrator::writeCalibrationCache(const void* cache,
 }
 
 ```
-## src/main.cpp
+### src/main.cpp
 ```
 #include "builder.hpp"
 #include "infer.hpp"
@@ -1037,18 +1050,24 @@ int main() {
     return 0;
 }
 ```
+
 ---
-# 实验结果（batch=8，GTX 1660 Ti）
+
+## 实验结果（batch=8，GTX 1660 Ti）
+
 |精度|Engine大小|mean延迟|p50|p99|吞吐量|cosine_sim|max_abs_diff|
 |---|---|---|---|---|---|---|---|
 |FP32|51 MB|8.74 ms|8.69 ms|10.67 ms|915 img/s|基准|基准|
 |FP16|37 MB|5.47 ms|5.23 ms|7.05 ms|1463 img/s|0.999996|0.020|
 |INT8|11 MB|4.65 ms|4.42 ms|6.17 ms|1719 img/s|0.995874|1.125|
+
 **加速比：** FP16 = 1.6x，INT8 = 1.9x（相对 FP32）
 **INT8 精度说明：** 使用随机数据 Calibrator，max_abs_diff=1.125 偏高。生产环境用真实 ImageNet 数据（≥500张）校准后 cosine_sim 通常可达 0.999+。
 
 ---
-# TRT API 版本差异
+
+## TRT API 版本差异
+
 |API|TRT 8.x|TRT 10.x|
 |---|---|---|
 |推理执行|`enqueueV2(bindings[], stream, nullptr)`|`enqueueV3(stream)`|

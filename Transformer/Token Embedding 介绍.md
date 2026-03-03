@@ -1,6 +1,7 @@
 本文总结了 Token Embedding 的原理、训练、语义结构、BPE 影响、大模型 embedding 规模及优化策略。适合用作 AI 知识库参考。
 
 ---
+
 ## 1. Embedding 从随机到有语义的过程
 - **初始化**：Embedding Matrix 随机生成
 - **训练中**：参与前向传播计算 loss，再通过梯度下降更新
@@ -89,4 +90,5 @@ print(embedding.weight.data)
 - 大模型 embedding 与 Transformer hidden size 一致 → 高维表达丰富语义
 - 优化技巧包括共享权重、低精度存储、词表裁剪
 - embedding 空间自发形成语义/句法几何结构
+
 ---

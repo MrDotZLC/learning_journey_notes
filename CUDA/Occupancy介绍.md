@@ -1,6 +1,6 @@
-# 一、Occupancy 的本质定义（非常关键）
+## 一、Occupancy 的本质定义（非常关键）
 
-## 1.1 数学定义
+### 1.1 数学定义
 
 > **Occupancy = 当前 SM 上活跃 Warp 数 / 该 SM 支持的最大 Warp 数**
 $$\text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}$$  
@@ -10,7 +10,7 @@ $$\text{Occupancy} = \frac{\text{Active Warps per SM}}{\text{Max Warps per SM}}$
 - 最大 warp 数：64
 - 实际驻留 warp：32  
     → Occupancy = 50%
-### 1.2 Occupancy 的真实作用
+#### 1.2 Occupancy 的真实作用
 Occupancy **不是性能指标本身**，而是：
 > **用于隐藏访存与流水线延迟的调度资源**
 
@@ -19,8 +19,8 @@ GPU 通过 **warp-level latency hiding** 工作：
 - 调度器切换到另一个 ready warp
 
 **Occupancy 决定了“可切换 warp 的数量上限”**
-# 二、Occupancy 的硬件边界（架构事实）
-## 2.1 SM 的硬性上限（Ampere 示例）
+## 二、Occupancy 的硬件边界（架构事实）
+### 2.1 SM 的硬性上限（Ampere 示例）
 
 | 资源            | 每 SM 上限        |
 | ------------- | -------------- |
@@ -29,11 +29,12 @@ GPU 通过 **warp-level latency hiding** 工作：
 | Blocks        | 32             |
 | Registers     | 65536 × 32-bit |
 | Shared Memory | 164 KB（可配置）    |
+
 > Occupancy **永远不可能超过这些物理上限**
 
-# 三、决定 Occupancy 的四大资源约束
+## 三、决定 Occupancy 的四大资源约束
 Occupancy 实际上是**四个约束取最小值**的结果。**不足一个block的warp会被丢弃，不参与Occupancy的计算。**
-## 3.1 Block 数限制
+### 3.1 Block 数限制
 $$\text{Active Blocks}_{threads}
 
 \left\lfloor  

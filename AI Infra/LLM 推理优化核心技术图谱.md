@@ -1,4 +1,4 @@
-# 1. Transformer 推理计算结构
+## 1. Transformer 推理计算结构
 Transformer 是当前 LLM 推理系统的核心结构。  
 其单层结构如下：
 ```
@@ -25,7 +25,8 @@ $$X \in \mathbb{R}^{T \times d_{model}}$$
 |---|---|
 |T|token长度|
 |d_model|隐藏维度|
-## 1.1 QKV 投影
+
+### 1.1 QKV 投影
 线性投影：
 $$Q = XW_q$$
 $$K = XW_k$$
@@ -34,7 +35,7 @@ $$V = XW_v$$
 $$W_q,W_k,W_v \in \mathbb{R}^{d_{model}\times d_{model}}$$
 计算复杂度：
 $$F_{qkv} = 3Td_{model}^2$$
-## 1.2 Attention
+### 1.2 Attention
 Scaled dot product attention：
 $$S = \frac{QK^T}{\sqrt{d_h}}$$
 Softmax：
@@ -47,7 +48,7 @@ $$d_h = \frac{d_{model}}{H}$$
 $$F_{attn} = 2T^2 d_h H$$
 即
 $$O(T^2 d_{model})$$
-## 1.3 MLP
+### 1.3 MLP
 LLM 通常使用 **SwiGLU**
 结构：
 $$U = XW_u$$
@@ -62,7 +63,7 @@ $$F_{mlp} = 4Td_{model}d_{ff}$$
 ```
 d_ff ≈ 4 d_model
 ```
-## 1.4 单层 FLOPs
+### 1.4 单层 FLOPs
 总 FLOPs：
 $$F_{layer}
 3Td_{model}^2  

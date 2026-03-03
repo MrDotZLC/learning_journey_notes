@@ -1,4 +1,4 @@
-# 1. LLM 推理中的 KV Cache 问题
+## 1. LLM 推理中的 KV Cache 问题
 在自回归推理中，每生成一个 token，需要访问所有历史 token 的 Key 与 Value。
 Attention计算：
 $$Attention(Q,K,V)

@@ -101,6 +101,5 @@ sudo apt-get update
 	   终端运行`/Your/Project/Path/TensorRT/build/sample_onnx_mnist_debug -d ~/trt-data/mnist`
 	   结果应该为：
 	   ![](assets/Pasted%20image%2020260212020124.png)
-	   
-	   
+
 	

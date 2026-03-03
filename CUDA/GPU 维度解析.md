@@ -29,6 +29,7 @@
 |对齐 warp|blockDim 是 32 的倍数|
 |内存友好|连续线程访问连续内存|
 |资源平衡|不浪费寄存器 / shared memory|
+
 ## 三、block 维度设计原则（重点）
 ### 1. blockDim.x 优先考虑 128 / 256 / 512
 **原因：**
@@ -70,6 +71,7 @@ gridDim  = (ceil(X/8), ceil(Y/8), ceil(Z/8))
 | blockDim.x | ≤ 1024 |
 | blockDim.y | ≤ 1024 |
 | blockDim.z | ≤ 64   |
+
 ## 四、grid 维度设计原则
 ### 1. gridDim 用于“覆盖数据”，而非性能调优
 - grid 只负责 **把数据切块**

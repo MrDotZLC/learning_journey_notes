@@ -1,4 +1,4 @@
-# 〇、环境准备
+## 〇、环境准备
 1. 环境：
 	1. 系统：linux/wsl2
 	2. IDE：vscode
@@ -10,7 +10,7 @@
 	4. 设置build目标
 	5. 以debug方式build llama-simple子项目 
 
-# 一、
+## 一、
 
 后端与设备的类关系
 ![Pasted image 20260106204903](../Transformer/assets/Pasted%20image%2020260106204903.png)

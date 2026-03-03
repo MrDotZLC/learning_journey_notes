@@ -32,6 +32,7 @@ $$
 |参数|weight + bias|通常只有 weight|
 |计算量|高|更低|
 |数值稳定性|好|对 LLM 足够好|
+
 ### 数学对比
 **LayerNorm：**
 $$\frac{x_i - \mu}{\sqrt{\sigma^2 + \epsilon}} \cdot \gamma + \beta$$
