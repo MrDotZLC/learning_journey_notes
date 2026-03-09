@@ -14,15 +14,15 @@ tags:
 
 ---
 
-# RLHF 与策略优化技术全景
+## RLHF 与策略优化技术全景
 
 > **定义**：RLHF（Reinforcement Learning from Human Feedback）——用人类偏好信号通过强化学习对语言模型进行对齐训练的技术框架。
 
 ---
 
-## ⚡ 速查卡
+### ⚡ 速查卡
 
-### 方法选型
+#### 方法选型
 
 ```
 任务类型？
@@ -37,7 +37,7 @@ tags:
     └─ 超难题 / 低正确率场景   → VAPO
 ```
 
-### 显存需求
+#### 显存需求
 
 ```
 PPO:        [Actor] [Critic] [Ref] [RM]   ← 4 个模型
@@ -48,7 +48,7 @@ DAPO:       [Actor]                       ← 1 个模型（去 KL，去 Ref）
 SimPO:      [Actor]                       ← 1 个模型
 ```
 
-### 方法横向比较
+#### 方法横向比较
 
 |方法|Value模型|Clip|长度偏差修正|KL|适用|
 |---|---|---|---|---|---|
@@ -60,7 +60,7 @@ SimPO:      [Actor]                       ← 1 个模型
 |DPO|✗|无|✗|隐式|对话偏好|
 |SimPO|✗|无|内置 length norm|✗|对话无参考|
 
-### 核心结论速查
+#### 核心结论速查
 
 |结论|一句话|
 |---|---|
@@ -73,7 +73,7 @@ SimPO:      [Actor]                       ← 1 个模型
 
 ---
 
-## 统一符号定义
+### 统一符号定义
 
 |符号|含义|
 |---|---|
@@ -91,9 +91,9 @@ $$\max_{\pi_\theta} \mathbb{E}_{x \sim \mathcal{D},, y \sim \pi_\theta} \left[ r
 
 ---
 
-# 第一章 RLHF 概述
+## 第一章 RLHF 概述
 
-## 1.1 核心问题：预训练目标与人类偏好的错位
+### 1.1 核心问题：预训练目标与人类偏好的错位
 
 |预训练目标|人类偏好目标|
 |---|---|
@@ -101,7 +101,7 @@ $$\max_{\pi_\theta} \mathbb{E}_{x \sim \mathcal{D},, y \sim \pi_\theta} \left[ r
 |对所有文本一视同仁|区分好 / 坏回答|
 |可完全自动化|需要人类主观判断|
 
-## 1.2 整体流程
+### 1.2 整体流程
 
 ```
 [预训练 LLM]
@@ -119,7 +119,7 @@ $$\max_{\pi_\theta} \mathbb{E}_{x \sim \mathcal{D},, y \sim \pi_\theta} \left[ r
 [对齐后的 LLM]
 ```
 
-## 1.3 已知问题全景
+### 1.3 已知问题全景
 
 |问题|描述|主要改进方案|
 |---|---|---|
@@ -132,13 +132,13 @@ $$\max_{\pi_\theta} \mathbb{E}_{x \sim \mathcal{D},, y \sim \pi_\theta} \left[ r
 
 ---
 
-# 第二章 SFT（Supervised Fine-Tuning，监督微调）
+## 第二章 SFT（Supervised Fine-Tuning，监督微调）
 
-## 2.1 目标
+### 2.1 目标
 
 将预训练模型转化为**指令跟随模型**，为后续 RL 提供高质量初始策略 $\pi_0$。
 
-## 2.2 数据构造
+### 2.2 数据构造
 
 ```
 输入：(prompt, demonstration) 对
@@ -148,11 +148,11 @@ $$\max_{\pi_\theta} \mathbb{E}_{x \sim \mathcal{D},, y \sim \pi_\theta} \left[ r
 
 > InstructGPT 使用约 **13K 条** SFT 数据——量少但质量极高。
 
-## 2.3 训练目标
+### 2.3 训练目标
 
 $$\mathcal{L}_{SFT} = -\sum_{t=1}^{T} \log P_\theta(y_t \mid x, y_{1:t-1})$$
 
-## 2.4 局限性
+### 2.4 局限性
 
 - 标注者难以覆盖所有场景
 - 标注质量参差不齐
@@ -162,15 +162,15 @@ $$\mathcal{L}_{SFT} = -\sum_{t=1}^{T} \log P_\theta(y_t \mid x, y_{1:t-1})$$
 
 ---
 
-# 第三章 RM（Reward Model，奖励模型）
+## 第三章 RM（Reward Model，奖励模型）
 
-## 3.1 核心思想
+### 3.1 核心思想
 
 > **人类比较比生成容易得多。**
 
 让标注者判断「A vs B 哪个更好」，而非直接撰写回答。
 
-## 3.2 模型结构
+### 3.2 模型结构
 
 取 SFT 模型，**移除最后的 LM head，替换为线性层输出标量**：
 
@@ -188,7 +188,7 @@ Output: scalar reward  r ∈ ℝ
 
 > 最后一个 token 的 hidden state 已 attend 到整个序列，是对完整 response 的压缩表示。
 
-## 3.3 训练目标：Bradley-Terry 模型
+### 3.3 训练目标：Bradley-Terry 模型
 
 **Bradley-Terry 模型**：成对比较概率模型，假设每个选项有潜在得分，比较结果服从 sigmoid 分布。
 
@@ -207,7 +207,7 @@ $$\mathcal{L}_{RM} = -\mathbb{E}_{(x,y_w,y_l) \sim \mathcal{D}} \left[ \log \sig
 |$r(y_w) \gg r(y_l)$，已区分好坏|$\to 1$|$\to 0$ ✓|
 |$r(y_w) \approx r(y_l)$，无法区分|$\to 0.5$|$-0.693$ ✗|
 
-## 3.4 偏好数据收集
+### 3.4 偏好数据收集
 
 ```python
 for each prompt x:
@@ -216,15 +216,15 @@ for each prompt x:
     提取 C(K,2) 个偏好对 (y_w, y_l)
 ```
 
-## 3.5 核心问题：Reward Hacking
+### 3.5 核心问题：Reward Hacking
 
 $r_\theta \neq r^*_{human}$，RM 是人类偏好的有噪声近似。策略模型会找到 RM 的漏洞，产生高分但低质量输出——**这正是 KL 惩罚存在的根因**。
 
 ---
 
-# 第四章 PPO（Proximal Policy Optimization）
+## 第四章 PPO（Proximal Policy Optimization）
 
-## 4.1 RL 概念映射
+### 4.1 RL 概念映射
 
 |RL 术语|RLHF 中的对应|
 |---|---|
@@ -237,7 +237,7 @@ $r_\theta \neq r^*_{human}$，RM 是人类偏好的有噪声近似。策略模�
 
 > 语言生成是**稀疏奖励、长序列**的 RL 问题（奖励只在句子末尾）。
 
-## 4.2 完整优化目标
+### 4.2 完整优化目标
 
 $$\max_{\pi_\theta} \mathbb{E}_{x,, y \sim \pi_\theta} \left[ r_\phi(x, y) - \beta \cdot \mathbb{KL}\left[\pi_\theta(y|x) ,|, \pi_{ref}(y|x)\right] \right]$$
 
@@ -249,7 +249,7 @@ $$\mathbb{KL}[\pi_\theta | \pi_{ref}] = \sum_t \log \frac{\pi_\theta(y_t|x,y_{<t
 
 $$\tilde{r}_t = \begin{cases} r_\psi(x,y) - \beta\log\frac{\pi_\theta}{\pi_{ref}} & t = T \ -\beta\log\frac{\pi_\theta}{\pi_{ref}} & t < T \end{cases}$$
 
-## 4.3 Policy Gradient 基础
+### 4.3 Policy Gradient 基础
 
 **REINFORCE 梯度（对数技巧 log-derivative trick）**：
 
@@ -272,7 +272,7 @@ $$\nabla_\theta J = \mathbb{E}\left[(R - V(s)) \cdot \nabla_\theta \log \pi_\the
 
 **TRPO**（2015）：加 KL 散度约束，保证单调提升，但需要二阶优化（Fisher 信息矩阵的逆），无法用于大模型。
 
-## 4.4 PPO-Clip 机制
+### 4.4 PPO-Clip 机制
 
 重要性采样比率：
 
@@ -291,7 +291,7 @@ $$\mathcal{L}^{CLIP} = \mathbb{E}_t \left[ \min\left( \rho_t \hat{A}_t,; \text{c
 
 本质是一阶方法近似 TRPO 的信任域约束，同时保持实现简单。
 
-## 4.5 优势函数：GAE（Generalized Advantage Estimation）
+### 4.5 优势函数：GAE（Generalized Advantage Estimation）
 
 $$A(s_t, a_t) = Q(s_t, a_t) - V(s_t)$$
 
@@ -304,7 +304,7 @@ $$\hat{A}_t^{GAE} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \qquad \
 
 > 语言模型 RL 中通常 $\gamma \approx 1$，一句话内 token 在时间上接近，未来奖励不应大幅衰减。
 
-## 4.6 四模型内存布局
+### 4.6 四模型内存布局
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -316,7 +316,7 @@ $$\hat{A}_t^{GAE} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \qquad \
 ※ 显存压力极大——这是 PPO 在大模型上难以扩展的核心原因
 ```
 
-## 4.7 完整训练流程
+### 4.7 完整训练流程
 
 ```python
 for iteration in range(num_iterations):
@@ -351,7 +351,7 @@ for iteration in range(num_iterations):
         optimizer.step(loss)
 ```
 
-## 4.8 关键超参数
+### 4.8 关键超参数
 
 |超参数|典型值|影响|
 |---|---|---|
@@ -363,9 +363,9 @@ for iteration in range(num_iterations):
 
 ---
 
-# 第五章 策略优化技术演进（2023–2025）
+## 第五章 策略优化技术演进（2023–2025）
 
-## 核心演进脉络
+### 核心演进脉络
 
 ```
 PPO 四模型显存过大
@@ -388,19 +388,19 @@ PPO 需要显式 RM + RL 循环
 
 ---
 
-## 5.1 GRPO（Group Relative Policy Optimization，2024，DeepSeekMath）
+### 5.1 GRPO（Group Relative Policy Optimization，2024，DeepSeekMath）
 
-### 思想
+#### 思想
 
 对同一 prompt 采样 $G$ 个回答，用**组内相对奖励**作为基线，彻底消除 Value 网络：
 
 $$\hat{A}_i = \frac{r_i - \text{mean}({r_j}_{j=1}^G)}{\text{std}({r_j}_{j=1}^G)}$$
 
-### 目标函数
+#### 目标函数
 
 $$\mathcal{L}^{GRPO} = -\frac{1}{G}\sum_{i=1}^G \frac{1}{|y_i|}\sum_{t=1}^{|y_i|} \min\left(\rho_{i,t}\hat{A}_i,; \text{clip}(\rho_{i,t}, 1-\epsilon, 1+\epsilon)\hat{A}_i\right) + \beta,\mathbb{KL}[\pi_\theta|\pi_{ref}]$$
 
-### 四大缺陷
+#### 四大缺陷
 
 |缺陷|根因|
 |---|---|
@@ -411,9 +411,9 @@ $$\mathcal{L}^{GRPO} = -\frac{1}{G}\sum_{i=1}^G \frac{1}{|y_i|}\sum_{t=1}^{|y_i|
 
 ---
 
-## 5.2 DeepSeek-R1（2025.01）
+### 5.2 DeepSeek-R1（2025.01）
 
-### R1-Zero vs R1
+#### R1-Zero vs R1
 
 **R1-Zero**：直接在 Base Model 上用 GRPO，跳过 SFT。
 
@@ -421,7 +421,7 @@ $$\mathcal{L}^{GRPO} = -\frac{1}{G}\sum_{i=1}^G \frac{1}{|y_i|}\sum_{t=1}^{|y_i|
 - 问题：可读性差，语言混杂
 - **涌现现象（Aha Moment）**：自发出现 self-verification、reflection、动态策略调整，无需显式教导
 
-### 四阶段流水线
+#### 四阶段流水线
 
 ```
 阶段1: Cold Start SFT
@@ -438,14 +438,14 @@ $$\mathcal{L}^{GRPO} = -\frac{1}{G}\sum_{i=1}^G \frac{1}{|y_i|}\sum_{t=1}^{|y_i|
     GRPO + 推理任务 + 帮助性/无害性偏好数据 → DeepSeek-R1
 ```
 
-### 奖励函数（纯规则，无神经 RM）
+#### 奖励函数（纯规则，无神经 RM）
 
 - 准确性：答案是否正确 / 代码是否通过单元测试
 - 格式：推理在 `<think>` 内，答案在 `<answer>` 内
 
 > 不用神经 RM：大规模 RL 中神经 RM 容易被 reward hacking 攻击。
 
-### 实际超参（第一阶段 RL）
+#### 实际超参（第一阶段 RL）
 
 |超参|值|
 |---|---|
@@ -458,9 +458,9 @@ $$\mathcal{L}^{GRPO} = -\frac{1}{G}\sum_{i=1}^G \frac{1}{|y_i|}\sum_{t=1}^{|y_i|
 
 ---
 
-## 5.3 DPO 系列（消除显式 RM）
+### 5.3 DPO 系列（消除显式 RM）
 
-### 5.3.1 DPO（Direct Preference Optimization，2023，Stanford）
+#### 5.3.1 DPO（Direct Preference Optimization，2023，Stanford）
 
 **理论推导**：带 KL 约束的 RL 最优解有解析形式：
 
@@ -485,17 +485,17 @@ $$\mathcal{L}_{DPO} = -\mathbb{E}\left[\log \sigma\left(\underbrace{\beta \log \
 
 **主要问题**：离线无探索；分布偏移；$y_l$ 概率可能异常下降；不适合推理任务。
 
-### 5.3.2 IPO（2023）
+#### 5.3.2 IPO（2023）
 
 $y_l$ 退化修复：将 $\log\sigma$ 替换为平方损失，约束奖励差趋向固定常数：
 
 $$\mathcal{L}_{IPO} = \mathbb{E}\left[\left(\log \frac{\pi_\theta(y_w)}{\pi_{ref}(y_w)} - \log \frac{\pi_\theta(y_l)}{\pi_{ref}(y_l)} - \frac{1}{2\beta}\right)^2\right]$$
 
-### 5.3.3 KTO（2024）
+#### 5.3.3 KTO（2024）
 
 基于前景理论（Prospect Theory），无需成对数据，可用单条 $(x, y, \text{label})$ 训练。人类对损失的感受比同等收益更强烈，设计非对称价值函数。
 
-### 5.3.4 SimPO（2024）
+#### 5.3.4 SimPO（2024）
 
 去掉参考模型，内置长度归一化，加 margin $\gamma$：
 
@@ -505,7 +505,7 @@ $$\mathcal{L}_{SimPO} = -\mathbb{E}\left[\log \sigma\left(\frac{\beta}{|y_w|}\lo
 
 ---
 
-## 5.4 REINFORCE++（2025.01，Jian Hu）
+### 5.4 REINFORCE++（2025.01，Jian Hu）
 
 **动机**：GRPO 的 question-level 归一化在小数据集上过拟合。
 
@@ -519,13 +519,13 @@ $$\hat{A}_i^{global} = \frac{r_i - \mu_{global}}{\sigma_{global}}, \qquad \mathc
 
 ---
 
-## 5.5 DAPO（2025.03，ByteDance Seed）
+### 5.5 DAPO（2025.03，ByteDance Seed）
 
 **全称**：Decoupled Clip and Dynamic sAmpling Policy Optimization
 
 > 在 Qwen2.5-32B 上达到 AIME 2024 **50分**，仅用 DeepSeek-R1 **50% 训练步数**。
 
-### 改进1：Clip-Higher（解耦 Clip 上下界）
+#### 改进1：Clip-Higher（解耦 Clip 上下界）
 
 **根因**：对称 clip 下界 $1-\epsilon$ 过度抑制低概率 token，导致熵坍塌。
 
@@ -533,7 +533,7 @@ $$\mathcal{L}^{DAPO} = \min\left(\rho_t \hat{A}_t,; \text{clip}(\rho_t, 1-\epsil
 
 典型值：$\epsilon_{low}=0.2$，$\epsilon_{high}=0.28$
 
-### 改进2：Dynamic Sampling（动态采样）
+#### 改进2：Dynamic Sampling（动态采样）
 
 **根因**：全对/全错组无梯度（Dead Zone）。
 
@@ -543,28 +543,28 @@ valid = [r for r in responses if 0 < pass_rate(r) < 1]
 batch = valid[:G]
 ```
 
-### 改进3：Token-Level Loss
+#### 改进3：Token-Level Loss
 
 从 sample 级改为全 batch token 级：
 
 $$\mathcal{L} = -\frac{\sum_{i}\sum_{t} \ell_{i,t}}{\sum_{i} |y_i|}$$
 
-### 改进4：Overlong Filtering + Soft Punishment
+#### 改进4：Overlong Filtering + Soft Punishment
 
 - 被截断序列：mask 掉整个样本损失
 - 正确但过长（$> L_{cache}$）：线性软惩罚
 
-### 去掉 KL（$\beta = 0$）
+#### 去掉 KL（$\beta = 0$）
 
 推理训练策略应大幅偏离初始策略；规则验证器提供准确奖励，KL 约束有害探索。
 
 ---
 
-## 5.6 Dr.GRPO（2025.03，"GRPO Done Right"）
+### 5.6 Dr.GRPO（2025.03，"GRPO Done Right"）
 
 **核心发现**：GRPO 的组内标准化引入两类系统性偏差。
 
-### 偏差1：Question-Level Difficulty Bias（定量分析）
+#### 偏差1：Question-Level Difficulty Bias（定量分析）
 
 设题目真实正确率为 $p$，奖励 $r_i \in {0,1}$，则 $\mathbb{E}[\sigma_G] \approx \sqrt{p(1-p)}$。
 
@@ -578,17 +578,17 @@ $$\mathcal{L} = -\frac{\sum_{i}\sum_{t} \ell_{i,t}}{\sum_{i} |y_i|}$$
 
 极端难度题权重比中等题高 **2.25 倍**，且 $p \to 0$ 或 $1$ 时权重趋向无穷——系统性梯度扭曲。
 
-### 偏差2：Response Length Bias
+#### 偏差2：Response Length Bias
 
 $\hat{A}_i$ 广播到所有 token：长度 $L$ 的序列梯度贡献 $\propto L$，模型被推向生成更长回答。
 
-### 修正
+#### 修正
 
 $$\hat{A}_i^{Dr.GRPO} = r_i - \text{mean}({r_j}) \quad \text{（去掉 std 归一化）}$$
 
 $$\ell_{i,t} = \frac{1}{|y_i|}\min\left(\rho_{i,t}\hat{A}_i,;\text{clip}(\cdot)\right) \quad \text{（per-token 归一化）}$$
 
-### DAPO vs Dr.GRPO
+#### DAPO vs Dr.GRPO
 
 ||DAPO|Dr.GRPO|
 |---|---|---|
@@ -600,13 +600,13 @@ $$\ell_{i,t} = \frac{1}{|y_i|}\min\left(\rho_{i,t}\hat{A}_i,;\text{clip}(\cdot)\
 
 ---
 
-## 5.7 VAPO（2025.04，ByteDance + 阿里）
+### 5.7 VAPO（2025.04，ByteDance + 阿里）
 
 **全称**：Value-Augmented Policy Optimization
 
 **适用场景**：正确率极低的极难题——GRPO/DAPO 在此场景失效（Dead Zone + Credit Assignment 缺失）。
 
-### 三大创新
+#### 三大创新
 
 **创新1：轻量级 Value Model（仅在正样本上训练）**
 
@@ -624,9 +624,9 @@ $$\hat{A}_t^{VAPO} = \lambda_{GAE} \cdot A_t^{GAE}(V_\phi) + (1-\lambda_{GAE}) \
 
 ---
 
-# 第六章 前沿方向（2025）
+## 第六章 前沿方向（2025）
 
-## 6.1 推理 vs 对话的本质差异
+### 6.1 推理 vs 对话的本质差异
 
 |维度|对话对齐|推理优化|
 |---|---|---|
@@ -635,7 +635,7 @@ $$\hat{A}_t^{VAPO} = \lambda_{GAE} \cdot A_t^{GAE}(V_\phi) + (1-\lambda_{GAE}) \
 |奖励稀疏性|中|极高（仅末尾对/错）|
 |探索需求|低|极高|
 
-## 6.2 RLVR（Reinforcement Learning with Verifiable Rewards）
+### 6.2 RLVR（Reinforcement Learning with Verifiable Rewards）
 
 用**可验证奖励**替代神经 RM，从根源消除 reward hacking：
 
@@ -652,7 +652,7 @@ def reward(response, ground_truth):
 |代码|单元测试通过率|
 |逻辑|形式化验证器|
 
-## 6.3 PRM（Process Reward Model，过程奖励模型）
+### 6.3 PRM（Process Reward Model，过程奖励模型）
 
 ||ORM（结果奖励）|PRM（过程奖励）|
 |---|---|---|
@@ -662,7 +662,7 @@ def reward(response, ground_truth):
 
 当前趋势：用 LLM 自动生成 PRM 标注 + 结合 GRPO 提供 per-step 奖励。
 
-## 6.4 Online DPO
+### 6.4 Online DPO
 
 标准 DPO 离线，分布偏移严重。Online DPO 持续采样更新，等效于将 DPO 变为 on-policy 算法：
 
@@ -671,7 +671,7 @@ loop:
     π_θ 采样 → RM 打分 → 构造 (y_w, y_l) → DPO 更新 π_θ
 ```
 
-## 6.5 Test-Time Compute Scaling
+### 6.5 Test-Time Compute Scaling
 
 与训练阶段策略优化**正交，可叠加使用**：
 
@@ -681,17 +681,17 @@ loop:
 |Beam Search + RM|RM 引导束搜索|
 |MCTS|蒙特卡洛树搜索引导解码|
 
-## 6.6 Self-Play（SPIN）
+### 6.6 Self-Play（SPIN）
 
 将当前模型作为"对手"生成 $y_l$，用 SFT 数据的 $y_w$ 作为赢家，反复自我博弈迭代。
 
 ---
 
-# 第七章 面试题
+## 第七章 面试题
 
-## 一、基础概念类
+### 一、基础概念类
 
-### Q1：RLHF 的整体流程是什么？为什么需要这三个阶段？
+#### Q1：RLHF 的整体流程是什么？为什么需要这三个阶段？
 
 三阶段：SFT → RM 训练 → PPO 优化。
 
@@ -705,7 +705,7 @@ loop:
 
 ---
 
-### Q2：Reward Model 的训练目标是什么？为什么用 Bradley-Terry 模型？
+#### Q2：Reward Model 的训练目标是什么？为什么用 Bradley-Terry 模型？
 
 $$P(y_w \succ y_l \mid x) = \sigma(r_\theta(x, y_w) - r_\theta(x, y_l))$$
 
@@ -721,7 +721,7 @@ $$\mathcal{L}_{RM} = -\mathbb{E}\left[\log \sigma(r(y_w) - r(y_l))\right]$$
 
 ---
 
-### Q3：PPO 中 KL 惩罚的作用是什么？$\beta$ 过大或过小会怎样？
+#### Q3：PPO 中 KL 惩罚的作用是什么？$\beta$ 过大或过小会怎样？
 
 KL 惩罚约束策略不能偏离参考策略太远：
 
@@ -735,7 +735,7 @@ $$\text{penalty} = \beta \cdot \mathbb{KL}[\pi_\theta | \pi_{ref}] = \beta \sum_
 
 ---
 
-### Q4：PPO-Clip 的 clip 机制解决了什么问题？
+#### Q4：PPO-Clip 的 clip 机制解决了什么问题？
 
 **问题**：重要性采样复用旧数据时，新旧策略差异过大导致梯度估计方差爆炸，一步更新毁掉策略。
 
@@ -750,7 +750,7 @@ $$\mathcal{L}^{CLIP} = \mathbb{E}_t\left[\min\left(\rho_t \hat{A}_t,; \text{clip
 
 ---
 
-### Q5：GAE 是什么？$\lambda$ 参数如何权衡 bias 和 variance？
+#### Q5：GAE 是什么？$\lambda$ 参数如何权衡 bias 和 variance？
 
 $$\hat{A}_t^{GAE} = \sum_{l=0}^{\infty}(\gamma\lambda)^l \delta_{t+l}, \qquad \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$$
 
@@ -762,9 +762,9 @@ $\lambda$ 是对不同时间步 TD 残差的指数加权：
 
 ---
 
-## 二、算法对比类
+### 二、算法对比类
 
-### Q6：GRPO 相比 PPO 的核心改进是什么？代价是什么？
+#### Q6：GRPO 相比 PPO 的核心改进是什么？代价是什么？
 
 **核心改进**：用组内相对奖励替代 Critic 基线估计，消除 Value 网络，显存从 4 个模型降到 3 个。
 
@@ -779,7 +779,7 @@ $\lambda$ 是对不同时间步 TD 残差的指数加权：
 
 ---
 
-### Q7：DPO 和 PPO 的本质区别是什么？
+#### Q7：DPO 和 PPO 的本质区别是什么？
 
 |维度|PPO|DPO|
 |---|---|---|
@@ -794,7 +794,7 @@ $\lambda$ 是对不同时间步 TD 残差的指数加权：
 
 ---
 
-### Q8：DAPO 的四个改进分别针对 GRPO 的哪个具体问题？
+#### Q8：DAPO 的四个改进分别针对 GRPO 的哪个具体问题？
 
 |GRPO 缺陷|DAPO 改进|机制|
 |---|---|---|
@@ -807,7 +807,7 @@ $\lambda$ 是对不同时间步 TD 残差的指数加权：
 
 ---
 
-### Q9：Dr.GRPO 发现了 GRPO 的什么理论问题？
+#### Q9：Dr.GRPO 发现了 GRPO 的什么理论问题？
 
 GRPO 的组内标准化 $\hat{A}_i = (r_i - \mu) / \sigma$ 引入两类系统性偏差：
 
@@ -821,7 +821,7 @@ $$\hat{A}_i = r_i - \mu, \qquad \ell_{i,t} = \frac{1}{|y_i|}\min(\rho_{i,t}\hat{
 
 ---
 
-### Q10：VAPO 解决了什么场景下的问题？
+#### Q10：VAPO 解决了什么场景下的问题？
 
 VAPO 针对**正确率极低的极难题**，此时 GRPO/DAPO 失效：
 
@@ -836,9 +836,9 @@ $$\hat{A}^{VAPO} = \lambda \cdot A^{GAE}(V) + (1-\lambda) \cdot \hat{A}^{group}$
 
 ---
 
-## 三、工程实现类
+### 三、工程实现类
 
-### Q11：PPO 训练需要几个模型？如何降低显存压力？
+#### Q11：PPO 训练需要几个模型？如何降低显存压力？
 
 标准 PPO 需要 4 个模型：Actor、Critic、Reference Policy、Reward Model。
 
@@ -853,7 +853,7 @@ $$\hat{A}^{VAPO} = \lambda \cdot A^{GAE}(V) + (1-\lambda) \cdot \hat{A}^{group}$
 
 ---
 
-### Q12：GRPO 中 $G$ 的大小如何影响训练？
+#### Q12：GRPO 中 $G$ 的大小如何影响训练？
 
 DeepSeek-R1 第一阶段使用 $G=16$。
 
@@ -867,7 +867,7 @@ DAPO 的 Dynamic Sampling 通过过采样 $2G$ 再过滤，等效于提高有效
 
 ---
 
-### Q13：如何判断 RLHF 训练是否发生了 Reward Hacking？
+#### Q13：如何判断 RLHF 训练是否发生了 Reward Hacking？
 
 ```
 训练曲线信号：
@@ -886,7 +886,7 @@ DAPO 的 Dynamic Sampling 通过过采样 $2G$ 再过滤，等效于提高有效
 
 ---
 
-### Q14：DPO 训练时 $y_l$ 的概率为什么会异常下降？如何修复？
+#### Q14：DPO 训练时 $y_l$ 的概率为什么会异常下降？如何修复？
 
 **根因**：DPO 梯度同时增大 $y_w$ 概率并减小 $y_l$ 概率。当 $y_l$ 本身概率已很低时，继续减小导致 $\log\pi_\theta(y_l) \to -\infty$，隐式奖励异常偏大，破坏奖励相对大小。
 
@@ -899,9 +899,9 @@ DAPO 的 Dynamic Sampling 通过过采样 $2G$ 再过滤，等效于提高有效
 
 ---
 
-## 四、原理推导类
+### 四、原理推导类
 
-### Q15：推导 DPO 损失函数（6步）
+#### Q15：推导 DPO 损失函数（6步）
 
 **Step 1**：带 KL 约束的 RL 目标：
 
@@ -929,7 +929,7 @@ $$\mathcal{L}_{DPO} = -\mathbb{E}\left[\log\sigma\left(\beta\log\frac{\pi_\theta
 
 ---
 
-### Q16：GRPO 的组内标准差归一化为何引入难度偏差？定量分析。
+#### Q16：GRPO 的组内标准差归一化为何引入难度偏差？定量分析。
 
 设题目真实正确率为 $p$，组内奖励 $r_i \in {0,1}$：
 
@@ -941,7 +941,7 @@ $$\mathbb{E}[\sigma_G] \approx \sqrt{p(1-p)}$$
 
 ---
 
-### Q17：REINFORCE 的 log-derivative trick 推导。
+#### Q17：REINFORCE 的 log-derivative trick 推导。
 
 $$\nabla_\theta \mathbb{E}[R(y)] = \nabla_\theta \int R(y)\pi_\theta(y),dy = \int R(y)\nabla_\theta\pi_\theta(y),dy$$
 
@@ -951,9 +951,9 @@ $$= \int R(y)\cdot\pi_\theta(y)\cdot\nabla_\theta\log\pi_\theta(y),dy = \mathbb{
 
 ---
 
-## 五、开放设计类
+### 五、开放设计类
 
-### Q18：在自动驾驶感知模型上应用 RLHF，如何设计？
+#### Q18：在自动驾驶感知模型上应用 RLHF，如何设计？
 
 **核心判断**：感知任务有可验证客观指标（mAP、3D IoU、ADE/FDE），更适合 **RLVR** 而非人工偏好 RM。
 
@@ -973,7 +973,7 @@ $$= \int R(y)\cdot\pi_\theta(y)\cdot\nabla_\theta\log\pi_\theta(y),dy = \mathbb{
 
 ---
 
-### Q19：PPO 训练中 Critic 收敛慢导致 Actor 学歪，怎么解决？
+#### Q19：PPO 训练中 Critic 收敛慢导致 Actor 学歪，怎么解决？
 
 **根因**：训练初期 Value 估计误差大，GAE 计算出的优势函数不可靠，Actor 基于错误优势函数更新方向偏错。
 
@@ -987,7 +987,7 @@ $$= \int R(y)\cdot\pi_\theta(y)\cdot\nabla_\theta\log\pi_\theta(y),dy = \mathbb{
 
 ---
 
-### Q20：SimPO 为什么要做长度归一化？不做会有什么问题？
+#### Q20：SimPO 为什么要做长度归一化？不做会有什么问题？
 
 **不做的问题**：累积 log 概率天然 $\propto$ 序列长度，模型会学到"生成更长的 $y_w$"而非"生成更好的 $y_w$"，偏好数据中的长度分布成为 artifact 被学习。
 
@@ -999,9 +999,9 @@ $$\frac{1}{|y|}\log\pi_\theta(y|x) = \frac{1}{|y|}\sum_t \log\pi_\theta(y_t|x,y_
 
 ---
 
-# 总结
+## 总结
 
-## 核心技术演进逻辑
+### 核心技术演进逻辑
 
 ```
 问题1: 预训练目标 ≠ 人类偏好
@@ -1023,7 +1023,7 @@ $$\frac{1}{|y|}\log\pi_\theta(y|x) = \frac{1}{|y|}\sum_t \log\pi_\theta(y_t|x,y_
   └─► 解法: Online DPO / Test-Time Compute Scaling
 ```
 
-## 各方法核心公式一览
+### 各方法核心公式一览
 
 |方法|核心公式|
 |---|---|
@@ -1037,7 +1037,7 @@ $$\frac{1}{|y|}\log\pi_\theta(y|x) = \frac{1}{|y|}\sum_t \log\pi_\theta(y_t|x,y_
 |Dr.GRPO|$\hat{A}_i = r_i - \mu_G$（去 std），per-token 归一化|
 |VAPO|$\hat{A}^{VAPO} = \lambda A^{GAE} + (1-\lambda)\hat{A}^{group}$|
 
-## 面试高频考点清单
+### 面试高频考点清单
 
 - [ ] RLHF 三阶段各自解决什么问题
 - [ ] Bradley-Terry 模型推导，为什么选它
