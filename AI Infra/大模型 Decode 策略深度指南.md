@@ -330,7 +330,9 @@ block_table = {
 |W2 (QuIP#)|~5-8%|3-4×|+0.2|需调高 min_p/top_p|
 
 **机制解析**：量化误差将原始尖锐的 logit 分布「平滑化」，使高概率 token 的优势降低。贪心解码对此最敏感，采样策略可通过适当降低 top_p 或提高 temperature 进行补偿。
+
 ---
+
 ## 4. 参数调优实战指南
 ### 4.1 Repetition Penalty（重复惩罚）
 对已生成 token 的 logit 施加惩罚，防止陷入重复循环：
