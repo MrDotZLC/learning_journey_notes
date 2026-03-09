@@ -162,7 +162,7 @@ next_token = sorted_ids[torch.multinomial(sorted_probs, 1)]
 > - 代码生成：`τ=0.3, p=0.9`
 #### 2.3.4 Min-p Sampling（2024 年新方法）
 相对概率截断：过滤掉概率低于「最高概率 × min_p」的 token：
-$$\text{threshold} = \text{min_p} \times \max_{v} P(v \mid x_{<t})$$
+$$\text{threshold} = \text{min\_p} \times \max_{v} P(v \mid x_{<t})$$
 ```python
 max_prob = probs.max()
 threshold = min_p * max_prob    # 相对阈值
