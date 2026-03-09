@@ -18,12 +18,14 @@
   └──→ (其余 N-k 个专家不激活)
 ```
 **稠密模型（Dense）vs 稀疏 MoE**：
+
 |维度|Dense Transformer|Sparse MoE|
 |---|---|---|
 |参数量|$P$|$N \times P_{\text{expert}}$|
 |每 token 激活参数|$P$（全部）|$\approx P/N \times k$（部分）|
 |FLOPs/token|高|低（与激活专家数成比例）|
 |显存需求|低|高（需加载全部专家权重）|
+
 ---
 ## 2. 数学形式化
 ### 2.1 基本结构
@@ -70,7 +72,7 @@ $$p_i = \frac{1}{T} \sum_{t=1}^{T} G(\mathbf{x}_t)_i$$
 由 Cauchy-Schwarz 不等式，$\sum_i f_i p_i \geq \frac{1}{N}$，等号当且仅当 $f_i = p_i = \frac{1}{N}$ 时成立。
 ### 3.3 Expert Capacity（容量上限）
 每个专家设置 token 容量上限，溢出的 token 直接跳过该专家（pass-through）：
-$$C = \frac{T}{N} \times \text{capacity_factor}$$
+$$C = \frac{T}{N} \times \text{capacity\_factor}$$
 - $T$：batch 内总 token 数
 - capacity_factor 典型值：$1.0 \sim 1.5$（训练），$2.0$（推理）
 - 超出容量的 token：在 Top-1 路由中直接用残差输出，在 Top-2 中路由到第二专家
@@ -81,14 +83,14 @@ $$C = \frac{T}{N} \times \text{capacity_factor}$$
 ```
 Transformer Block:
   ┌─────────────────────────┐
-  │  Multi-Head Attention    │  ← 稠密，所有 token 共享
-  │  LayerNorm               │
-  │  MoE FFN Layer           │  ← 替换原 FFN
+  │  Multi-Head Attention      │  ← 稠密，所有 token 共享
+  │  LayerNorm                 │
+  │  MoE FFN Layer             │  ← 替换原 FFN
   │    ├─ Router             │
   │    ├─ Expert_1 (FFN)     │
   │    ├─ Expert_2 (FFN)     │
   │    └─ ...Expert_N (FFN)  │
-  │  LayerNorm               │
+  │  LayerNorm                 │
   └─────────────────────────┘
 ```
 每个 Expert 本质是独立的 FFN：
@@ -106,6 +108,7 @@ $$E_i(\mathbf{x}) = \text{SiLU}(\mathbf{x} \mathbf{W}_{i,1}) \cdot (\mathbf{x} \
 DeepSeek-V2 引入：部分专家**始终激活**（不经过路由），其余专家稀疏路由。
 $$\text{MoE}(\mathbf{x}) = \sum_{i=1}^{K_s} E_i^{\text{shared}}(\mathbf{x}) + \sum_{j \in \text{TopK}_r} G(\mathbf{x})_j \cdot E_j^{\text{routed}}(\mathbf{x})$$
 **作用**：共享专家捕获通用知识，路由专家捕获特化知识，缓解专家间知识冗余。
+
 ---
 ## 5. 路由策略演进
 ### 5.1 Token-Choice 路由（主流）
@@ -284,6 +287,7 @@ if __name__ == "__main__":
 ## 8. MoE 与 Dropout 的对比
 ### 8.1 表面相似性与本质差异
 两者都涉及"部分神经元/模块不激活"，但动机、机制、效果完全不同。
+
 |维度|Dropout|Sparse MoE|
 |---|---|---|
 |**目的**|正则化，防止过拟合|扩大模型容量，提升计算效率|
@@ -323,6 +327,7 @@ $$\text{MoE}(\mathbf{x}) = \sum_{i \in \text{TopK}} G(\mathbf{x})_i \cdot E_i(\m
 |**通信瓶颈**|All-to-All 跨设备路由|EP+DP 并行 / 减少专家并行节点数|
 |**训练不稳定**|路由离散操作不可微|软概率辅助损失代替硬路由梯度|
 |**推理延迟**|专家串行/并行调度|批量合并同一专家的 token（batched GEMM）|
+
 ---
 ## 10. 面试高频问题与标准答案
 ### Q1：MoE 为什么能在参数量增大的同时保持 FLOPs 不变？
@@ -330,16 +335,20 @@ $$\text{MoE}(\mathbf{x}) = \sum_{i \in \text{TopK}} G(\mathbf{x})_i \cdot E_i(\m
 MoE 将 FFN 层替换为 $N$ 个独立专家，但每个 token 只激活其中 $k$ 个。
 $$\text{FLOPs}_{\text{MoE}} = k \times \text{FLOPs}_{\text{single expert}} \approx \frac{k}{N} \times \text{FLOPs}_{\text{dense FFN (N experts worth)}}$$
 参数量扩大了 $N$ 倍，但计算量只有 $k/N$ 倍。关键前提：$k \ll N$（如 $k=2, N=8$）。
+
 ---
 ### Q2：Top-1 和 Top-2 路由各有何优劣？
-||Top-1（Switch Transformer）|Top-2（Mixtral）|
+
+|Top-1（Switch Transformer）|Top-2（Mixtral）|
 |---|---|---|
 |**FLOPs**|最低|2× Top-1|
 |**训练稳定性**|较差（梯度方差大）|较好|
 |**专家利用率**|低（更易坍塌）|较高|
 |**负载均衡难度**|低|中|
 |**表达能力**|弱（单一专家决策）|强（两专家加权组合）|
+
 **一句话**：Top-1 省计算但难训练；Top-2 是工程与效果的平衡点，目前主流。
+
 ---
 ### Q3：辅助损失（Auxiliary Loss）为什么用 $f_i \times p_i$ 而不是直接最小化 $f_i$ 的方差？
 **答**：
@@ -354,6 +363,7 @@ $f_i$（实际 token 分配比例）是**离散量**，通过 argmax/TopK 得到
 $$\text{output} = \mathbf{x} + \text{MoE}(\mathbf{x})_{\text{routed tokens}}$$
 溢出 token 的 $\text{MoE}(\mathbf{x}) = \mathbf{0}$，等价于该层对其无贡献。
 **工程含义**：capacity_factor 设太小会导致大量 token 被丢弃，质量下降；设太大则浪费显存/计算。
+
 ---
 ### Q5：为什么 MoE 的推理延迟有时比同 FLOPs 的 Dense 模型更高？
 **答**：三个原因：
@@ -371,14 +381,17 @@ batch 内将路由到同一专家的 token 聚合 → 一次大 GEMM
 ```
 ---
 ### Q6：MoE 与多头注意力（MHA）中的"多头"有何异同？
-||MHA 多头|MoE 多专家|
+
+|MHA 多头|MoE 多专家|
 |---|---|---|
 |**并行方式**|所有头同时计算（稠密）|仅激活 Top-K 专家（稀疏）|
 |**参数独立性**|各头有独立 $W_Q, W_K, W_V$|各专家有独立 FFN 权重|
 |**选择机制**|无路由，全部激活|路由器条件选择|
 |**捕获信息**|不同子空间的注意力模式|不同语义领域的知识|
 |**输出融合**|拼接后线性变换|加权求和|
+
 **共同点**：都是"分而治之"的模块化思想，用多个独立子模块覆盖不同的表示空间。
+
 ---
 ### Q7：如何理解"专家专业化"（Expert Specialization）？
 **答**：
