@@ -72,6 +72,7 @@ $$P(\text{"the"} \mid \text{"...the the the"}) > P(\text{任意其他 token} \mi
 **应对方案**：引入 [[#4.1 Repetition Penalty（重复惩罚）|Repetition Penalty]] 或改用采样策略。
 
 ---
+
 ### 2.2 Beam Search（束搜索）
 同时维护 $k$ 条候选序列（beam），每步展开后保留联合对数概率最高的 $k$ 条路径。
 $$\text{score}(y_{1:t}) = \sum_{i=1}^{t} \log P(y_i \mid y_{<i}, x)$$
@@ -186,6 +187,7 @@ for t in range(max_len):
 | **是否正交** | ✅ 可同时使用                 | ✅ 可同时使用                   |
 
 ---
+
 ### 2.3 采样策略（Sampling Methods）
 与确定性解码不同，采样从概率分布中随机抽取 token，天然具备多样性。
 #### 2.3.1 Temperature Sampling（温度采样）
@@ -256,7 +258,7 @@ next_token = torch.multinomial(probs, 1)
 
 #### 2.3.5 Mirostat 采样（动态困惑度控制）
 通过实时控制输出困惑度（Perplexity）来稳定生成质量：
-$$\text{target_perplexity} = \exp(\tau) \quad \Rightarrow \quad \text{动态调整截断阈值 } \mu$$
+$$\text{target\_perplexity} = \exp(\tau) \quad \Rightarrow \quad \text{动态调整截断阈值 } \mu$$
 ```bash
 # llama.cpp 参数
 --mirostat 2           # Mirostat v2（推荐）
@@ -266,7 +268,8 @@ $$\text{target_perplexity} = \exp(\tau) \quad \Rightarrow \quad \text{动态调�
 **适用场景**：长文本生成（小说、报告），可防止文本随时间退化或变得单调。
 
 ---
-#### 2.4 Contrastive Decoding（对比解码）
+
+### 2.4 Contrastive Decoding（对比解码）
 利用「专家模型」与「业余模型」的概率差异，放大专家模型的独特优势：
 $$\text{score}(x_t) = \log P_\text{expert}(x_t \mid x_{<t}) - \alpha \cdot \log P_\text{amateur}(x_t \mid x_{<t})$$
 ```python
@@ -276,13 +279,13 @@ logits_amateur = small_model(input_ids)   # 7B
 logits_final   = logits_expert - alpha * logits_amateur
 next_token = torch.argmax(logits_final)
 ```
-##### 变体：VCD（Visual Contrastive Decoding）
+#### 变体：VCD（Visual Contrastive Decoding）
 在多模态模型中，通过对比「有图像输入」与「无图像输入」的分布，减少视觉幻觉：
 $$\text{score}_\text{VCD}(x_t) = \log P(x_t \mid \text{image, text}) - \beta \cdot \log P(x_t \mid \text{text only})$$
 ---
-#### 2.5 Speculative Decoding（推测解码）
+### 2.5 Speculative Decoding（推测解码）
 用小模型（Draft Model）快速生成多个候选 token，再由大模型（Target Model）并行验证，通过「拒绝采样」大幅提升吞吐量。
-##### 算法流程
+#### 算法流程
 ```python
 def speculative_decode(target, draft, prompt, K=5):
     # Step 1: Draft 小模型自回归生成 K 个候选
@@ -306,7 +309,7 @@ def speculative_decode(target, draft, prompt, K=5):
             break  # 拒绝后从修正分布重采样
     return draft_tokens[:accepted]
 ```
-##### 理论加速比分析
+#### 理论加速比分析
 $$\mathbb{E}[\text{tokens per step}] = \frac{1 - \alpha^{K+1}}{1 - \alpha}$$
 其中 $\alpha$ 为平均 token 接受率：
 
@@ -317,7 +320,7 @@ $$\mathbb{E}[\text{tokens per step}] = \frac{1 - \alpha^{K+1}}{1 - \alpha}$$
 |0.7|4|~2.8×|通用 draft 模型|
 |0.5|3|~1.9×|分布差异较大|
 
-##### 工程实现变体
+#### 工程实现变体
 
 |变体|核心思路|优势|
 |---|---|---|
@@ -327,8 +330,9 @@ $$\mathbb{E}[\text{tokens per step}] = \frac{1 - \alpha^{K+1}}{1 - \alpha}$$
 |**Eagle / Eagle-2**|特征级 draft + 动态候选树|目前 SOTA，~5× 加速|
 
 ---
-### 3. 工程优化技术
-#### 3.1 KV Cache
+
+## 3. 工程优化技术
+### 3.1 KV Cache
 将已计算的 Key/Value 矩阵缓存，避免每步重复计算历史部分：
 ```python
 # ❌ 无 KV Cache：每步重新计算全部 K, V
@@ -338,14 +342,14 @@ K_new   = x_new @ W_k                        # [1, d_k]
 K_cache = torch.cat([K_cache, K_new], dim=0) # [seq_len+1, d_k]
 attn    = (q_new @ K_cache.T) / sqrt(d_k)    # 利用缓存
 ```
-##### 显存占用估算
+#### 显存占用估算
 对于 LLaMA-3-70B（FP16）：
-$$\text{KV_size} = 2 \times 2,\text{bytes} \times 80,\text{layers} \times 8,\text{heads} \times 128,\text{dims} \approx 0.32,\text{MB/token}$$
+$$\text{KV\_size} = 2 \times 2,\text{bytes} \times 80,\text{layers} \times 8,\text{heads} \times 128,\text{dims} \approx 0.32,\text{MB/token}$$
 > [!warning] 显存限制 最大上下文 128K token 时，KV Cache 约占 **40 GB**，接近单卡 A100 80GB 的显存上限。
 
 ---
 
-#### 3.2 PagedAttention
+### 3.2 PagedAttention
 vLLM 提出的核心创新，借鉴操作系统虚拟内存分页思想：
 ```
 KV Cache 被分割为固定大小的 Block（通常 16 tokens/block）
@@ -372,7 +376,7 @@ block_table = {
 
 ---
 
-#### 3.3 Continuous Batching（连续批处理）
+### 3.3 Continuous Batching（连续批处理）
 
 |特性|Static Batching|Continuous Batching|
 |---|---|---|
@@ -382,7 +386,8 @@ block_table = {
 |实现框架|早期 Triton 推理|vLLM, TensorRT-LLM, SGLang|
 
 ---
-#### 3.4 Chunked Prefill
+
+### 3.4 Chunked Prefill
 将长 Prompt 的 Prefill 阶段分块执行，与 Decode 阶段**交错进行**，避免 Prefill 独占 GPU 导致正在 Decode 的请求延迟飙升（stall）：
 ```python
 # 每个调度周期：
@@ -394,7 +399,7 @@ block_table = {
 
 ---
 
-#### 3.5 量化对解码的影响
+### 3.5 量化对解码的影响
 
 |量化方法|精度损失|吞吐提升|推荐温度补偿|适用解码策略|
 |---|---|---|---|---|
@@ -405,9 +410,11 @@ block_table = {
 |W2 (QuIP#)|~5-8%|3-4×|+0.2|需调高 min_p/top_p|
 
 **机制解析**：量化误差将原始尖锐的 logit 分布「平滑化」，使高概率 token 的优势降低。贪心解码对此最敏感，采样策略可通过适当降低 top_p 或提高 temperature 进行补偿。
+
 ---
-### 4. 参数调优实战指南
-#### 4.1 Repetition Penalty（重复惩罚）
+
+## 4. 参数调优实战指南
+### 4.1 Repetition Penalty（重复惩罚）
 对已生成 token 的 logit 施加惩罚，防止陷入重复循环：
 $$\text{score}(x_t) = \begin{cases} z_t / \text{penalty} & \text{if } x_t \in x_{<t} \ z_t & \text{otherwise} \end{cases}$$
 ```python
@@ -428,7 +435,8 @@ for token_id in set(input_ids[0]):  # 对已出现 token
 |>1.5|过强，慎用|可能导致语法错误|
 
 ---
-#### 4.2 Presence Penalty 与 Frequency Penalty
+
+### 4.2 Presence Penalty 与 Frequency Penalty
 OpenAI API 区分两种惩罚（范围均为 $[-2, 2]$）：
 - **Presence Penalty**：对出现过的 token（不论频率）施加**固定惩罚**，鼓励引入新概念
 - **Frequency Penalty**：惩罚与**出现次数成正比**，重复越多惩罚越重
@@ -440,7 +448,7 @@ logit[t] -= presence_penalty * (1 if count[t] > 0 else 0)     # 存在惩罚
 
 ---
 
-#### 4.3 任务导向的参数配置
+### 4.3 任务导向的参数配置
 ```python
 # 事实性任务（翻译 / 摘要 / RAG）
 config_factual = {
@@ -482,7 +490,7 @@ config_brainstorm = {
 
 ---
 
-#### 4.4 格式化输出中的解码控制
+### 4.4 格式化输出中的解码控制
 结构化输出（JSON / XML 等）需要特殊处理，防止模型生成非法格式：
 - **Logit Masking**：将不符合当前 JSON 状态机约束的 token logit 设为 $-\infty$，强制输出合法结构
 - **Grammar Sampling（llama.cpp GBNF）**：使用 BNF 文法约束解码，确保输出 100% 符合指定文法
@@ -498,8 +506,8 @@ output = llm("生成JSON", grammar=grammar)
 
 ---
 
-### 5. 前沿研究方向
-#### 5.1 Medusa（多头推测解码）
+## 5. 前沿研究方向
+### 5.1 Medusa（多头推测解码）
 在 LLM 顶层附加 $K$ 个轻量 MLP 预测头，每个头负责预测未来第 $i$ 个 token：
 ```python
 class MedusaModel(LlamaForCausalLM):
@@ -515,13 +523,17 @@ class MedusaModel(LlamaForCausalLM):
         return base_logits, medusa_logits
 ```
 **实测加速**：Medusa-2（5 个预测头）在 Vicuna-7B 上实现约 **2.2-2.8×** 的吞吐提升，无需额外 draft 模型，部署成本低。
+
 ---
-#### 5.2 Eagle / Eagle-2（2024）
+
+### 5.2 Eagle / Eagle-2（2024）
 通过预测 LLM **最后一层的特征向量**（而非直接预测 token），大幅提高 draft 质量：
-$$\text{draft_feature}_{t+1} = \text{EAGLE_model}(\text{feature}_t, \text{token}_t)$$
+$$\text{draft\_feature}_{t+1} = \text{EAGLE\_model}(\text{feature}_t, \text{token}_t)$$
 Eagle-2 进一步引入**动态候选树（Dynamic Draft Tree）**，根据上下文实时调整树的形状，在 Llama-3-70B 上实现接近 **5×** 的加速，是目前 Speculative Decoding 的 SOTA。
+
 ---
-#### 5.3 Diffusion-Based Decoding（扩散解码）
+
+### 5.3 Diffusion-Based Decoding（扩散解码）
 与传统自回归逐 token 生成不同，扩散语言模型以掩码扩散过程**一次性生成整段文本**：
 $$x_T \text{（噪声）} \to x_{T-1} \to \cdots \to x_0 \text{（文本）}$$
 代表工作：MDLM、Plaid
@@ -530,7 +542,7 @@ $$x_T \text{（噪声）} \to x_{T-1} \to \cdots \to x_0 \text{（文本）}$$
 
 ---
 
-#### 5.4 Tree Attention 与 Parallel Decoding
+### 5.4 Tree Attention 与 Parallel Decoding
 构建候选序列树，并行验证多条路径：
 ```
 # Tree Attention: 多条路径共享 prefix KV Cache
@@ -542,7 +554,7 @@ $$x_T \text{（噪声）} \to x_{T-1} \to \cdots \to x_0 \text{（文本）}$$
 
 ---
 
-#### 5.5 Reward-Guided Decoding（奖励引导解码）
+### 5.5 Reward-Guided Decoding（奖励引导解码）
 在解码时引入外部奖励模型对每步候选进行打分：
 $$\text{score}(x_t) = \log P_\text{LM}(x_t \mid x_{<t}) + \beta \cdot R(x_t, x_{<t})$$
 
@@ -553,8 +565,9 @@ $$\text{score}(x_t) = \log P_\text{LM}(x_t \mid x_{<t}) + \beta \cdot R(x_t, x_{
 |**RLHF 解码推断**|直接将 RLHF 中的 reward signal 用于 token 级引导，无需额外训练|
 
 ---
-### 6. 实际部署与框架对比
-#### 6.1 延迟-吞吐-显存三角
+
+## 6. 实际部署与框架对比
+### 6.1 延迟-吞吐-显存三角
 
 |策略|TTFT|吞吐 (tok/s)|显存占用|输出质量|推荐场景|
 |---|---|---|---|---|---|
@@ -565,7 +578,8 @@ $$\text{score}(x_t) = \log P_\text{LM}(x_t \mid x_{<t}) + \beta \cdot R(x_t, x_{
 |Medusa|低|高（2-3×）|+5% 参数量|接近原模型|单卡部署加速|
 
 ---
-#### 6.2 主流推理框架支持矩阵（2025 年 3 月）
+
+### 6.2 主流推理框架支持矩阵（2025 年 3 月）
 
 |框架|Greedy/Sampling|Beam|Speculative|PagedAttn|Cont. Batch|量化支持|
 |---|---|---|---|---|---|---|
@@ -576,7 +590,8 @@ $$\text{score}(x_t) = \log P_\text{LM}(x_t \mid x_{<t}) + \beta \cdot R(x_t, x_{
 |**HF TGI**|✅ 全支持|✅|⚠️ 实验性|✅|✅|GPTQ/AWQ|
 
 ---
-#### 6.3 生产环境调优 Checklist
+
+### 6.3 生产环境调优 Checklist
 - [ ] 确定任务类型（事实性 / 对话 / 创意），选择基础解码策略
 - [ ] 根据 GPU 型号评估量化方案（A100/H100 优先 FP8，RTX 4090 优先 W4A16）
 - [ ] 吞吐优先：启用 Speculative Decoding + Continuous Batching + PagedAttention
@@ -587,8 +602,8 @@ $$\text{score}(x_t) = \log P_\text{LM}(x_t \mid x_{<t}) + \beta \cdot R(x_t, x_{
 
 ---
 
-### 7. 深度数学推导
-#### 7.1 Beam Search 最优性分析
+## 7. 深度数学推导
+### 7.1 Beam Search 最优性分析
 Beam Search 并非全局最优解。以 $|\mathcal{V}|=32000$，$T=100$ 为例：
 - **穷举最优**：需要 $32000^{100}$ 次评估（不可行）
 - **Beam Search (k=4)**：仅评估 $4 \times 32000 \times 100 = 12.8\text{M}$ 次
@@ -597,7 +612,7 @@ Beam Search 并非全局最优解。以 $|\mathcal{V}|=32000$，$T=100$ 为例�
 
 ---
 
-#### 7.2 采样分布熵分析
+### 7.2 采样分布熵分析
 给定温度 $\tau$，采样分布的熵为：
 $$H(P_\tau) = -\sum_v P_\tau(v) \log P_\tau(v) \approx \frac{H(P_1)}{\tau} \quad \text{（低熵情形近似）}$$
 - $\tau \to 0$：$H \to 0$（确定性）
@@ -606,14 +621,16 @@ $$H(P_\tau) = -\sum_v P_\tau(v) \log P_\tau(v) \approx \frac{H(P_1)}{\tau} \quad
 
 ---
 
-#### 7.3 Speculative Decoding 正确性证明
+### 7.3 Speculative Decoding 正确性证明
 **关键性质**：输出分布与 target 模型完全一致。
 设 $p = P_\text{target}(x)$，$q = P_\text{draft}(x)$。接受后的有效分布为：
 $$P_\text{accept}(x) = q(x) \cdot \min!\left(1, \frac{p(x)}{q(x)}\right) + \delta \cdot \text{norm}(p - q)_+$$
 其中 $\delta$ 为拒绝后从修正分布重采样的贡献项。可以证明：
 $$P_\text{accept} = P_\text{target}$$
 即推测解码在统计意义上与**直接从大模型采样**完全等价，同时获得显著加速。
+
 ---
+
 ### 相关笔记
 - [[Transformer 架构详解]]
 - [[KV Cache 实现与优化]]
