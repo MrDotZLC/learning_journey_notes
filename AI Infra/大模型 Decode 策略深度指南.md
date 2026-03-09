@@ -607,7 +607,7 @@ $$\text{score}(x_t) = \log P_\text{LM}(x_t \mid x_{<t}) + \beta \cdot R(x_t, x_{
 Beam Search 并非全局最优解。以 $|\mathcal{V}|=32000$，$T=100$ 为例：
 - **穷举最优**：需要 $32000^{100}$ 次评估（不可行）
 - **Beam Search (k=4)**：仅评估 $4 \times 32000 \times 100 = 12.8\text{M}$ 次
-**命题**：Beam Search 找到的序列 $y^_$ 满足 $P(y^_ | x) \geq P(y_\text{greedy} | x)$，但不保证达到全局最优 $\arg\max_y P(y|x)$。
+**命题**：Beam Search 找到的序列 $y^\_$ 满足 $P(y^\_ | x) \geq P(y_\text{greedy} | x)$，但不保证达到全局最优 $\arg\max_y P(y|x)$。
 在 BLEU 等指标上，解码质量随 $k$ 增加单调提升，但**边际收益递减**。
 
 ---
