@@ -28,30 +28,311 @@
 
 ---
 ## 2. 数学形式化
+### 2.0 符号总表
+
+|符号|含义|维度/类型|
+|---|---|---|
+|$\mathbf{x}$|单个 token 的隐藏状态（输入）|$\mathbb{R}^d$|
+|$d$|模型隐藏维度（hidden size）|标量，如 4096|
+|$N$|专家总数|标量，如 8|
+|$k$|每 token 激活的专家数（Top-K）|标量，如 2|
+|$\mathbf{W}_g$|路由器的可学习权重矩阵|$\mathbb{R}^{d \times N}$|
+|$\mathbf{W}_{\text{noise}}$|噪声幅度矩阵（Noisy Gating）|$\mathbb{R}^{d \times N}$|
+|$H(\mathbf{x})$|原始路由 logit（未归一化得分）|$\mathbb{R}^N$|
+|$G(\mathbf{x})$|门控权重向量（稀疏）|$\mathbb{R}^N$，仅 $k$ 个非零|
+|$E_i(\mathbf{x})$|第 $i$ 个专家的输出|$\mathbb{R}^d$|
+|$\mathbf{W}_{i,1}, \mathbf{W}_{i,2}, \mathbf{W}_{i,3}$|第 $i$ 个专家的 FFN 权重|$\mathbb{R}^{d \times d_{ff}}$ 等|
+|$d_{ff}$|专家 FFN 内部维度|标量，通常 $= 4d$|
+|$T$|当前 batch 的总 token 数|标量|
+|$\epsilon_i$|标准正态噪声|$\mathbb{R}$|
+|$\text{TopK}(v, k)$|返回向量 $v$ 中最大 $k$ 个元素的下标集合|$\subseteq {1,\dots,N}$|
+
+---
+
 ### 2.1 基本结构
-设有 $N$ 个专家 ${E_1, E_2, \dots, E_N}$，输入 token 表示为 $\mathbf{x} \in \mathbb{R}^d$。
-**MoE 层输出**：
-$$\text{MoE}(\mathbf{x}) = \sum_{i=1}^{N} G(\mathbf{x})_i \cdot E_i(\mathbf{x})$$
-其中 $G(\mathbf{x}) \in \mathbb{R}^N$ 为门控权重向量。
-### 2.2 Softmax 门控（稠密，所有专家激活）
-$$G(\mathbf{x}) = \text{Softmax}(\mathbf{x} \cdot \mathbf{W}_g)$$
-- $\mathbf{W}_g \in \mathbb{R}^{d \times N}$：可学习门控矩阵
-- 所有专家均参与计算，无稀疏性
-### 2.3 Top-K 稀疏门控（Shazeer et al., 2017）
-**步骤一**：计算原始门控分数
+
+**MoE 层的完整输出公式**：
+
+$$\boxed{\text{MoE}(\mathbf{x}) = \sum_{i=1}^{N} G(\mathbf{x})_i \cdot E_i(\mathbf{x})}$$
+
+其中：
+
+- $G(\mathbf{x})_i$：路由器分配给专家 $i$ 的权重（标量）
+- $E_i(\mathbf{x})$：专家 $i$ 对输入 $\mathbf{x}$ 的变换结果（向量）
+- 稀疏情形下，绝大多数 $G(\mathbf{x})_i = 0$，只有 $k$ 项非零
+
+**在 Transformer 残差结构中的完整形式**：
+
+$$\mathbf{h}' = \mathbf{h} + \text{MoE}(\text{LayerNorm}(\mathbf{h}))$$
+
+即 $\mathbf{x} = \text{LayerNorm}(\mathbf{h})$，MoE 层的输入是经过层归一化后的隐藏状态。
+
+---
+
+### 2.2 专家 $E_i(\mathbf{x})$ 的结构
+
+每个专家是一个**独立的 FFN**，拥有自己独立的一套参数，与其他专家不共享。
+
+#### 标准 FFN（ReLU 版，早期）
+
+$$E_i(\mathbf{x}) = \text{ReLU}(\mathbf{x} \mathbf{W}_{i,1} + \mathbf{b}_{i,1}) \mathbf{W}_{i,2} + \mathbf{b}_{i,2}$$
+
+- $\mathbf{W}_{i,1} \in \mathbb{R}^{d \times d_{ff}}$：升维投影（up projection）
+- $\mathbf{W}_{i,2} \in \mathbb{R}^{d_{ff} \times d}$：降维投影（down projection）
+- 通常 $d_{ff} = 4d$
+
+#### SwiGLU 变体（现代主流，LLaMA / Mixtral / DeepSeek）
+
+$$E_i(\mathbf{x}) = \left(\text{SiLU}(\mathbf{x} \mathbf{W}_{i,1}) \odot \mathbf{x} \mathbf{W}_{i,3}\right) \mathbf{W}_{i,2}$$
+
+- $\mathbf{W}_{i,1} \in \mathbb{R}^{d \times d_{ff}}$：gate projection
+- $\mathbf{W}_{i,3} \in \mathbb{R}^{d \times d_{ff}}$：up projection
+- $\mathbf{W}_{i,2} \in \mathbb{R}^{d_{ff} \times d}$：down projection
+- $\odot$：逐元素相乘（Hadamard 积）
+
+**SiLU（Sigmoid Linear Unit）的定义**：
+
+$$\text{SiLU}(z) = z \cdot \sigma(z) = \frac{z}{1 + e^{-z}}$$
+
+- 光滑、无处处可导，梯度比 ReLU 更稳定
+- 又称 Swish 激活函数
+
+**GLU（Gated Linear Unit）思想**：用一个门控路径 $\text{SiLU}(\mathbf{x}\mathbf{W}_1)$ 控制另一路径 $\mathbf{x}\mathbf{W}_3$ 的信息流量，提升表达能力。
+
+**维度追踪**（以 $d=4096, d_{ff}=14336$ 为例）：
+
+```
+x:              (T, 4096)
+x @ W_{i,1}:   (T, 4096) × (4096, 14336) = (T, 14336)  ← gate
+x @ W_{i,3}:   (T, 4096) × (4096, 14336) = (T, 14336)  ← up
+SiLU(...) ⊙ ...: (T, 14336)                              ← gated
+(...) @ W_{i,2}: (T, 14336) × (14336, 4096) = (T, 4096) ← down，还原维度
+```
+
+---
+
+### 2.3 门控权重 $G(\mathbf{x})$ 的来源与推导
+
+#### Step 1：路由器线性变换 → 原始 logit
+
 $$H(\mathbf{x}) = \mathbf{x} \cdot \mathbf{W}_g \in \mathbb{R}^N$$
-**步骤二**：保留 Top-K，其余置 $-\infty$
+
+- $\mathbf{x} \in \mathbb{R}^d$（行向量），$\mathbf{W}_g \in \mathbb{R}^{d \times N}$
+- $H(\mathbf{x})_i$ 表示"路由器认为 token $\mathbf{x}$ 应该去专家 $i$ 的原始分数"
+- $\mathbf{W}_g$ 是**可学习参数**，通过反向传播与主任务损失共同优化
+
+**$\mathbf{W}_g$ 怎么学习的**：
+
+路由器参数 $\mathbf{W}_g$ 的梯度来自两个来源：
+
+$$\frac{\partial \mathcal{L}_{\text{total}}}{\partial \mathbf{W}_g} = \frac{\partial \mathcal{L}_{\text{task}}}{\partial \mathbf{W}_g} + \alpha \cdot \frac{\partial \mathcal{L}_{\text{aux}}}{\partial \mathbf{W}_g}$$
+
+- **主任务梯度**：通过 $G(\mathbf{x})_i \cdot E_i(\mathbf{x})$ 的链式法则传回，告诉路由器"哪种路由使任务损失更低"
+- **辅助损失梯度**：通过 $p_i = \text{mean}(\text{Softmax}(H(\mathbf{x})))$ 传回，鼓励均匀分配
+
+注意：TopK 操作本身不可微（离散选择），但梯度通过**已选中的 $k$ 个专家**的 Softmax 权重 $G(\mathbf{x})_i$ 传回 $\mathbf{W}_g$，未选中的专家对 $\mathbf{W}_g$ 的梯度为零（stop-gradient）。
+
+#### Step 2（稠密门控）：Softmax 归一化
+
+$$G_{\text{dense}}(\mathbf{x}) = \text{Softmax}(H(\mathbf{x})) = \frac{e^{H(\mathbf{x})_i}}{\sum_{j=1}^{N} e^{H(\mathbf{x})_j}}$$
+
+所有 $N$ 个专家均被激活，权重之和为 1。**仅用于理解，实际不用（计算量等于 Dense 模型）**。
+
+#### Step 3（稀疏门控）：Top-K 截断
+
+**保留最高 $k$ 个，其余置 $-\infty$**：
+
 $$H'(\mathbf{x})_i = \begin{cases} H(\mathbf{x})_i & \text{if } i \in \text{TopK}(H(\mathbf{x}), k) \ -\infty & \text{otherwise} \end{cases}$$
-**步骤三**：Softmax 归一化
+
+**再做 Softmax（对 $-\infty$ 项结果为 0）**：
+
 $$G(\mathbf{x}) = \text{Softmax}(H'(\mathbf{x}))$$
-**最终输出**（仅 $k$ 个专家参与计算）：
-$$\text{MoE}(\mathbf{x}) = \sum_{i \in \text{TopK}} G(\mathbf{x})_i \cdot E_i(\mathbf{x})$$
-### 2.4 Noisy Top-K 门控（训练时探索）
-在训练阶段引入噪声，防止路由器坍塌到固定专家：
-$$H_{\text{noisy}}(\mathbf{x})_i = H(\mathbf{x})_i + \epsilon_i \cdot \text{Softplus}!\left(\mathbf{x} \cdot \mathbf{W}_{\text{noise}}\right)_i$$
-$$\epsilon_i \sim \mathcal{N}(0, 1)$$
-- $\mathbf{W}_{\text{noise}} \in \mathbb{R}^{d \times N}$：可学习噪声幅度矩阵
-- 推理时关闭噪声
+
+$$G(\mathbf{x})_i = \begin{cases} \dfrac{e^{H(\mathbf{x})_i}}{\displaystyle\sum_{j \in \text{TopK}} e^{H(\mathbf{x})_j}} & \text{if } i \in \text{TopK} \[10pt] 0 & \text{otherwise} \end{cases}$$
+
+**性质**：
+
+- $\sum_{i=1}^{N} G(\mathbf{x})_i = 1$（概率归一）
+- 恰好 $k$ 个非零项
+- 非零项之和仍为 1，保持输出量级稳定
+
+**完整数值示例**（$N=4, k=2$）：
+
+```
+H(x)  = [2.1,  0.5, -0.3,  1.8]   ← 路由器输出
+
+TopK(H(x), 2) = {0, 3}             ← 下标 0 和 3 最大
+
+H'(x) = [2.1, -∞,  -∞,   1.8]
+
+Softmax:
+  分母 = e^2.1 + e^1.8 = 8.166 + 6.050 = 14.216
+  G(x) = [8.166/14.216, 0, 0, 6.050/14.216]
+        = [0.575,        0, 0, 0.425]
+```
+
+最终：$\text{MoE}(\mathbf{x}) = 0.575 \cdot E_0(\mathbf{x}) + 0.425 \cdot E_3(\mathbf{x})$
+
+---
+
+### 2.4 Noisy Top-K 门控（训练时）
+
+#### 动机
+
+若不加噪声，路由器在早期训练中一旦倾向某些专家，这些专家就获得更多梯度 → 能力更强 → 被选中概率更高，形成**正反馈循环（马太效应）**，导致专家坍塌。
+
+训练时引入随机噪声，强迫路由器探索所有专家。
+
+#### 公式
+
+$$H_{\text{noisy}}(\mathbf{x})_i = \underbrace{H(\mathbf{x})_i}_{\text{原始 logit}} + \underbrace{\epsilon_i \cdot \text{Softplus}!\left((\mathbf{x} \cdot \mathbf{W}_{\text{noise}})_i\right)}_{\text{自适应噪声}}$$
+
+其中 $\epsilon_i \sim \mathcal{N}(0, 1)$（标准正态分布独立采样）。
+
+#### Softplus 函数详解
+
+$$\text{Softplus}(z) = \log(1 + e^z) = \log(1 + \exp(z))$$
+
+**图像与性质**：
+
+```
+z 很大（z → +∞）：Softplus(z) ≈ z          （近似线性）
+z 很小（z → -∞）：Softplus(z) ≈ e^z ≈ 0   （趋近于0）
+z = 0：           Softplus(0) = log(2) ≈ 0.693
+
+导数：d/dz Softplus(z) = σ(z) = 1/(1+e^{-z})  ← 即 Sigmoid 函数
+```
+
+|$z$|$\text{ReLU}(z)$|$\text{Softplus}(z)$|
+|---|---|---|
+|-2|0|0.127|
+|-1|0|0.313|
+|0|0|0.693|
+|1|1|1.313|
+|2|2|2.127|
+
+**Softplus 的作用**：ReLU 的光滑版本，保证输出**严格非负**。
+
+#### 在 Noisy Gating 中的角色
+
+$$\text{Softplus}!\left((\mathbf{x} \cdot \mathbf{W}_{\text{noise}})_i\right) \geq 0$$
+
+- 这一项是**自适应噪声标准差**，由输入 $\mathbf{x}$ 和可学习矩阵 $\mathbf{W}_{\text{noise}}$ 共同决定
+- 用 Softplus 而非 ReLU：保证标准差处处可微（ReLU 在 0 处不可微）
+- 用 Softplus 而非直接线性：保证标准差非负（负的标准差无意义）
+- 最终噪声幅度 = 标准正态随机数 $\times$ 非负标准差，实现**输入相关的随机扰动**
+
+#### 完整 Noisy Gating 流程
+
+```
+输入 x ∈ R^d
+│
+├─ x @ W_g          → H(x) ∈ R^N              ← 路由 logit
+│
+├─ x @ W_noise      → z ∈ R^N
+│    └─ Softplus(z) → σ_noise ∈ R^N (≥0)      ← 自适应噪声标准差
+│
+├─ ε ~ N(0,I_N)                                ← 标准正态采样
+│
+├─ H_noisy = H(x) + ε ⊙ σ_noise               ← 加噪
+│
+├─ TopK(H_noisy, k) → 选出 k 个专家
+│
+└─ Softmax(H_noisy 截断后) → G(x)             ← 最终门控权重
+
+推理时：直接用 H(x)，不加噪声
+```
+
+---
+
+### 2.5 $\mathbf{W}_g$ 和 $\mathbf{W}_{\text{noise}}$ 的初始化与学习
+
+#### 初始化
+
+```python
+# 路由器权重：小方差初始化，避免早期路由过于确定
+W_g     = nn.Linear(d_model, num_experts, bias=False)
+W_noise = nn.Linear(d_model, num_experts, bias=False)
+
+# 常用：截断正态初始化，std = 1/sqrt(d_model)
+nn.init.trunc_normal_(W_g.weight,     std=1/math.sqrt(d_model))
+nn.init.trunc_normal_(W_noise.weight, std=1/math.sqrt(d_model))
+```
+
+**为什么小方差**：初始化时若 $\mathbf{W}_g$ 方差过大，某些专家的 logit 远高于其他，早期就形成偏好，辅助损失难以纠正。
+
+#### 学习过程（梯度流向）
+
+```
+L_total = L_task + α · L_aux
+    │
+    ├─ ∂L_task/∂W_g：
+    │   路径：W_g → H(x) → G(x)_i（TopK中）→ G(x)_i · E_i(x) → 输出 → 损失
+    │   未入选专家（G(x)_i=0）对 W_g 无梯度贡献（梯度截断）
+    │
+    └─ ∂L_aux/∂W_g：
+        路径：W_g → H(x) → Softmax(H(x)) → p_i → f_i·p_i → L_aux
+        所有 N 个专家均有梯度（Softmax 全连接）
+        ← 这是辅助损失能影响未被选中专家的原因
+```
+
+**关键洞察**：主任务损失只能更新被选中的 $k$ 个专家对应的 $\mathbf{W}_g$ 列；辅助损失通过软概率 $p_i$ 为所有列提供梯度，确保路由器不会忽略某些专家。
+
+---
+
+### 2.6 完整前向传播的维度追踪
+
+以 $B=2$（batch），$L=8$（seq_len），$d=512$，$N=4$，$k=2$ 为例：
+
+```
+输入 x:         (B, L, d) = (2, 8, 512)
+展平:           (T, d) = (16, 512)          T = B×L = 16
+
+路由器:
+  x @ W_g:     (16, 512) × (512, 4) = (16, 4)   ← H(x)，每 token 4 个 logit
+  TopK k=2:    (16, 2)                            ← 每 token 选 2 个专家下标
+  Softmax:     (16, 2)                            ← 归一化权重
+
+专家计算（以 Expert_0 为例，SwiGLU）：
+  选出的 token: (n_0, 512)                        ← n_0 = 路由到专家0的token数
+  @ W_{0,1}:   (n_0, 512) × (512, 2048) = (n_0, 2048)
+  @ W_{0,3}:   (n_0, 512) × (512, 2048) = (n_0, 2048)
+  SiLU ⊙:      (n_0, 2048)
+  @ W_{0,2}:   (n_0, 2048) × (2048, 512) = (n_0, 512)
+
+加权求和:
+  output:      (16, 512)                          ← 各 token 的加权输出
+恢复形状:      (2, 8, 512)                         ← 还原 batch 维度
+```
+
+---
+
+### 2.7 数值稳定性处理
+
+#### Softmax 数值稳定
+
+标准实现使用 log-sum-exp 技巧：
+
+$$\text{Softmax}(H)_i = \frac{e^{H_i - \max(H)}}{\sum_j e^{H_j - \max(H)}}$$
+
+减去最大值后指数不会上溢，且数学等价（分子分母同除 $e^{\max(H)}$）。
+
+#### $-\infty$ 的处理
+
+TopK 截断时置为 $-\infty$，Softmax 后：
+
+$$e^{-\infty} = 0 \quad \Rightarrow \quad G(\mathbf{x})_i = 0$$
+
+代码实现中用 `-torch.finfo(dtype).max`（如 `-3.4e38`）代替真正的 $-\infty$，避免 `nan` 传播。
+
+```python
+# 实际实现
+mask = torch.ones(N, dtype=torch.bool)
+mask[topk_indices] = False
+H_masked = H.clone()
+H_masked[mask] = torch.finfo(H.dtype).min  # 用最小浮点数代替 -inf
+G = F.softmax(H_masked, dim=-1)            # 被 mask 的位置结果为 ~0
+```
 ---
 ## 3. 负载均衡问题（Load Balancing）
 ### 3.1 问题：专家坍塌（Expert Collapse）
