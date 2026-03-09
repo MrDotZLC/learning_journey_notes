@@ -177,4 +177,3 @@ $$\frac{\partial L}{\partial x_i}=
 > Flash Attention 不是一个“更快的 trick”，  
 > 而是在数学正确性、反向传播和显存约束三者之间，  
 > **唯一自洽的工程实现方式**。
-
