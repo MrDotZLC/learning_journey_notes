@@ -72,7 +72,7 @@ $$P(\text{"the"} \mid \text{"...the the the"}) > P(\text{任意其他 token} \mi
 **应对方案**：引入 [[#4.1 Repetition Penalty（重复惩罚）|Repetition Penalty]] 或改用采样策略。
 
 ---
-## 2.2 Beam Search（束搜索）
+### 2.2 Beam Search（束搜索）
 同时维护 $k$ 条候选序列（beam），每步展开后保留联合对数概率最高的 $k$ 条路径。
 $$\text{score}(y_{1:t}) = \sum_{i=1}^{t} \log P(y_i \mid y_{<i}, x)$$
 ```python
@@ -91,26 +91,26 @@ def beam_search(model, beam_width=4, max_len=100):
         beams = sorted(candidates, key=lambda x: x[1], reverse=True)[:beam_width]
     return beams[0][0]
 ```
-### 2.2.1 长度归一化（Length Normalization）
-#### 问题根源
+#### 2.2.1 长度归一化（Length Normalization）
+##### 问题根源
 未归一化时，更长序列因累加更多负对数概率而得分偏低，算法偏好短输出。
 **数学本质**：设每步概率均为 $p$，则：
 $$\log P(Y_{\text{short}}) = L_s \cdot \log p \quad > \quad \log P(Y_{\text{long}}) = L_l \cdot \log p \quad (L_s < L_l,\ \log p < 0)$$
 短序列必然胜出，与语言质量无关。
-#### 解决方案
+##### 解决方案
 $$S_\text{norm}(y_{1:t}) = \frac{1}{t^\alpha} \sum_{i=1}^{t} \log P(y_i \mid y_{<i})$$
 ```python
 score = log_prob / (sequence_length ** length_penalty)
 # length_penalty 典型值 0.6（Google NMT 论文推荐）
 ```
-#### Google NMT 完整公式（Wu et al., 2016）
+##### Google NMT 完整公式（Wu et al., 2016）
 $$\text{score}(Y, X) = \frac{\log P(Y|X)}{lp(Y)} + cp(X, Y)$$
 **长度惩罚项（Length Penalty）**：
 $$lp(Y) = \frac{(5 + |Y|)^{\alpha}}{(5 + 1)^{\alpha}}$$
 **覆盖惩罚项（Coverage Penalty，可选）**：
 $$cp(X, Y) = \beta \sum_{i=1}^{|X|} \log\left(\min\left(\sum_{j=1}^{|Y|} p_{i,j},\ 1\right)\right)$$
 其中 $p_{i,j}$ 为第 $j$ 步对源端第 $i$ 个 token 的 attention weight，惩罚未被充分 attend 的源端 token。
-#### 参数 $\alpha \in [0, 1]$ 的影响
+##### 参数 $\alpha \in [0, 1]$ 的影响
 
 |$\alpha$|行为|
 |---|---|
@@ -120,25 +120,25 @@ $$cp(X, Y) = \beta \sum_{i=1}^{|X|} \log\left(\min\left(\sum_{j=1}^{|Y|} p_{i,j}
 |$> 1.0$|反向惩罚，偏向超长序列|
 
 **选取原则**：在验证集上以 BLEU/ROUGE 为指标调参；LLM decoding 常用 $0.7 \sim 1.0$。
-### 2.2.2 Diverse Beam Search（多样性束搜索）
-#### 问题：标准 Beam Search 的同质性
+#### 2.2.2 Diverse Beam Search（多样性束搜索）
+##### 问题：标准 Beam Search 的同质性
 标准 Beam Search 的 $k$ 条候选序列往往高度相似——$k$ 条 beam 聚集在概率质量最高的局部区域，来自相同前缀。
-#### 核心思想
+##### 核心思想
 将 $B$ 个 beam 分为 $G$ 组，每组 $b = B/G$ 个 beam，**组间引入差异惩罚**，使不同组产生不同输出。
-#### 目标函数
+##### 目标函数
 **标准 Beam Search**：
 $$\max_{Y^1, \dots, Y^B} \sum_{i=1}^{B} \log P(Y^i | X)$$
 **DBS（加入多样性项）**：
 $$\max_{Y^1, \dots, Y^B} \sum_{i=1}^{B} \log P(Y^i | X) + \lambda \cdot \Delta(Y^i, {Y^1, \dots, Y^{i-1}})$$
 - $\lambda$：多样性强度系数
 - $\Delta$：差异奖励函数（Diversity Reward），衡量 $Y^i$ 与已生成序列的差异
-### 2.2.3 Diverse Sibling Penalty（每步 token 级惩罚）
+#### 2.2.3 Diverse Sibling Penalty（每步 token 级惩罚）
 在每个时间步 $t$ 对已被前序组选过的 token 施加惩罚：
 $$\hat{s}(y_t^g \mid \cdot) = s(y_t^g \mid \cdot) - \lambda \cdot \mathbb{1}[y_t^g \in \mathcal{A}^{<g}_t]$$
 $$\text{score}_g(y_t) = \log P(y_t \mid y_{<t}) - \lambda \cdot \text{dissimilarity}(y_t, {\text{beams}_{1\ldots g-1}})$$
 - $\mathcal{A}^{<g}_t$：第 $1, \dots, g-1$ 组在时间步 $t$ 已选择的 token 集合
 - $\mathbb{1}[\cdot]$：指示函数，若该 token 已被前序组选过则惩罚 $\lambda$
-#### 解码流程伪代码
+##### 解码流程伪代码
 ```python
 # 总 beam 数 B = G × b
 # 按组顺序解码（关键：顺序依赖，第 g 组依赖前 g-1 组的选择）
@@ -156,7 +156,7 @@ for t in range(max_len):
         groups[g] = top_b(candidates)
         group_selected_tokens[g] = {b.last_token for b in groups[g]}
 ```
-#### DBS 变体对比
+##### DBS 变体对比
 
 |变体|差异施加位置|差异度量|计算复杂度|
 |---|---|---|---|
@@ -164,9 +164,9 @@ for t in range(max_len):
 |**Hamming Diversity**|每步 token 级|Hamming 距离|$O(G^2 \cdot T)$|
 |**DPP（行列式点过程）**|序列级|核矩阵行列式|$O(G^3)$，昂贵|
 
-#### 复杂度与适用场景
+##### 复杂度与适用场景
 复杂度 $O(k \cdot V \cdot T)$。当 $k=4$、$V=128\text{K}$、$T=2048$ 时，每次推理约需 $10^{12}$ 次浮点运算，适合**离线批处理**而非实时推理。
-#### 超参调节建议
+##### 超参调节建议
 
 | 参数             | 推荐范围         | 行为                 |
 | -------------- | ------------ | ------------------ |
@@ -174,7 +174,7 @@ for t in range(max_len):
 | $G$（组数）        | $2 \sim 4$   | 越多多样性越强，计算线性增长     |
 | $b$（每组 beam 数） | $1 \sim 4$   | $b=1$ 时每组单条路径      |
 
-### 2.2.4两种机制对比总结
+#### 2.2.4两种机制对比总结
 
 | 维度       | 长度归一化                   | Diverse Beam Search       |
 | -------- | ----------------------- | ------------------------- |
