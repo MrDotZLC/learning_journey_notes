@@ -1,4 +1,5 @@
-## 第 1 阶段（1 周）：基础概念理解
+## 🚀 AI Infra必刷
+### 第 1 阶段（1 周）：基础概念理解
 学习材料：
 - “什么是 Transformer”[🚀 Transformer解析](../Transformer/🚀%20Transformer解析.md)
 - “自注意力如何工作”[注意力和自注意力（Attention vs Self-Attention）](../Transformer/注意力和自注意力（Attention%20vs%20Self-Attention）.md)
@@ -8,7 +9,7 @@
 
 ---
 
-## 🎯 第 2 阶段（1–2 周）：CUDA 必备知识
+### 🎯 第 2 阶段（1–2 周）：CUDA 必备知识
 
 只需要学：
 - 线程模型（block / grid / warp）
@@ -23,7 +24,7 @@
 
 ---
 
-## 🎯 第 3 阶段（3–4 周）：LLM Serving（核心）
+### 🎯 第 3 阶段（3–4 周）：LLM Serving（核心）
 
 学：
 - 动态批处理（Continuous Batching）[动态批处理（Continuous Batching）](动态批处理（Continuous%20Batching）.md)
@@ -40,9 +41,9 @@
 
 ---
 
-## 🎯 第 4 阶段（2–4 周）：做一个简历项目（必须）
+### 🎯 第 4 阶段（2–4 周）：做一个简历项目（必须）
 
-### 最推荐的项目：
+#### 最推荐的项目：
 
 **“迷你版 vLLM：用 C++ + CUDA 实现一个 LLM 推理服务”**
 功能：
@@ -59,13 +60,8 @@
 - LLM Serving 工程师
 
 - [x] 1. **AI Infra 最基础版本：从零讲什么是 Transformer？** ✅ 2025-12-10
-
 - [x] 2. **从零讲 GPU（连 warp 都不会也行）** ✅ 2026-01-16
-
 - [x] 3. **从零讲 KV Cache（最重要的概念）**
-
 - [x] 4. **从零讲 Continuous Batching（怎么并发跑多个用户）** ✅ 2026-03-03
-
 - [ ] 5. **迷你 vLLM 项目的代码结构 & 每个模块如何写**
-
 - [ ] 6. **AI Infra 面试题（含详细答案、不需要背景）**
