@@ -61,7 +61,7 @@ $$\text{mask}_{i,j} = \begin{cases} 0 & j \text{ 是有效 token} \\ -\infty & j
 - **位置编码**：补充序列顺序信息[Positional Encoding 位置编码介绍](../Transformer/Positional%20Encoding%20位置编码介绍.md)
     - 绝对位置编码（sin/cos 或 learnable）
     - 相对位置编码（T5、Transformer-XL 等）
-### 4. 多头注意力（Multi-Head Attention）[Transformer 中单头维度 d_k ​与缩放因子总结](../Transformer/Transformer%20中单头维度%20d_k%20​与缩放因子总结.md)
+### 4. 多头注意力（Multi-Head Attention）[多头注意力变体：MHA、MQA、GQA 机制解析](多头注意力变体：MHA、MQA、GQA%20机制解析.md)
 - 将 d 维分为 h 个头，每个头独立做 attention；
 - 输出拼接后线性变换回原维度：
 $$\text{MultiHead}(X) = \text{Concat}(\text{head}_1,...,\text{head}_h)W_O$$
