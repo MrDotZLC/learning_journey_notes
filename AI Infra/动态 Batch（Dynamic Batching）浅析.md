@@ -144,13 +144,13 @@ $$ \max_{B(t)}\ \text{Throughput}(B(t)) \quad \text{s.t.} \quad M_{\text{kv,tota
 
 ## 8. 工程对照：主流框架实现
 
-|框架|Continuous Batching 实现名称|备注|
-|:--|:--|:--|
-|vLLM|Continuous Batching + PagedAttention|FCFS，iteration-level，非混合 prefill/decode batch|
-|TensorRT-LLM|In-flight Batching|NVIDIA 官方实现，支持多精度|
-|HuggingFace TGI|Continuous Batching|基于 ORCA 思路|
-|LMDeploy|Persistent Batching|针对 turbomind 引擎优化|
-|SGLang|RadixAttention + Continuous Batching|KV Cache 前缀共享优化|
+| 框架              | Continuous Batching 实现名称             | 备注                                            |
+| :-------------- | :----------------------------------- | :-------------------------------------------- |
+| vLLM            | Continuous Batching + PagedAttention | FCFS，iteration-level，非混合 prefill/decode batch |
+| TensorRT-LLM    | In-flight Batching                   | NVIDIA 官方实现，支持多精度                             |
+| HuggingFace TGI | Continuous Batching                  | 基于 ORCA 思路                                    |
+| LMDeploy        | Persistent Batching                  | 针对 turbomind 引擎优化                             |
+| SGLang          | RadixAttention + Continuous Batching | KV Cache 前缀共享优化                               |
 
 vLLM、SGLang、TensorRT-LLM（in-flight batching）、LMDeploy（persistent batching）以及 HuggingFace TGI 均支持 Continuous Batching 或等效机制。
 
