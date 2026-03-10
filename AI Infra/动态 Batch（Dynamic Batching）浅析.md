@@ -20,6 +20,7 @@ T_batch = max(L_1, L_2, ..., L_N)
 │                                             ↑ 空转浪费  │
 └────────────────────────────────────────────────────────┘
 ```
+![](assets/Gemini_Generated_Image_d43aotd43aotd43a.png)
 `[图示 1：Static Batching 中的 GPU 空转。灰色区域表示已完成但被迫等待的 slot，直到最长序列结束后 batch 才整体释放。]`
 
 ---
@@ -96,6 +97,7 @@ $$ N_{\text{total}} = \sum_{i=1}^{B} n_i $$
 `cu_seqlens` 数组定义为：
 $$ \text{cu\_seqlens}[0] = 0, \quad \text{cu\_seqlens}[i] = \sum_{j=1}^{i} n_j $$
 FlashAttention-2 原生支持此格式（`varlen` 接口），直接以 `cu_seqlens` 作为输入参数，避免 padding 浪费。
+![](assets/Gemini_Generated_Image_d43aotd43aotd43a%20(1).png)
 `[图示 2：Ragged Batching 的 token 展平示意。左侧为 batch 内 4 条不等长序列，右侧为展平后的一维 token 流，cu_seqlens 标记每条序列的起始偏移。]`
 
 ---
@@ -126,6 +128,7 @@ $$ M_{\text{kv,total}} = \sum_{i=1}^{B} M_{\text{kv}}^{(i)} $$
 必须满足 $M_{\text{kv,total}} \leq M_{\text{GPU}} - M_{\text{weights}} - M_{\text{activations}}$。
 ### 6.2 PagedAttention（vLLM）
 传统方案为每条序列预分配 $L_{\max}$ 大小的 KV Cache 连续显存，内部碎片严重。vLLM 的 **PagedAttention** 借鉴 OS 虚拟内存思想，将 KV Cache 划分为固定大小的 Block（Page），按需分配，彻底消除内部碎片。
+![](assets/Gemini_Generated_Image_d43aotd43aotd43a%20(2).png)
 `[图示 3：PagedAttention 的 Block 分配示意。每条序列的 KV Cache 由若干非连续 Block 组成，Block Table 维护逻辑 Block 到物理 Block 的映射，类比操作系统页表。]`
 
 ---
