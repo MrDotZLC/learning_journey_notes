@@ -105,7 +105,6 @@
 
 * 对比 TensorRT 与你自写 CUTLASS kernel 性能
 * 探索自定义 plugin layer（Plugin Layer API）
-
   * 当 TensorRT 不支持特定算子时，用你 CUDA / CUTLASS 技能自定义
 * 学习 TensorRT 对大模型的支持策略（分块推理 / Pipeline 执行 / Sparse / Low-rank 优化）
 
