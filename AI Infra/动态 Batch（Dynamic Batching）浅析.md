@@ -161,7 +161,7 @@ vLLM、SGLang、TensorRT-LLM（in-flight batching）、LMDeploy（persistent bat
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Batch 调度的核心 Trade-off                    │
 │                                                                 │
-│   Throughput ←──── batch size ────→ Latency (TTFT / TPOT)      │
+│   Throughput ←──── batch size ────→ Latency (TTFT / TPOT)       │
 │                         ↕                                       │
 │                    KV Cache Memory                              │
 └─────────────────────────────────────────────────────────────────┘
