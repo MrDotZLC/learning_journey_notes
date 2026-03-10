@@ -102,4 +102,3 @@ sudo apt-get update
 	   结果应该为：
 	   ![](assets/Pasted%20image%2020260212020124.png)
 
-	

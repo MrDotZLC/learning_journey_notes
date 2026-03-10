@@ -86,4 +86,3 @@ llama.cpp的学习路线：
    # 选择f32，gguf 文件会比源文件 pytorch_modle.bin 大1倍
 ```
 4. 将gguf文件**复制**到build/bin中，防止误删
-
