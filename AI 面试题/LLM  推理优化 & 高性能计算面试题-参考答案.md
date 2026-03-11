@@ -1743,7 +1743,7 @@ def top_k_sampling(logits, k, temperature=1.0):
 
 按概率从高到低排序，取累积概率刚超过 $p$ 的最小 Token 集合 $\mathcal{V}_p$，从中采样：
 
-$$\mathcal{V}_p = \min\left{V' \subseteq V : \sum_{x \in V'} p(x) \geq p\right}$$
+$$\mathcal{V}\_p = \min\left\{V' \subseteq V : \sum_{x \in V'} p(x) \geq p\right\}$$
 
 ```python
 def top_p_sampling(logits, p, temperature=1.0):
