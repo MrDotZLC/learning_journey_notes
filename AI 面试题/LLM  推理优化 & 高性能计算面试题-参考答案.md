@@ -2701,7 +2701,7 @@ Step 4: Speculative Decoding（可选）      → +50–150%
 - 主动暴露方案的**局限性**（如"Speculative Decoding 在输出多样性高时 $\alpha$ 会下降"），体现深度理解。
 - 优先从**系统瓶颈**出发（先 Profile 再优化），而非直接罗列技术点。
 
-# 第 11 章·参考答案：C++ 与系统编程
+## 第 11 章·参考答案：C++ 与系统编程
 
 ---
 
@@ -3128,11 +3128,11 @@ cudaMemcpyAsync(d_weight, mmap_ptr, model_size,
 
 HuggingFace SafeTensors 格式天然支持 `mmap` 加载：权重文件头部记录每个 Tensor 的偏移，Python 端通过 `mmap` 零拷贝直接访问，无需将整个文件读入内存，特别适合**按需加载部分权重**（如 MoE 的 Expert 权重懒加载）。
 
-# 第 12 章·参考答案：MoE 架构推理
+## 第 12 章·参考答案：MoE 架构推理
 
 ---
 
-## 12.1 MoE 基础
+### 12.1 MoE 基础
 
 ---
 
@@ -3248,7 +3248,7 @@ $$C = \left\lfloor \text{Capacity Factor} \times \frac{T \times k}{E} \right\rfl
 
 ---
 
-## 12.2 Expert Parallelism（EP）
+### 12.2 Expert Parallelism（EP）
 
 ---
 
@@ -3383,7 +3383,7 @@ MoE 层（EP All-to-All，InfiniBand）：
 
 ---
 
-## 12.3 MoE 量化与 Kernel 优化
+### 12.3 MoE 量化与 Kernel 优化
 
 ---
 
@@ -3474,3 +3474,608 @@ MoE 的稀疏性是**粗粒度、动态、Token 级**的：每个 Token 只激�
 
 **能否叠加使用：** 可以。对 MoE 的 Expert FFN 权重同时施加 2:4 结构化稀疏，激活的 $k$ 个 Expert 使用 Sparse Tensor Core 执行，理论上可在 MoE 的基础上再获得 **2× 计算加速**，但需要专门的 Sparse MoE 训练流程（稀疏感知微调）。
 
+## 第 13 章·参考答案：P/D 分离架构（Disaggregated Prefill-Decode）
+
+---
+
+### 13.1 核心动机与架构
+
+---
+
+**Q91. Prefill 与 Decode 的计算特性差异，以及传统混合部署的根本问题。**
+
+**两阶段计算特性的根本差异：**
+
+|特性|Prefill 阶段|Decode 阶段|
+|---|---|---|
+|每步处理 Token 数|$S_{\text{in}}$（全部输入，可达数千）|1（逐 Token 生成）|
+|主要算子|GEMM（矩阵 × 矩阵）|GEMV（矩阵 × 向量）|
+|计算瓶颈|**Compute-bound**（Tensor Core 利用率高）|**Memory-bound**（HBM 带宽饱和）|
+|时延特征|单次耗时长（百毫秒级），决定 TTFT|单步耗时短（毫秒级），累积决定 E2E 延迟|
+|并发偏好|单请求大 Token 数（充分利用矩阵乘）|大 Batch Size（提升 GEMV 算术强度）|
+|最优硬件|高 TFLOPS（H100 SXM）|高 HBM 带宽（H20、H100 NVL）|
+|KV Cache 状态|**写**（生成 KV，逐步填充）|**读**（每步读全部 KV）|
+
+**传统混合部署的三类干扰问题：**
+
+**问题 1：Prefill 阻塞 Decode（TPOT 抖动）**
+
+当长 Prefill 请求（ISL = 4096）与 Decode 请求共享同一 GPU 时，Prefill 阶段独占 GPU 约 200–500ms，期间所有 Decode 请求无法前进，TPOT 出现严重抖动。
+
+```
+时间轴（混合部署）：
+GPU: [Decode×32步][Decode×32步][Prefill 4096tokens，~300ms!][Decode×32步]
+                                 ↑ Decode 请求全部阻塞，TPOT P99 飙升
+```
+
+**问题 2：显存竞争（KV Cache vs 权重）**
+
+- Prefill 峰值激活值（Forward Pass 中间结果）占用大量显存。
+- Decode KV Cache 需要持久驻留（不可换出）。
+- 两者共享有限显存，互相挤压，并发上限受制于短板。
+
+**问题 3：最优 Batch Size 相互矛盾**
+
+- Prefill 最优：单请求尽量多 Token（充满矩阵乘）。
+- Decode 最优：尽量多请求并发（GEMV → GEMM 转变）。
+- 同一 GPU 无法同时为两者调优。
+
+**P/D 分离的核心价值：** 彻底解耦两阶段，各自在最优硬件上以最优策略运行。
+
+---
+
+**Q92. P/D 分离已成为 2025 年主流推理栈的默认方案，各框架的实现方式。**
+
+**P/D 分离架构总览：**
+
+```
+请求入口
+    ↓
+┌──────────────────────────────────┐
+│  全局调度器（Global Scheduler）    │
+│  - 请求路由（分发到 P 实例）        │
+│  - P/D 实例健康监控                │
+│  - KV Cache Transfer 协调          │
+└──────────────┬───────────────────┘
+               ↓
+┌──────────────────────┐    KV Transfer    ┌──────────────────────┐
+│  Prefill 实例群（P）  │ ─────────────────→│  Decode 实例群（D）   │
+│                      │  GPUDirect RDMA   │                      │
+│  - 专注 Prefill 计算  │  / NVLink         │  - 专注 Decode 生成   │
+│  - 生成 KV Cache     │  / TCP（备选）     │  - KV Cache 长期驻留  │
+│  - 无需长期显存占用   │                   │  - 大 Batch 调度      │
+│  - 高 MFU 目标       │                   │  - 高 MBU 目标        │
+└──────────────────────┘                   └──────────────────────┘
+               ↓（生成完成回传 Token）
+        响应流式返回给用户
+```
+
+**2025 年主流框架实现：**
+
+|框架|P/D 分离方案|KV Transfer 方式|特点|
+|---|---|---|---|
+|**vLLM（v0.6+）**|`--enable-disagg-prefill`|NIXL / ZMQ|社区最活跃，生态最广|
+|**SGLang**|原生支持，与 RadixAttention 结合|NCCL / NIXL|RadixAttention 前缀复用效率高|
+|**TensorRT-LLM**|Disaggregated Serving 模式|UCX / RDMA|NVIDIA 官方，与 Triton Server 集成|
+|**NVIDIA Dynamo**|原生 P/D 分离架构|NIXL（专用）|2025 年 NVIDIA 推理平台核心|
+|**MoonCake（月之暗面）**|KVCache-centric 调度|RDMA|重点优化 KV Transfer 调度|
+|**llm-d（IBM）**|Kubernetes 原生 P/D|gRPC / RDMA|云原生，适合 K8s 部署|
+
+**NIXL（NVIDIA Inference Xfer Library）：**
+
+NVIDIA 为 P/D 分离专门设计的 KV Transfer 库，相比通用 NCCL：
+
+- 针对 KV Cache 的非连续内存布局（PagedAttention Block）优化，支持 Scatter-Gather DMA。
+- 支持 GPUDirect RDMA（GPU 显存直接跨节点传输，绕过 CPU）。
+- 延迟比 NCCL 低约 **30–50%**（小消息场景）。
+
+---
+
+**Q93. KV Cache Transfer 的实现方式：GPUDirect RDMA vs NVLink vs TCP，各自的延迟量级。**
+
+**KV Cache Transfer 的数据规模：**
+
+以 Llama-3 70B GQA，ISL = 1024 tokens，FP16 为例：
+
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 1024 \times 2 = 335 \text{ MB}$$
+
+这 335 MB 需要在 Prefill 完成后尽快传输到 D 节点，传输延迟直接叠加到 TTFT。
+
+**三种传输方式对比：**
+
+**① NVLink（节点内，P/D 部署在同一机器）：**
+
+```
+P GPU → NVLink → D GPU（直接 GPU-GPU 传输）
+带宽：900 GB/s（H100 NVLink，双向）
+单向：450 GB/s
+335 MB 传输时间：335 MB / 450 GB/s ≈ 0.74 ms
+```
+
+- **最快**，适合 P/D 部署在同一 NVLink 域（8 卡节点内）。
+- 限制：P、D 共享同一节点的显存，KV Cache 驻留在 D 实例占用同节点显存，与 P 实例竞争。
+
+**② GPUDirect RDMA（跨节点，InfiniBand / RoCE）：**
+
+```
+P GPU 显存 → RDMA NIC → InfiniBand 网络 → RDMA NIC → D GPU 显存
+（绕过 CPU 和主机内存，GPU 显存直接跨节点传输）
+带宽（NDR InfiniBand 单端口）：~50 GB/s（400 Gb/s）
+335 MB 传输时间：335 MB / 50 GB/s ≈ 6.7 ms
+```
+
+- 延迟约 **5–20 ms**（含网络传播延迟 + RDMA 建连开销）。
+- **主流选择**：P/D 分别部署在不同节点，完全解耦显存竞争。
+- 需要 GPUDirect RDMA 支持（NVIDIA OFED + RDMA-capable NIC）。
+
+**③ TCP（通用网络，CPU 中转）：**
+
+```
+P GPU 显存 → cudaMemcpy → CPU 内存 → TCP Socket → CPU 内存 → cudaMemcpy → D GPU 显存
+带宽：100 GbE ≈ 12.5 GB/s（理论），实际 ~8–10 GB/s
+335 MB 传输时间：335 MB / 10 GB/s ≈ 33.5 ms
+```
+
+- 延迟约 **20–100 ms**，含 2 次 CPU-GPU 拷贝。
+- **不推荐**用于生产，仅作为 RDMA 不可用时的 Fallback。
+- 适合初期验证或低成本部署（普通 10/25 GbE 网络）。
+
+**选型决策：**
+
+```
+P/D 同节点 → NVLink（最低延迟，~1 ms）
+P/D 跨节点，有 InfiniBand → GPUDirect RDMA（~5–20 ms）
+P/D 跨节点，仅以太网 → TCP（~20–100 ms，TTFT 增加显著）
+```
+
+**KV Transfer 延迟对 TTFT 的影响（以 ISL=1024 为例）：**
+
+|传输方式|Transfer 延迟|Prefill 计算（H100×8）|总 TTFT 增加|
+|---|---|---|---|
+|NVLink|~1 ms|~30 ms|+3%|
+|RDMA|~10 ms|~30 ms|+33%|
+|TCP|~40 ms|~30 ms|+133%|
+
+**结论：** 生产环境 P/D 分离**必须配备 InfiniBand 或 NVLink 高速互联**，TCP 方案 TTFT 增加过多，不适合延迟敏感场景。
+
+---
+
+### 13.2 调度设计
+
+---
+
+**Q94. xPyD Ratio（P 实例数 : D 实例数）如何根据 ISL/OSL 比例调优？**
+
+**xPyD Ratio 的含义：**
+
+$x$ 个 Prefill 实例对应 $y$ 个 Decode 实例（如 1P4D 表示 1 个 P 实例 + 4 个 D 实例）。
+
+**最优比例的推导思路：**
+
+**目标：P 实例与 D 实例的处理速率相匹配（无积压）。**
+
+设：
+
+- 单个 P 实例吞吐：$R_P$（tokens/s，Prefill token）
+- 单个 D 实例吞吐：$R_D$（tokens/s，Decode token）
+- 请求的平均输入长度：$\text{ISL}$，平均输出长度：$\text{OSL}$
+
+P 实例处理速率（以请求计）：$r_P = R_P / \text{ISL}$（每秒处理多少请求） D 实例处理速率（以请求计）：$r_D = R_D / \text{OSL}$（每秒完成多少请求）
+
+**平衡条件（$x$ 个 P 实例 = $y$ 个 D 实例的处理能力相匹配）：**
+
+$$x \cdot r_P = y \cdot r_D$$
+
+$$\frac{x}{y} = \frac{r_D}{r_P} = \frac{R_D / \text{OSL}}{R_P / \text{ISL}} = \frac{R_D}{R_P} \cdot \frac{\text{ISL}}{\text{OSL}}$$
+
+**典型参数估算（H100 × 8，Llama-3 70B）：**
+
+- $R_P \approx 50{,}000$ prefill tokens/s（Prefill 吞吐）
+- $R_D \approx 5{,}000$ decode tokens/s（Decode 吞吐，Batch=64）
+- $R_D / R_P = 0.1$
+
+|ISL/OSL|最优 x/y|实例配置|
+|---|---|---|
+|2048/256（长输入，短输出）|$0.1 \times 8 = 0.8 \approx 1/1$|1P1D|
+|512/512（均等）|$0.1 \times 1 = 0.1 \approx 1/10$|1P10D|
+|128/1024（短输入，长输出）|$0.1 \times 0.125 = 0.0125 \approx 1/80$|1P80D|
+
+**实践中的动态调整：**
+
+- 工作负载的 ISL/OSL 分布会随时间变化（白天 vs 夜间，不同业务类型）。
+- vLLM/SGLang 支持动态扩缩 P/D 实例数，由全局调度器根据队列积压情况实时调整。
+- 当 P 队列积压 → 增加 P 实例（或临时让 D 实例承担 Prefill）。
+- 当 D 队列积压 → 增加 D 实例（或提高 D 实例的最大 Batch Size）。
+
+---
+
+**Q95. P/D 分离收益最显著的场景：超大模型、长输入、稀疏 MoE 架构的分析。**
+
+**场景 1：超大模型（120B+）**
+
+单节点无法容纳完整模型，必须跨节点 TP 或 PP。P/D 分离后：
+
+- P 节点专用 TP=8 执行大矩阵乘，MFU 可达 40–60%。
+- D 节点专用大 Batch Decode，MBU 可达 60–80%。
+- 相比混合部署，GPU 利用率提升约 **1.5–2×**。
+
+**场景 2：长输入序列（ISL > 10k tokens）**
+
+- Prefill 单次耗时极长（ISL=32k 在 H100×8 上约 2–5 秒）。
+- 混合部署时 Decode 请求被阻塞数秒，TPOT P99 完全失控。
+- P/D 分离后 Decode 独立运行，TPOT SLA 不受长 Prefill 影响。
+
+量化收益（ISL=16k，OSL=512，P99 TPOT 目标 < 100ms）：
+
+|部署方式|P99 TPOT|TTFT|
+|---|---|---|
+|混合部署|**> 5000ms（完全违约）**|2s|
+|P/D 分离|**< 80ms（满足 SLA）**|2.1s|
+
+**场景 3：稀疏 MoE 架构（DeepSeek-V3、Mixtral）**
+
+- MoE 的 EP All-to-All 通信在 Prefill 和 Decode 阶段特性不同：
+    - Prefill：通信量大但可与计算重叠（大 Batch）。
+    - Decode：通信量小但延迟敏感（小 Batch，通信占比高）。
+- P/D 分离后 P 节点可用更大 EP（Wide EP，跨多节点并行），D 节点用小 EP 专注低延迟。
+- DeepSeek-V3 生产部署即采用 P/D 分离 + 不同 EP 规模的混合策略。
+
+---
+
+**Q96. KV Cache Transfer 与 Expert Parallelism 通信的带宽竞争问题如何缓解？**
+
+**带宽竞争的根源：**
+
+在 MoE + P/D 分离架构中，跨节点网络（InfiniBand）同时承载两类流量：
+
+```
+流量类型 1：EP All-to-All（MoE Expert 间 Token 分发）
+  特征：高频（每 MoE 层 2 次）、延迟敏感、小消息（KB 级）
+
+流量类型 2：KV Cache Transfer（P → D 节点）
+  特征：低频（每请求 1 次）、延迟可稍宽松、大消息（数百 MB）
+```
+
+两者共享 InfiniBand 带宽时，KV Transfer 的大消息可能抢占 All-to-All 的带宽，导致 MoE 层延迟抖动。
+
+**缓解方案：**
+
+**方案 1：网络隔离（物理/逻辑分离）**
+
+```
+InfiniBand Rail 0: 专用于 EP All-to-All 通信
+InfiniBand Rail 1: 专用于 KV Cache Transfer
+```
+
+通过 SR-IOV 或 VLAN 隔离，两类流量互不干扰。成本：需要双倍 InfiniBand 端口。
+
+**方案 2：KV Transfer 优先级降级（QoS）**
+
+在 RDMA QoS 策略中，将 KV Transfer 设为低优先级（Best Effort），All-to-All 设为高优先级（Guaranteed）：
+
+```bash
+# RDMA QoS 配置（示意）
+mlnx_qos -i ib0 --trust dscp
+# EP All-to-All 流量标记高 DSCP → 高优先级队列
+# KV Transfer 流量标记低 DSCP → 低优先级队列
+```
+
+**方案 3：KV Transfer 时序错开（调度层优化）**
+
+全局调度器感知当前 All-to-All 通信负载，在 MoE 层 All-to-All 的**计算间隙**（Expert FFN 计算期间）发送 KV Transfer，利用 All-to-All 的静默窗口：
+
+```
+MoE 层时间轴：
+[A2A Dispatch][Expert 计算（~10ms）][A2A Combine]
+                    ↑ KV Transfer 在此期间发送（带宽空闲）
+```
+
+**方案 4：KV Transfer 压缩（减少传输量）**
+
+传输前对 KV Cache 做轻量压缩：
+
+- **FP8 KV**：带宽减半（FP16 → FP8，精度损失 < 0.5%）。
+- **KV 量化 + 前缀跳过**：只传输新生成的 KV（Prefix 已在 D 节点缓存时），传输量从 ISL 降为 ISL - 前缀长度。
+- **稀疏 KV 传输**：只传输 Attention Score 较高的 KV（Heavy Hitters），丢弃低分 KV（结合 H2O 策略）。
+
+**DeepSeek-V3 的实践：** 采用专用 IB 网卡用于 KV Transfer，与 EP All-to-All 使用的 IB 端口物理隔离，彻底消除带宽竞争。
+
+## 第 14 章·参考答案：长上下文推理
+
+---
+
+### 14.1 位置编码扩展
+
+---
+
+**Q97. RoPE 的数学原理：旋转矩阵使注意力得分仅依赖相对位置，推导形式。**
+
+**RoPE 的设计目标：**
+
+位置编码需满足：Query 位置 $m$、Key 位置 $n$ 的内积结果仅依赖**相对位置差 $m - n$**，而非绝对位置，使模型对相对距离天然敏感。
+
+**核心思路：对向量施加位置相关的旋转变换**
+
+将 $d$ 维向量 $\mathbf{x}$ 视为 $d/2$ 对二维子向量，对第 $k$ 对子向量施加旋转角度 $m\theta_k$（$m$ 为绝对位置）：
+
+$$f_q(\mathbf{x}_m, m) = \mathbf{x}_m \odot e^{im\theta}, \quad \theta_k = 10000^{-2k/d}$$
+
+其中复数乘法 $\odot e^{im\theta_k}$ 等价于对第 $k$ 对子向量施加旋转矩阵 $R(m\theta_k)$：
+
+$$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \ \sin m\theta_k & \cos m\theta_k \end{pmatrix}$$
+
+**内积推导（证明相对位置依赖性）：**
+
+位置 $m$ 的 Query 与位置 $n$ 的 Key 的内积：
+
+$$\mathbf{q}_m^T \mathbf{k}_n = \left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\theta}\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{in\theta}\right)$$
+
+利用旋转矩阵的正交性：$R(m\theta)^T R(n\theta) = R((n-m)\theta)$，展开得：
+
+$$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}!\left[\left(\mathbf{W}_q \mathbf{x}_m\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{i(n-m)\theta}\right)\right]$$
+
+结果**只含 $(n-m)$**，与绝对位置 $m, n$ 无关，仅取决于相对位置差 $m - n$。✅
+
+**不同频率的 $\theta_k$（RoPE 的频率谱）：**
+
+$$\theta_k = 10000^{-2k/d}, \quad k = 0, 1, \ldots, d/2 - 1$$
+
+- 小 $k$（低频分量）：$\theta_k$ 大，旋转快，编码短程依赖。
+- 大 $k$（高频分量）：$\theta_k$ 小，旋转慢，编码长程依赖。
+- 底数 $10000$ 决定位置分辨率的上限（位置超过约 $10000$ 时低频分量周期完成一圈）。
+
+**高效实现（无需显式旋转矩阵）：**
+
+```cpp
+// 对向量的相邻两个元素分组，直接用复数乘法实现旋转
+// x = [x0, x1, x2, x3, ..., x_{d-2}, x_{d-1}]
+// 分组为 (x0+ix1), (x2+ix3), ...
+// 旋转：(x_{2k} + ix_{2k+1}) × e^{imθ_k}
+//      = (x_{2k}cosθ - x_{2k+1}sinθ) + i(x_{2k}sinθ + x_{2k+1}cosθ)
+
+__device__ void apply_rope(float* q, int pos, int head_dim, float base=10000.f) {
+    for (int k = 0; k < head_dim / 2; ++k) {
+        float theta = pos / powf(base, 2.f * k / head_dim);
+        float cos_t = cosf(theta), sin_t = sinf(theta);
+        float q0 = q[2*k], q1 = q[2*k+1];
+        q[2*k]   = q0 * cos_t - q1 * sin_t;
+        q[2*k+1] = q0 * sin_t + q1 * cos_t;
+    }
+}
+```
+
+---
+
+**Q98. RoPE 外推问题：YaRN / LongRoPE / Llama3 RoPE Scaling 各自的补偿策略。**
+
+**外推失效的根本原因：**
+
+训练时序列长度为 $L_{\text{train}}$（如 4096），位置编码的旋转角度范围为 $[0, L_{\text{train}} \times \theta_k]$。推理时若位置 $m > L_{\text{train}}$，某些高频分量 $\theta_k$ 的旋转角度**超出训练分布**，模型未见过这些角度组合，导致 Attention 计算失效（Perplexity 骤增）。
+
+**直觉理解：** 对于低频分量（$\theta_k$ 小），$m \times \theta_k$ 在训练范围内完成的旋转圈数少，外推时虽然 $m$ 增大但 $m \times \theta_k$ 仍在已见范围内，**外推容易**；对于高频分量（$\theta_k$ 大），外推时旋转已超出训练范围，**外推困难**。
+
+---
+
+**方案 1：Linear Scaling（线性缩放，最简单）**
+
+将所有频率等比缩小，扩展因子 $s = L_{\text{target}} / L_{\text{train}}$：
+
+$$\theta_k' = \theta_k / s$$
+
+等价于对位置 $m$ 做线性压缩：$m' = m / s$，使 $m' \in [0, L_{\text{train}}]$ 始终在训练范围内。
+
+- **优点**：实现极简，无需重新训练（可直接 Fine-tuning 少量步数）。
+- **缺点**：所有频率被同等压缩，短程依赖（高频）的分辨率降低，模型对近距离 Token 的区分能力下降。
+
+---
+
+**方案 2：YaRN（Yet another RoPE extensioN，2023）**
+
+**核心观察：** 不同频率的外推难度不同，应差异化处理。
+
+将频率分为三组，分别应用不同策略：
+
+$$\theta_k' = \begin{cases} \theta_k & \text{if } \lambda_k \leq d_{\text{low}}\ \text{（高频，短程，保持不变）} \ \theta_k / s & \text{if } \lambda_k \geq d_{\text{high}}\ \text{（低频，长程，线性压缩）} \ \text{插值} & \text{otherwise（中频，平滑过渡）} \end{cases}$$
+
+其中 $\lambda_k = 2\pi / \theta_k$ 为对应频率的波长，$d_{\text{low}}, d_{\text{high}}$ 为超参数。
+
+此外 YaRN 引入**温度缩放（Attention Temperature）**：
+
+$$\text{score} = \frac{\mathbf{q}^T \mathbf{k}}{\sqrt{d} \cdot t}, \quad t = 0.1 \ln(s) + 1$$
+
+温度 $t > 1$ 平滑 Attention 分布，补偿外推时高频分量的不稳定性。
+
+- **效果**：在 4× 甚至 32× 扩展比下，PPL 仅小幅增加，优于 Linear Scaling。
+
+---
+
+**方案 3：Llama3 RoPE Scaling（官方方案，2024）**
+
+Meta 在 Llama3 中采用**低频插值 + 高频保持**的混合方案（类似 YaRN 但更简洁）：
+
+$$\theta_k' = \begin{cases} \theta_k & \text{if}\ \frac{d}{\lambda_k} > f_{\text{high}} \ \theta_k / s & \text{if}\ \frac{d}{\lambda_k} < f_{\text{low}} \ \theta_k \cdot \frac{1 - \alpha}{s} + \theta_k \cdot \alpha & \text{otherwise（平滑插值）} \end{cases}$$
+
+其中 $\alpha = \frac{d/\lambda_k - f_{\text{low}}}{f_{\text{high}} - f_{\text{low}}}$，$f_{\text{low}} = 1, f_{\text{high}} = 32$（Llama3 默认值）。
+
+Llama-3.1 使用此方案将上下文从 8k 扩展到 **128k**（配合长上下文微调）。
+
+---
+
+**方案 4：LongRoPE（2024）**
+
+在 YaRN 的基础上，通过**在长序列数据上搜索最优的非均匀缩放因子**（每个频率分量独立优化），进一步减少外推误差。同时引入两套位置编码（短上下文和长上下文各一套），推理时根据序列长度自动切换。
+
+**各方案对比：**
+
+|方案|实现复杂度|短程精度|长程外推|代表模型|
+|---|---|---|---|---|
+|Linear Scaling|极低|下降明显|中等|早期 LLM|
+|YaRN|中等|保持良好|好|Mistral 7B v0.2|
+|Llama3 RoPE|低|良好|好|Llama-3.1（128k）|
+|LongRoPE|高（需搜索）|最优|最优|Phi-3-mini-128k|
+
+---
+
+**Q99. ALiBi 与 RoPE 的外推能力对比。**
+
+**ALiBi（Attention with Linear Biases，2022）：**
+
+不对 Q/K 向量添加位置信息，而是在 Attention Score 上直接加一个与相对位置成正比的**线性惩罚项**：
+
+$$\text{score}_{m,n} = \frac{\mathbf{q}_m^T \mathbf{k}_n}{\sqrt{d}} - m_{\text{head}} \cdot |m - n|$$
+
+其中 $m_{\text{head}}$ 为每个头固定的斜率（不同头斜率不同，通过几何级数设定）。
+
+**外推能力对比：**
+
+|维度|RoPE|ALiBi|
+|---|---|---|
+|外推原理|旋转角度在训练范围内则有效，超出则失效|线性惩罚无界，天然支持任意长度|
+|外推上限|训练长度（不修改时），修改后可扩展|**理论无限**（线性外推天然成立）|
+|短程精度|高（旋转精确编码相对位置）|中（线性近似相对距离）|
+|长程性能|需扩展策略（YaRN 等）|开箱即用，PPL 平滑增长|
+|表达能力|更强（编码方向信息）|较弱（仅编码距离）|
+|代表模型|Llama、Mistral、Qwen|MPT、BLOOM（部分）|
+
+**结论：**
+
+- **ALiBi** 长度外推性更强，无需修改即可推理超出训练长度的序列，适合需要处理长度高度可变的场景。
+- **RoPE** 模型容量更强，短程位置编码精度更高，是当前（2024–2025）主流大模型的首选，配合 YaRN/LongRoPE 可获得优秀的长程外推能力。
+- 工业界当前趋势：**RoPE + 长上下文微调**（在长文本数据上继续训练数千步）是最可靠的方案，纯外推（零 Fine-tuning）的 YaRN 质量稍逊。
+
+---
+
+### 14.2 超长上下文系统
+
+---
+
+**Q100. Ring Attention（序列并行）的原理：切分序列维度，P2P Ring 通信交换 KV。**
+
+**动机：** 序列长度 $N = 128k$ 时，单 GPU 的 Attention 计算需要 $O(N^2)$ 的 FLOP 和 $O(N \cdot d)$ 的 KV Cache，单卡显存（80 GB）完全无法容纳。
+
+**Ring Attention 核心思路：**
+
+将序列 $[1, N]$ 沿序列维度切分到 $P$ 张 GPU，每卡只持有 $N/P$ 个 Query 和对应的 KV。
+
+为了让每个 Query 能 Attend 全部 $N$ 个 KV（跨卡），通过 **P2P Ring 通信**以流水方式轮流传递 KV：
+
+```
+P 张 GPU 形成逻辑环（Ring）：
+  GPU 0 → GPU 1 → GPU 2 → ... → GPU P-1 → GPU 0
+
+每一轮（共 P 轮）：
+  1. 每卡持有当前 KV 块，用本地 Q 对其做 Local Attention（计算部分 Attention 分数）
+  2. 将 KV 块发送给右邻，同时接收左邻的 KV 块（P2P，非阻塞）
+  3. 与步骤 2 并行：用新收到的 KV 块继续计算（Overlap 计算与通信）
+  4. 经过 P 轮后，每个 Q 已与全部 N 个 KV 交互，利用 Online Softmax 合并结果
+```
+
+**通信量分析：**
+
+每轮每卡发送 $N/P \times d_{\text{KV}}$ 的 KV 数据，共 $P$ 轮：
+
+$$\text{总通信量/卡} = P \times \frac{N}{P} \times d_{\text{KV}} \times \text{sizeof} = N \times d_{\text{KV}} \times \text{sizeof}$$
+
+与不使用 Ring Attention 的单卡计算量等价，**通信量与 $P$ 无关**（类似 Ring-AllReduce 的带宽最优性）。
+
+**计算-通信重叠：** 每卡在接收新 KV 的同时，对已收到的 KV 执行 Local Attention（FlashAttention Tiling），两者通过双 CUDA Stream 并行，通信延迟几乎完全被计算隐藏。
+
+---
+
+**Q101. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别。**
+
+两者都将序列维度切分到多卡，但切分的**算子范围**不同：
+
+|维度|Sequence Parallelism（SP）|Context Parallelism（CP）|
+|---|---|---|
+|提出来源|Megatron-LM（2023）|Megatron-LM / Ring Attention|
+|切分对象|**非 Attention 算子**（LayerNorm、Dropout）|**Attention 算子**（QKV 计算、Attention Score）|
+|Attention 处理|仍在全序列上（AllGather 后执行）|序列切分后分布式执行（Ring 或 All-to-All）|
+|通信模式|ReduceScatter + AllGather（替换 AllReduce）|P2P Ring 传递 KV / All-to-All|
+|显存收益|**激活值显存** $\div P$（非 Attention 部分）|**KV Cache 显存** $\div P$ + 激活值显存 $\div P$|
+|适用序列长度|中长（8k–64k）|超长（64k+，单卡 KV Cache 放不下）|
+
+**组合使用（SP + CP）：**
+
+在 Transformer 层内：
+
+- SP 负责 LayerNorm、Dropout、残差连接的序列切分。
+- CP 负责 Attention 的序列切分（Ring Attention）。
+- TP 负责 MLP 和 QKV 投影的特征维度切分。
+
+三者正交，可同时使用，形成三维并行策略（TP × SP × CP）。
+
+---
+
+**Q102. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill 的配合。**
+
+**KV Cache 显存压力量化（Llama-3 70B，FP16，GQA）：**
+
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times S \times 2 \text{ Bytes}$$
+
+|序列长度 $S$|KV Cache 大小（单请求）|H100 80GB 可容纳并发数|
+|---|---|---|
+|4k|83 MB|~965 个请求|
+|32k|671 MB|~119 个请求|
+|128k|2.7 GB|~29 个请求|
+|1M|21 GB|~3 个请求|
+
+**128k 上下文的核心挑战：**
+
+1. **单请求 KV Cache 2.7 GB**：8× H100 共 640 GB，模型权重占 140 GB，可用于 KV Cache 约 500 GB，最多并发约 **185 个**长上下文请求。
+2. **Prefill 计算量极大**：128k tokens 的 Prefill 在 H100×8 上约需 **60–120 秒**（FlashAttention，$O(N^2)$ 计算），TTFT 无法接受。
+3. **Chunked Prefill 是唯一可行方案**：将 128k Prefill 拆分为每次 2k 的 64 个 Chunk，每个 Chunk 约 1–2 秒，与 Decode 请求交错，避免长时间阻塞。
+
+**Chunk Size 选择（128k 场景）：**
+
+- Chunk Size 过小（如 256）：GEMM 形状过瘦（M=256），Tensor Core 利用率低，每 Chunk 效率差。
+- Chunk Size 过大（如 8192）：每 Chunk 耗时 ~3s，Decode 阻塞时间过长。
+- 推荐 **Chunk Size = 1024–4096**（平衡 GEMM 效率与 Decode 延迟），每 Chunk 约 0.5–1.5s。
+
+**CP 与 Chunked Prefill 的配合：**
+
+当使用 CP（序列切分到多卡）时，Chunk 的序列维度被进一步切分：
+
+$$\text{每卡每 Chunk Token 数} = C / P$$
+
+以 $C = 4096, P = 8$ 为例，每卡每 Chunk 处理 512 tokens，GEMM 形状极小，需配合 SplitK（见 Q19）提升效率。
+
+---
+
+**Q103. Sliding Window Attention 在长上下文中的 Attention Sink 失效问题。**
+
+**Sliding Window Attention（SWA）的假设：**
+
+每个 Token 只 Attend 最近 $w$ 个 Token，超出窗口的历史 Token 的 KV 不保存，实现 $O(w)$ 的 KV Cache。
+
+**Attention Sink 现象（见 Q37）：**
+
+前几个 Token（Sink Tokens）吸收了大量"无处安放"的注意力权重（Softmax 的数学特性），是维持模型正常输出的关键。
+
+**在 Sliding Window 中的失效场景：**
+
+```
+普通 Sliding Window（无 Sink 保护）：
+位置 0, 1, 2, 3 的 KV 在序列超过 w+4 后被驱逐
+
+→ 后续 Token 的 Softmax 无"垃圾桶"可用
+→ 注意力权重强行分配给窗口内不相关的 Token
+→ 模型输出质量崩溃（PPL 急剧上升）
+```
+
+**量化失效程度：**
+
+在生成长度超过窗口大小 $w$ 后，不加 Sink 保护的 SWA 的 PPL 从正常的 ~5 急剧跳升至 **>1000**（近乎乱码），而保留 4 个 Sink Tokens 的 StreamingLLM 方案 PPL 仅从 ~5 增加到 ~5.3（几乎无损）。
+
+**解决方案对比：**
+
+|方案|原理|KV Cache 大小|长程依赖|
+|---|---|---|---|
+|全 KV Cache|保存全部历史|$O(N)$，随 $N$ 线性增长|✅ 完整|
+|SWA（无保护）|只保存最近 $w$ 个|$O(w)$，固定|❌ 超窗口后崩溃|
+|StreamingLLM|保存 $k$ Sink + 最近 $w$ 个|$O(k + w) \approx O(w)$，固定|❌ 超窗口仍无长程依赖|
+|SWA + 周期全 Attention（LongFormer 思路）|间隔层做全 Attention|$O(N)$（全 Attention 层）|✅ 部分长程依赖|
+
+**Mistral / Mixtral 的实践：**
+
+使用窗口大小 $w = 4096$（Mistral 7B），配合 Rolling Buffer KV Cache（环形队列），Sink Tokens 通过特殊位置编码（`sink_token_pos = 0` 固定）实现，在流式生成场景下有效工作。但对于需要跨越 4k 窗口的长程依赖（如长文档问答），SWA 本质上无法解决，需改用全 KV Cache 或 Ring Attention。
