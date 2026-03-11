@@ -3128,3 +3128,349 @@ cudaMemcpyAsync(d_weight, mmap_ptr, model_size,
 
 HuggingFace SafeTensors 格式天然支持 `mmap` 加载：权重文件头部记录每个 Tensor 的偏移，Python 端通过 `mmap` 零拷贝直接访问，无需将整个文件读入内存，特别适合**按需加载部分权重**（如 MoE 的 Expert 权重懒加载）。
 
+# 第 12 章·参考答案：MoE 架构推理
+
+---
+
+## 12.1 MoE 基础
+
+---
+
+**Q83. Dense 模型与 Sparse MoE 的计算量对比：单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？**
+
+**MoE 基本结构：**
+
+标准 Transformer 将每层的 FFN 替换为 $E$ 个并行的 Expert FFN，每个 Token 由 Router 动态选择 Top-K 个 Expert 处理，其余 $E-K$ 个 Expert **不参与计算**（稀疏激活）。
+
+```
+Dense FFN:
+  Token → FFN（全部参数参与） → 输出
+
+MoE FFN：
+  Token → Router（Gating）→ Top-K Expert → 加权求和 → 输出
+                           ↑ 仅 K 个 Expert 激活（K << E）
+```
+
+**FLOPs 对比推导：**
+
+设 FFN 参数量为 $P_{\text{FFN}}$（单个 Dense FFN），MoE 有 $E$ 个 Expert，Top-K = $k$：
+
+- Dense 模型（总参数 $N$）每 Token FLOPs：$\approx 2N$（每参数参与 1 次 MAC）
+- MoE 模型（总参数 $N_{\text{MoE}} = N_{\text{non-expert}} + E \times P_{\text{FFN}}$）每 Token 实际 FLOPs：
+
+$$\text{FLOPs}_{\text{MoE}} \approx 2 \times \left(N_{\text{non-expert}} + k \times P_{\text{FFN}}\right)$$
+
+**与等规模 Dense 模型对比：**
+
+若等规模 Dense 模型总参数 $N = N_{\text{non-expert}} + E \times P_{\text{FFN}}$，忽略非 FFN 部分（$N_{\text{non-expert}} \ll E \times P_{\text{FFN}}$）：
+
+$$\frac{\text{FLOPs}_{\text{MoE}}}{\text{FLOPs}_{\text{Dense}}} \approx \frac{k}{E}$$
+
+**具体示例（DeepSeek-V3）：**
+
+- 总参数：671B，激活参数（单 Token）：37B
+- $E = 256$，Top-K = 8，$k/E = 8/256 = 1/32$
+- 单 Token 计算量 $\approx$ 等规模 Dense 的 **3.1%**（考虑共享 Expert 后约 37B/671B ≈ **5.5%**）
+
+**核心结论：** MoE 以**参数量线性增长**换取**计算量接近不变**，推理时激活参数量与小模型相当，但模型容量（知识存储）远超同计算量的 Dense 模型。
+
+---
+
+**Q84. Top-K Routing 的 Gating 函数实现：Softmax-based vs Sigmoid-based，Expert Load Balancing Loss？**
+
+**Softmax-based Gating（标准 MoE，如 GShard、Switch Transformer）：**
+
+$$g(x) = \text{Softmax}(x W_g) \in \mathbb{R}^E$$
+
+选取 $g(x)$ 中最大的 $k$ 个分量对应的 Expert，权重为对应的 Softmax 值（再 Normalize）：
+
+$$\text{output} = \sum_{i \in \text{TopK}(g)} \frac{g_i}{\sum_{j \in \text{TopK}} g_j} \cdot \text{Expert}_i(x)$$
+
+- **特点**：权重和为 1（归一化），Expert 间竞争性路由，同一 Token 必选且只选 $k$ 个。
+
+**Sigmoid-based Gating（DeepSeek-V2/V3）：**
+
+$$g(x) = \text{Sigmoid}(x W_g) \in [0,1]^E$$
+
+直接取 Top-K 的 Sigmoid 值作为权重（同样 Normalize）：
+
+$$\text{output} = \sum_{i \in \text{TopK}(g)} \frac{g_i}{\sum_{j \in \text{TopK}} g_j} \cdot \text{Expert}_i(x)$$
+
+- **特点**：各 Expert 的门控值相互独立（不受其他 Expert 影响），梯度更稳定；支持"Shared Expert"机制（部分 Expert 对所有 Token 永久激活）。
+
+**Expert Load Balancing Loss：**
+
+若不加约束，Router 趋向于反复选择少数"强 Expert"（路由崩溃，Routing Collapse），导致大多数 Expert 未被训练、推理时 Expert 并行负载不均。
+
+**辅助损失（Auxiliary Loss）：**
+
+$$\mathcal{L}_{\text{balance}} = \alpha \cdot E \cdot \sum_{i=1}^{E} f_i \cdot P_i$$
+
+其中：
+
+- $f_i = \frac{\text{分配到 Expert } i \text{ 的 Token 数}}{\text{总 Token 数}}$（实际负载比例）
+- $P_i = \frac{1}{T}\sum_{t=1}^{T} g_{t,i}$（平均路由概率）
+- $\alpha$：平衡系数（典型值 $10^{-2} \sim 10^{-3}$）
+
+**直觉：** $f_i$ 与 $P_i$ 均衡时乘积最小（AM-GM 不等式），损失鼓励 Token 均匀分布到所有 Expert。
+
+---
+
+**Q85. Expert Capacity（专家容量）与 Token Drop 的关系：Capacity Factor 如何取值？**
+
+**Expert Capacity 定义：**
+
+每个 Expert 在一次前向中能处理的最大 Token 数上限：
+
+$$C = \left\lfloor \text{Capacity Factor} \times \frac{T \times k}{E} \right\rfloor$$
+
+其中 $T$ 为总 Token 数，$T \times k / E$ 为每个 Expert 的期望负载（均匀分配时）。
+
+**Token Drop 机制：**
+
+若分配到某 Expert 的 Token 数超过 $C$，多余 Token 被**丢弃**（跳过该 Expert，直接用残差连接输出），不参与该 Expert 的计算。
+
+**Capacity Factor 取值权衡：**
+
+|Capacity Factor|效果|代价|
+|---|---|---|
+|= 1.0|零 Token Drop（完美均衡才能实现）|负载不均时实际 Drop 率高|
+|= 1.25（训练常用）|Drop 率 < 1%（允许轻微不均）|每 Expert 预留 25% 余量，显存增加|
+|= 2.0（保守）|Drop 率 ≈ 0|显存和计算浪费约 2×|
+|**推理阶段通常设为 ∞**|不 Drop 任何 Token|负载不均导致 GPU 等待（木桶效应）|
+
+**推理阶段的特殊处理：**
+
+- 训练时允许少量 Token Drop（梯度更新有冗余），可设较小 Capacity Factor。
+- 推理时 Token Drop = **信息丢失**，通常关闭 Token Drop（Capacity Factor = ∞）。
+- 代价：负载不均的 Expert 成为瓶颈，所有 GPU 等待最慢的 Expert 完成（All-to-All 后的木桶效应）。
+- 缓解方案：**Expert 负载均衡调度**（vLLM / SGLang 的动态路由统计）+ **负载感知的 Batch 打包**。
+
+---
+
+## 12.2 Expert Parallelism（EP）
+
+---
+
+**Q86. EP 的核心通信模式：Two-shot All-to-All 的详细流程与延迟分析。**
+
+**EP 通信流程（以 $N$ 卡 EP，每卡 $E/N$ 个 Expert）：**
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ 每卡持有 B×S/N 个 Token 的隐状态（经过 Attention 后）           │
+└────────────────┬───────────────────────────────────────────────┘
+                 ↓
+         Router 计算路由决策
+         Token_i → Expert_{j}（j 可能在任意卡上）
+                 ↓
+┌────────────────────────────────────────────────────────────────┐
+│ All-to-All #1（Dispatch）：                                     │
+│ 每卡将 Token 按路由目标发送到对应 Expert 所在的卡               │
+│ 通信量 = T × k × d × sizeof（每 Token 发送 k 次，每次 d 维）   │
+└────────────────┬───────────────────────────────────────────────┘
+                 ↓
+         各卡执行本地 Expert FFN 计算
+         （每卡处理收到的 Token，执行 E/N 个 Expert 的 FFN）
+                 ↓
+┌────────────────────────────────────────────────────────────────┐
+│ All-to-All #2（Combine）：                                      │
+│ Expert 输出发回原始 Token 所在的卡，加权求和                    │
+│ 通信量 = T × k × d × sizeof（与 Dispatch 对称）                │
+└────────────────┬───────────────────────────────────────────────┘
+                 ↓
+         每卡得到本地 Token 的完整 MoE 输出
+```
+
+**延迟分析（DeepSeek-V3 规格，H100 NVLink）：**
+
+- $T = 4096$ tokens（Prefill），$k = 8$，$d = 7168$，FP8（1 Byte），$N = 32$（EP=32）
+- 单次 All-to-All 通信量（每卡发送）：
+
+$$V = \frac{T \times k \times d}{N} = \frac{4096 \times 8 \times 7168}{32} = 7,340,032 \text{ Bytes} \approx 7 \text{ MB}$$
+
+- NVLink 带宽（双向 900 GB/s，单向 450 GB/s）：
+
+$$t_{\text{A2A}} \approx \frac{7 \text{ MB}}{450 \text{ GB/s}} \approx 15.6 \text{ μs（理想下界）}$$
+
+实际考虑 All-to-All 的多跳路由和 NCCL 开销，约 **50–200 μs/次**，两次合计 **100–400 μs**。
+
+Decode 阶段（$T = 32$ 小 Batch），通信量缩小 128 倍，但 NCCL 启动开销（~10 μs）占比增大，All-to-All 成为**相对更显著的瓶颈**（占 Decode 延迟的 10–30%）。
+
+---
+
+**Q87. Wide EP 的适用场景：何时 EP 度应超过 TP 度？**
+
+**TP 与 EP 的计算-通信特性对比：**
+
+|维度|Tensor Parallelism（TP）|Expert Parallelism（EP）|
+|---|---|---|
+|通信模式|AllReduce（每层，同步）|All-to-All（MoE 层，可重叠）|
+|通信量|$O(B \times S \times d)$（与序列长度相关）|$O(T \times k \times d)$（与 Token 数相关）|
+|计算并行效率|高（所有 GPU 参与每个 Token 的计算）|中（每 GPU 只处理路由到本卡的 Token）|
+|Expert 负载均衡|天然均衡|需要均衡策略|
+|扩展上限|NVLink 域（8 卡）|可跨节点（配合 InfiniBand）|
+
+**Wide EP（EP > TP）的适用场景：**
+
+**场景 1：超大 MoE 模型（Expert 数量极多）**
+
+DeepSeek-V3（671B，256 Expert）单节点 8 卡放不下全部 Expert 权重（256 × ~500 MB ≈ 128 GB），必须用 EP 跨节点分布 Expert，此时 EP = 32 或 64（跨 4–8 节点）。
+
+**场景 2：Expert 权重远大于 Attention 权重**
+
+MoE 模型中 Expert FFN 通常占总参数的 80%+，TP 切分 Attention 层（剩余 20%）收益有限；EP 切分 Expert（主体 80%）收益更大。
+
+**场景 3：Decode 阶段大 Batch（吞吐优先）**
+
+Decode 的 All-to-All 通信量与 Batch Size 成正比，大 Batch 时 All-to-All 可与 Expert 计算重叠（见 Q88），EP 的通信代价相对降低。
+
+**决策原则：**
+
+```
+if 模型可放单节点（≤ 8 卡显存容量）:
+    TP = 8（NVLink，通信代价极低）
+    EP = 1（无需跨节点）
+elif Expert 权重超出单节点:
+    TP = 8（节点内 Attention 并行）
+    EP = N_nodes × 8（节点间 Expert 并行）
+    → Wide EP 配合 InfiniBand All-to-All
+```
+
+---
+
+**Q88. EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 如何在 N-D 并行中调度？**
+
+**N-D 并行（Multi-dimensional Parallelism）：**
+
+生产环境中 TP、EP、PP 同时使用，形成多维并行组。以 TP=8、EP=4（共 32 卡，4 节点）为例：
+
+```
+节点 0: GPU 0-7  → TP Group 0（NVLink 全互联）
+节点 1: GPU 8-15 → TP Group 1
+节点 2: GPU 16-23 → TP Group 2
+节点 3: GPU 24-31 → TP Group 3
+
+EP Group：每个 TP Group 的 GPU 0（GPU 0, 8, 16, 24）→ 跨节点 InfiniBand
+```
+
+**通信调度策略（Attention 层 + MoE 层的流水）：**
+
+```
+Attention 层（TP AllReduce，NVLink）：
+  TP Group 内 AllReduce → 延迟 ~1 μs，不是瓶颈
+
+MoE 层（EP All-to-All，InfiniBand）：
+  All-to-All #1 → Expert 计算 → All-to-All #2
+
+关键优化：Expert 计算与 All-to-All 重叠
+  将 Token 按目标 GPU 分批，
+  第一批 Token 的 All-to-All #1 完成 → 立即开始 Expert 计算
+  同时第二批 Token 开始 All-to-All #1
+  → 流水消除等待
+```
+
+**DeepSeek-V3 的 All-to-All 通信-计算重叠实现（DualPipe）：**
+
+```
+时间轴（单 MoE 层）：
+          [A2A Dispatch Batch 0] [Expert Compute Batch 0] [A2A Combine Batch 0]
+                  [A2A Dispatch Batch 1]         [Expert Compute Batch 1]    [A2A Combine Batch 1]
+                          ↑重叠↑                         ↑重叠↑
+```
+
+通过将 Token 分为多个 micro-batch 并在 CUDA Stream 上交错执行，All-to-All 通信时间几乎被 Expert 计算完全隐藏，端到端 MoE 延迟接近纯计算时间。
+
+---
+
+## 12.3 MoE 量化与 Kernel 优化
+
+---
+
+**Q89. MoE 层的 GEMM 为什么是"非均匀矩阵乘"？如何用 GroupGEMM / Batched GEMM 处理？**
+
+**问题根源：**
+
+每个 Expert 在一个 Step 内收到的 Token 数量**不均等**（由路由决策决定，即使有 Load Balancing Loss 也存在波动）：
+
+```
+Expert 0: 接收 47 tokens
+Expert 1: 接收 61 tokens
+Expert 2: 接收 38 tokens
+...
+Expert 255: 接收 53 tokens
+```
+
+每个 Expert 的 FFN 形状为 $[n_i, d_{\text{in}}] \times [d_{\text{in}}, d_{\text{ffn}}]$，$n_i$ 各不相同，无法直接用单一 cuBLAS GEMM 处理。
+
+**方案 1：Padding + Batched GEMM（简单但浪费）**
+
+将所有 Expert 的输入 Padding 到最大 Token 数 $n_{\max}$，形成规则的 $[E, n_{\max}, d]$ 张量，用 `cublasGemmBatchedEx` 执行。
+
+- **优点**：实现简单，利用 cuBLAS 高度优化的 Batched GEMM。
+- **缺点**：Padding 导致无效计算，浪费约 $(1 - \bar{n}/n_{\max}) \times 100%$ 的算力。
+
+**方案 2：GroupGEMM（CUTLASS / TRT-LLM）**
+
+将所有 Expert 的输入拼接为一个大矩阵 $[T \cdot k, d]$（Token 按 Expert 排序），用单个 GEMM Kernel 处理，通过 **Group Offset** 记录每个 Expert 的起止位置：
+
+```cpp
+// CUTLASS GroupGEMM 接口（示意）
+cutlass::gemm::GemmGrouped<...> grouped_gemm;
+grouped_gemm.run(
+    problem_sizes,  // 每个 Expert 的 [m_i, n, k]
+    ptr_A,          // 每个 Expert 的输入指针数组
+    ptr_B,          // 每个 Expert 的权重指针数组
+    ptr_C,          // 每个 Expert 的输出指针数组
+    num_experts     // Expert 数量
+);
+```
+
+- **优点**：无 Padding 浪费，单 Kernel 减少 Launch 开销。
+- **缺点**：CUTLASS GroupGEMM 对非均匀形状的 Tile 分配有额外调度开销。
+
+**方案 3：Token Permutation + 单次大 GEMM（最高效）**
+
+将所有 Expert 的权重沿输出维度拼接（若 Expert 架构相同），用单次 GEMM 处理全部 Token，通过后处理（Scatter）将结果分发回对应 Token：
+
+```
+所有 Expert 权重: [E × d_ffn, d_in]（按 Expert 排列）
+所有 Token 输入: [T×k, d_in]（按 Expert 分组排列）
+→ 单次 GEMM: [T×k, E×d_ffn]（取对角块）→ Scatter
+```
+
+适合 Expert 数量较少（$E \leq 64$）且 Token 数较多的场景。
+
+---
+
+**Q90. Structured Sparsity（2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？**
+
+**2:4 结构化稀疏（NVIDIA Sparse Tensor Core，Ampere+）：**
+
+每 4 个连续权重值中，**恰好有 2 个为 0**（50% 稀疏度），存储时只保存非零值和索引：
+
+```
+原始权重（4 个值）: [w₀, 0, w₂, 0]
+压缩存储:           非零值 [w₀, w₂] + 索引 [0, 2]（2 bits × 2 = 4 bits）
+存储节省: 约 50%（权重），显存带宽节省 ~50%
+```
+
+硬件在 Tensor Core 中内置解压逻辑，稀疏 GEMM 吞吐为 Dense 的 **2×**（理论上限）。
+
+**MoE 稀疏性：**
+
+MoE 的稀疏性是**粗粒度、动态、Token 级**的：每个 Token 只激活 $k/E$ 比例的 Expert，未激活 Expert 的**整个权重矩阵**不参与计算。
+
+**核心区别：**
+
+|维度|2:4 结构化稀疏|MoE 稀疏性|
+|---|---|---|
+|稀疏粒度|细粒度（每 4 个权重值中 2 个为 0）|粗粒度（整个 Expert 权重不激活）|
+|稀疏模式|静态（训练后固定）|**动态**（每 Token 路由决策不同）|
+|稀疏度|固定 50%|$1 - k/E$（如 DeepSeek-V3 为 96.875%）|
+|硬件支持|Tensor Core 原生支持|需要 EP + GroupGEMM 软件支持|
+|精度影响|需要剪枝训练，约损失 0.5–1%|训练时即为稀疏结构，无额外损失|
+|能否叠加|✅ MoE Expert 权重可同时做 2:4 稀疏|✅|
+
+**能否叠加使用：** 可以。对 MoE 的 Expert FFN 权重同时施加 2:4 结构化稀疏，激活的 $k$ 个 Expert 使用 Sparse Tensor Core 执行，理论上可在 MoE 的基础上再获得 **2× 计算加速**，但需要专门的 Sparse MoE 训练流程（稀疏感知微调）。
+
