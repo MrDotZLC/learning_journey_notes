@@ -1,0 +1,368 @@
+## 1. GPU 硬件与内存体系
+
+### 1.1 基础硬件架构
+
+- **Q1.** GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？
+- **Q2.** CUDA 的内存层次（Register → L1/Shared Memory → L2 → HBM/GDDR）各层的带宽与延迟数量级是多少？
+- **Q3.** 什么是 Memory Coalescing（内存合并访问）？为什么非合并访问会严重降低性能？
+- **Q4.** Shared Memory 的 Bank Conflict 是什么？如何通过 Padding 或 Swizzle 消除？
+- **Q5.** H100 / A100 / H20 各自的 HBM 带宽、Tensor Core TFLOPS、NVLink 带宽分别是多少？
+- **Q6.** Warp Divergence（束散）对性能的影响及规避方法？
+
+### 1.2 计算访存比分析
+
+- **Q7.** 什么是 Arithmetic Intensity（算术强度）？如何用 Roofline Model 判断一个 Kernel 是 Compute-bound 还是 Memory-bound？
+- **Q8.** LLM 推理的 Prefill 阶段和 Decode 阶段分别属于哪种瓶颈？原因是什么？
+- **Q9.** GEMV 与 GEMM 的计算访存比差距有多大？为何 Decode 阶段吞吐量受限于显存带宽？
+
+---
+
+## 2. CUDA Kernel 开发与优化
+
+### 2.1 基础 Kernel 实现
+
+- **Q10.** 手写 Warp-level Reduce（Sum / Max）：使用 `__shfl_xor_sync` 实现，说明为什么比 Shared Memory Reduce 更快？
+- **Q11.** 手写 Block-level Reduce，需要处理哪些边界情况？
+- **Q12.** 如何实现 numerically stable 的 Online Softmax？推导 3-pass → 2-pass → 1-pass 的演化过程。
+- **Q13.** 实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？
+- **Q14.** LayerNorm 的 Welford 在线算法如何实现？
+
+### 2.2 GEMM 优化
+
+- **Q15.** 朴素 GEMM 的瓶颈是什么？Tiled GEMM 的核心思路（Shared Memory Tiling）？
+- **Q16.** 什么是 Double Buffering（Ping-Pong Buffer）？如何用 `cp.async` / TMA 实现异步数据预取？
+- **Q17.** Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper 的 WGMMA 与 Ampere MMA 的区别？
+- **Q18.** cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？何时需要手写？
+- **Q19.** GEMM-SplitK 分解的适用场景（瘦矩阵 / Decode 阶段小 Batch）？
+
+### 2.3 Kernel Fusion
+
+- **Q20.** Kernel Fusion 的本质收益是什么（减少 HBM Round-trip）？举例说明 FlashAttention 的 Fusion 策略。
+- **Q21.** 什么样的算子适合 Fusion？什么情况下 Fusion 反而有害（Register Spilling）？
+- **Q22.** CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？
+
+---
+
+## 3. Attention 机制优化
+
+### 3.1 FlashAttention 系列
+
+- **Q23.** 标准 Attention 的内存复杂度为 $O(N^2)$，FlashAttention 如何将其降为 $O(N)$ SRAM 占用？核心思想（Tiling + Online Softmax）？
+- **Q24.** FlashAttention-2 相比 FA-1 的改进点：减少非 GEMM FLOPs、改进 Warp 并行策略？
+- **Q25.** FlashAttention-3 在 Hopper 架构上的改进：Warp Specialization、异步流水线、WGMMA 的利用？
+- **Q26.** 为什么 Decode 阶段的 Attention 退化为 GEMV 问题？此时 FA 的收益是否仍然显著？
+
+### 3.2 Attention 变体
+
+- **Q27.** MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？
+- **Q28.** MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？
+- **Q29.** Sparse Attention（如 Sliding Window、BigBird）的适用场景？
+
+---
+
+## 4. KV Cache 管理
+
+### 4.1 核心机制
+
+- **Q30.** KV Cache 的作用与显存增长规律：给定模型参数（层数 $L$、头数 $H$、头维度 $d$、数据类型），推导单请求 $S$ tokens 的 KV Cache 显存占用公式：
+
+$$M_{\text{KV}} = 2 \times L \times H \times d \times S \times \text{sizeof(dtype)}$$
+
+- **Q31.** 为什么传统框架的 KV Cache 存在严重的内存碎片？Internal Fragmentation 与 External Fragmentation 分别指什么？
+
+### 4.2 PagedAttention
+
+- **Q32.** PagedAttention 的核心思路：类比 OS 虚拟内存页表机制，Block 大小如何选择（典型值 16 tokens/block）？
+- **Q33.** PagedAttention 如何支持 Prefix Sharing（多请求共享同一 Prompt 的 KV Block）？
+- **Q34.** 相比连续 KV Buffer，PagedAttention 的 Attention Kernel 有哪些额外开销？
+
+### 4.3 KV Cache 压缩
+
+- **Q35.** Token Eviction 方法（H2O、SnapKV）的基本思路：基于 Attention Score 保留"Heavy Hitter" Tokens？
+- **Q36.** KV Cache 量化（INT8 / FP8 KV）的精度损失分析？
+- **Q37.** StreamingLLM 的 Attention Sink 机制是什么？
+
+---
+
+## 5. 调度与批处理策略
+
+### 5.1 Batching 机制
+
+- **Q38.** Static Batching 与 Continuous Batching（Iteration-level Scheduling）的区别？后者如何消除 Padding 浪费？
+- **Q39.** Chunked Prefill 的原理：将长 Prompt 的 Prefill 拆分为多个 Chunk，与 Decode 请求交错执行，有何收益与代价？
+- **Q40.** Prefill / Decode 分离（Disaggregated PD）架构的动机：两阶段计算特性不同，分离部署如何提升集群利用率？
+
+### 5.2 调度指标
+
+- **Q41.** TTFT（Time to First Token）与 TPOT（Time Per Output Token）的区别及各自的优化路径？
+- **Q42.** 吞吐量（Tokens/sec/GPU）与延迟（Latency）之间的根本矛盾：增大 Batch Size 如何影响两个指标？
+- **Q43.** 如何用 MFU（Model FLOP Utilization）评估系统效率？
+
+---
+
+## 6. 模型量化
+
+### 6.1 量化基础
+
+- **Q44.** PTQ（Post-Training Quantization）与 QAT（Quantization-Aware Training）的区别？
+- **Q45.** 对称量化与非对称量化的量化公式推导：
+
+$$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},; q_{\max}\right)$$
+
+- **Q46.** Per-tensor、Per-channel、Per-group 量化粒度的精度-性能 Trade-off？
+
+### 6.2 主流量化方法
+
+- **Q47.** GPTQ 的核心思路：基于 OBQ（Optimal Brain Quantization）逐层量化，使用 Hessian 信息补偿误差？
+- **Q48.** AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights？
+- **Q49.** SmoothQuant 的思路：将激活值的量化难度通过 per-channel 缩放迁移到权重侧？
+- **Q50.** W4A8 / W4A16 / FP8 / INT8 各方案的适用场景与硬件支持（A100 vs H100 vs Blackwell）？
+- **Q51.** Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？
+
+---
+
+## 7. 解码加速算法
+
+### 7.1 Speculative Decoding
+
+- **Q52.** Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？
+- **Q53.** 接受率 $\alpha$ 与加速比的关系推导：若 $\gamma$ 为 Draft 步数，则期望加速比约为：
+
+$$\text{Speedup} \approx \frac{1 - \alpha^{\gamma+1}}{(1 - \alpha) \cdot c}$$
+
+其中 $c$ 为 Draft/Target 计算代价比。
+
+- **Q54.** 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性）？
+- **Q55.** Ngram-based Draft、EAGLE、Medusa 各方案的对比？
+
+### 7.2 其他算法
+
+- **Q56.** Beam Search 与 Greedy Search 的显存和计算差异？
+- **Q57.** Top-k / Top-p Sampling 的实现细节？
+
+---
+
+## 8. 并行推理与分布式系统
+
+### 8.1 并行策略
+
+- **Q58.** Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？
+- **Q59.** Pipeline Parallelism（PP）：层间流水，Micro-batch 如何调度？GPipe vs 1F1B 调度的气泡率对比？
+- **Q60.** Sequence Parallelism（SP）的原理及适用场景（超长序列）？
+- **Q61.** Expert Parallelism（EP）：MoE 模型中 All-to-All 通信的开销分析？
+
+### 8.2 通信优化
+
+- **Q62.** AllReduce 的 Ring-AllReduce 实现与带宽分析？
+- **Q63.** GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？
+- **Q64.** NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？
+
+---
+
+## 9. 推理框架与工具链
+
+### 9.1 主流框架
+
+- **Q65.** vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？
+- **Q66.** SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？
+- **Q67.** TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？
+
+### 9.2 Profiling 与性能分析
+
+- **Q68.** 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？
+- **Q69.** 如何判断一个 Kernel 是 Memory-bound：查看 `ncu` 的哪些指标（Memory Throughput、L2 Hit Rate、DRAM BW Utilization）？
+- **Q70.** Occupancy（占用率）低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？
+
+### 9.3 Triton
+
+- **Q71.** Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？
+- **Q72.** 何时选择 Triton 而非 CUDA 手写（快速原型验证、跨硬件移植）？
+
+---
+
+## 10. 系统设计题
+
+### 10.1 典型题目
+
+- **Q73.** 设计一个支持 100 QPS、P99 TTFT < 500ms、Batch 动态变化的 LLM 推理服务，说明关键组件与调优策略。
+- **Q74.** 给定 8 × H100 节点，部署一个 70B 参数模型，选择 TP/PP 策略并分析通信瓶颈。
+- **Q75.** KV Cache 显存告警，但计算 GPU 利用率只有 40%，根因分析与优化路径？
+- **Q76.** 如何在不更换硬件的前提下，将现有服务的吞吐提升 2×？给出逐步排查与优化的思路。
+
+### 10.2 答题框架
+
+|步骤|内容|
+|---|---|
+|需求澄清|延迟 SLA、吞吐目标、硬件约束、模型规格|
+|瓶颈定位|Compute-bound / Memory-bound / IO-bound|
+|方案设计|算法层 → 系统层 → 硬件层|
+|指标量化|MFU、TTFT、TPOT、Tokens/s/GPU|
+|权衡说明|精度损失、工程复杂度、可维护性|
+
+---
+
+## 11. C++ 与系统编程
+
+- **Q77.** `std::atomic` 的 Memory Order 模型（`memory_order_relaxed` vs `acquire/release` vs `seq_cst`）？
+- **Q78.** Lock-free Queue 的实现与 ABA 问题？
+- **Q79.** NUMA 架构下内存分配对延迟的影响？如何 Pin 内存到特定 NUMA Node？
+- **Q80.** Zero-copy DMA 传输的实现原理（`cudaHostAlloc` Pinned Memory）？
+- **Q81.** 多线程推理服务中 Thread Pool 的设计与线程亲和性（CPU Affinity）绑定？
+- **Q82.** `mmap` vs `read` 的权衡：大模型权重加载的最优策略？
+
+---
+
+## 12. MoE 架构推理
+
+### 12.1 MoE 基础
+
+- **Q83.** Dense 模型与 Sparse MoE 的计算量对比：给定总参数 $N$、激活专家比例 $k/E$，单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？
+- **Q84.** Top-K Routing 的 Gating 函数实现：Softmax-based vs. Sigmoid-based，Expert Load Balancing Loss 的形式？
+- **Q85.** Expert Capacity（专家容量）与 Token Drop 的关系：Capacity Factor 如何取值？
+
+### 12.2 Expert Parallelism（EP）
+
+- **Q86.** EP 的核心通信模式是 Two-shot All-to-All：第一次按路由结果将 Tokens 分发到对应 Expert 所在 GPU，第二次将计算结果汇回，All-to-All 通信在 Decode 阶段（消息体积 100KB ~ 2MB）可贡献 10-30% 的端到端延迟。
+- **Q87.** Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？
+- **Q88.** EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 如何在 N-D 并行中调度？
+
+### 12.3 MoE 量化与 Kernel 优化
+
+- **Q89.** MoE 层的 GEMM 为什么是"非均匀矩阵乘"（每个 Expert 的 Token 数不同）？如何用 GroupGEMM / Batched GEMM 处理？
+- **Q90.** Structured Sparsity（结构化稀疏，如 2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？
+
+---
+
+## 13. P/D 分离架构（Disaggregated Prefill-Decode）
+
+### 13.1 核心动机与架构
+
+- **Q91.** Prefill 阶段计算密集，适合高 FLOPS GPU；Decode 阶段对延迟敏感且显存需求持续增长，适合高带宽 GPU。传统架构两阶段共享硬件，Prefill 请求占用 Decode 资源，导致输出延迟抖动。
+- **Q92.** P/D 分离已成为 2025 年主流推理栈（NVIDIA Dynamo、llm-d、SGLang、vLLM、MoonCake）的默认方案。
+- **Q93.** KV Cache Transfer 的实现方式：GPUDirect RDMA vs. NVLink vs. TCP，各自的延迟量级？
+
+### 13.2 调度设计
+
+- **Q94.** xPyD Ratio（P 实例数 : D 实例数）如何根据 ISL/OSL（输入/输出序列长度）比例调优？
+- **Q95.** P/D 分离对以下场景收益最显著：超大模型（120B+）、长输入序列（ISL > 10k tokens）、稀疏 MoE 架构。
+- **Q96.** KV Cache Transfer 与 Expert Parallelism 通信的带宽竞争问题如何缓解？
+
+---
+
+## 14. 长上下文推理
+
+### 14.1 位置编码扩展
+
+- **Q97.** RoPE 的数学原理：对 Query/Key 施加旋转矩阵，使注意力得分仅依赖相对位置 $m-n$，推导形式：
+
+$$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}!\left[\left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\theta}\right)^* \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{in\theta}\right)\right]$$
+
+- **Q98.** RoPE 外推问题：训练长度之外的位置 $\theta$ 分量溢出，YaRN / LongRoPE / Llama3 RoPE Scaling 各自的补偿策略？
+- **Q99.** ALiBi 与 RoPE 的外推能力对比？
+
+### 14.2 超长上下文系统
+
+- **Q100.** Ring Attention（序列并行）的原理：将序列维度切分到多 GPU，通过 P2P Ring 通信交换 KV，避免将全序列集中到单 GPU？
+- **Q101.** Context Parallelism（CP）与 Sequence Parallelism（SP）的区别？
+- **Q102.** 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill 的配合？
+- **Q103.** Sliding Window Attention 在长上下文中的 Attention Sink 失效问题？
+
+---
+
+## 15. 推理时计算扩展（Test-Time Compute Scaling）
+
+### 15.1 核心概念
+
+- **Q104.** 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？
+- **Q105.** Chain-of-Thought（CoT）/ Extended Thinking 对推理系统的负载特征有何改变（输出 Token 数激增，Decode 阶段成为更严重瓶颈）？
+- **Q106.** o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？
+
+### 15.2 系统层响应
+
+- **Q107.** 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？
+- **Q108.** 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？
+
+---
+
+## 16. 模型结构轻量化
+
+### 16.1 知识蒸馏
+
+- **Q109.** 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？
+- **Q110.** 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？
+
+### 16.2 结构剪枝
+
+- **Q111.** Unstructured Pruning vs. Structured Pruning（Head Pruning、Layer Dropping）对推理加速的实际贡献差异？
+- **Q112.** 2:4 稀疏格式（NVIDIA Sparse Tensor Core）的激活方式与精度损失分析？
+
+### 16.3 模型架构设计题
+
+- **Q113.** 给定延迟 SLA = 50ms / Token，如何在 7B 模型的基础上通过蒸馏 + 量化组合达到目标，说明决策链？
+
+---
+
+## 17. 多模态推理（VLM/MLM）
+
+- **Q114.** Vision Encoder（如 ViT）的输出 Token 数量对 Prefill 显存和计算的影响（典型值：每张 224×224 图片 = 196 ~ 256 Image Tokens）？
+- **Q115.** Image Token 的 KV Cache 是否应与 Text Token 区别对待（不同 Eviction 策略）？
+- **Q116.** 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size？
+
+---
+
+## 18. 网络通信与互联
+
+### 18.1 集合通信
+
+- **Q117.** AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？
+- **Q118.** Ring-AllReduce 的通信量分析：$N$ 个节点、每个节点数据量 $M$，总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？
+
+### 18.2 通信-计算 Overlap
+
+- **Q119.** Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？
+- **Q120.** NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？
+- **Q121.** NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？
+
+---
+
+## 19. 新硬件特性
+
+### 19.1 Hopper 架构（H100）
+
+- **Q122.** TMA（Tensor Memory Accelerator）的作用：异步批量数据搬运，解放 CUDA Core 的地址计算负担？
+- **Q123.** Warp Specialization 的思路：将 Warp 分为 Producer（负责数据搬运）和 Consumer（负责计算），形成软件流水？
+- **Q124.** H100 的 FP8 Tensor Core：E4M3 vs. E5M2 的精度-范围权衡？
+
+### 19.2 Blackwell 架构（B100 / GB200）
+
+- **Q125.** NVFP4（FP4 with block-scale FP8）的存储格式：每 16 个 FP4 值共享一个 FP8 Scale Factor，有效位宽约 4.5 bits/weight？
+- **Q126.** GB200 NVL72：72 个 Blackwell GPU 通过 NVLink Switch 全互联，单节点聚合 HBM 约 13.5 TB，适合哪类推理场景？
+- **Q127.** Blackwell 的 FP4 Tensor Core 峰值算力相比 H100 FP8 的提升倍数？
+
+---
+
+## 20. 高频考点优先级速查
+
+|优先级|考点|涵盖岗位|
+|---|---|---|
+|⭐⭐⭐|KV Cache + PagedAttention|所有推理岗|
+|⭐⭐⭐|FlashAttention 原理|所有推理岗|
+|⭐⭐⭐|Continuous Batching|所有推理岗|
+|⭐⭐⭐|P/D 分离架构（2025 默认方案）|所有推理岗|
+|⭐⭐⭐|Roofline / Compute vs Memory Bound|性能优化岗|
+|⭐⭐⭐|GEMM Tiling + Shared Memory|Kernel 开发岗|
+|⭐⭐⭐|MoE + Expert Parallelism|分布式推理岗|
+|⭐⭐⭐|Test-Time Compute / 推理模型负载特征|系统 + 调度岗|
+|⭐⭐⭐|RoPE 原理 + 长上下文扩展|算法 + 系统岗|
+|⭐⭐|Speculative Decoding|算法 + 系统岗|
+|⭐⭐|量化（GPTQ / AWQ / FP8）|部署优化岗|
+|⭐⭐|TP / PP 并行策略|分布式推理岗|
+|⭐⭐|Warp Reduce / CUDA 同步原语|Kernel 开发岗|
+|⭐⭐|Ring Attention / Context Parallelism|长上下文岗|
+|⭐⭐|NVFP4 / Blackwell 特性|量化 + 硬件岗|
+|⭐⭐|KV Transfer（RDMA / GPUDirect）|分布式推理岗|
+|⭐⭐|Warp Specialization / TMA|Kernel 开发岗|
+|⭐|Triton 编程模型|Kernel 开发岗|
+|⭐|nsys / ncu Profiling|性能分析岗|
+|⭐|VLM 多模态推理特性|多模态系统岗|
+|⭐|2:4 结构化稀疏|量化 + Kernel 岗|
