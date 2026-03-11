@@ -6,7 +6,7 @@
 
 ---
 
-**Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？**
+**Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)、[GPU Warp详解](../CUDA/GPU%20Warp详解.md)**、[GPU 维度解析](../CUDA/GPU%20维度解析.md)
 
 **SM 核心组件（以 H100 SXM 为例）：**
 
@@ -21,14 +21,14 @@
 
 **Warp 调度机制：**
 
-- 32 个线程构成 1 个 Warp，是 GPU 调度的**最小单位**。
+- 32 个线程构成 1 个 Warp，是 GPU 调度的**最小单位**。[为什么 Warp 有32个线程，而不是16或64](../CUDA/为什么%20Warp%20有32个线程，而不是16或64.md)
 - 调度器采用**零开销上下文切换**：当活跃 Warp 因全局内存访问停顿时，立即切换到其他就绪 Warp，以计算隐藏延迟。
 - 每个 SM 可同时驻留多个 Warp（由 Occupancy 决定，见 Q70），Warp 数量越多，延迟隐藏越充分。
 - 调度策略通常为 **GTO（Greedy-Then-Oldest）** 或 Round-Robin，具体由硬件实现。
 
 ---
 
-**Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？**
+**Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)**
 
 |层次|带宽（H100 SXM）|访问延迟|作用域|
 |---|---|---|---|
