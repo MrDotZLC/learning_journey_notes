@@ -16,13 +16,13 @@
 
 现代 LLM（GPT 系列、LLaMA、Qwen 等）普遍采用 **Causal Decoder-Only** 结构，原因如下：
 
-|对比维度|Encoder-Decoder|Decoder-Only|
-|---|---|---|
-|预训练目标|Masked LM + Causal LM|Causal LM（Next Token Prediction）|
-|推理阶段|需两次前向传播|单次自回归前向传播|
-|上下文利用|双向（编码器）+ 单向（解码器）|单向（因果掩码）|
-|长文本扩展|复杂|直接扩展 Context Window|
-|工程实现复杂度|高|低|
+| 对比维度    | Encoder-Decoder       | Decoder-Only                     |
+| ------- | --------------------- | -------------------------------- |
+| 预训练目标   | Masked LM + Causal LM | Causal LM（Next Token Prediction） |
+| 推理阶段    | 需两次前向传播               | 单次自回归前向传播                        |
+| 上下文利用   | 双向（编码器）+ 单向（解码器）      | 单向（因果掩码）                         |
+| 长文本扩展   | 复杂                    | 直接扩展 Context Window              |
+| 工程实现复杂度 | 高                     | 低                                |
 
 Decoder-Only 的核心优势在于：**预训练目标（Next Token Prediction）与推理目标完全对齐**，训练数据利用率高，且推理时 KV Cache 缓存策略天然适配自回归生成。
 
