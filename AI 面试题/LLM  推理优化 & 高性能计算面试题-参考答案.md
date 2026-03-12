@@ -129,6 +129,7 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 $$I = \frac{\text{FLOPs}}{\text{Bytes Accessed (HBM)}} \quad \left[\text{FLOP/Byte}\right]$$
 
 **Roofline Model：**
+![](assets/Pasted%20image%2020260312174636.png)
 
 性能上界由两个"屋顶"决定：
 
