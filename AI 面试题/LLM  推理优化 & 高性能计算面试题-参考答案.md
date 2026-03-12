@@ -10,14 +10,14 @@
 
 **SM 核心组件（以 H100 SXM 为例）：**
 
-|组件|数量/规格|职责|
-|---|---|---|
-|FP32 CUDA Core|128 个/SM|标量浮点/整数运算|
-|Tensor Core（第四代）|4 组/SM|MMA 矩阵乘累加，支持 FP16/BF16/FP8/INT8|
-|Register File|256 KB/SM|线程私有寄存器，最快存储层次|
-|Shared Memory / L1|最大 228 KB/SM|Block 内线程共享，软件管理缓存|
-|Warp Scheduler|4 个/SM|每周期各发射 1 条指令|
-|SFU（特殊函数单元）|32 个/SM|三角函数、倒数等|
+| 组件                 | 数量/规格        | 职责                              |
+| ------------------ | ------------ | ------------------------------- |
+| FP32 CUDA Core     | 128 个/SM     | 标量浮点/整数运算                       |
+| Tensor Core（第四代）   | 4 组/SM       | MMA 矩阵乘累加，支持 FP16/BF16/FP8/INT8 |
+| Register File      | 256 KB/SM    | 线程私有寄存器，最快存储层次                  |
+| Shared Memory / L1 | 共享 228 KB/SM | Block 内线程共享，软件管理缓存              |
+| Warp Scheduler     | 4 个/SM       | 每周期各发射 1 条指令                    |
+| SFU（特殊函数单元）        | 32 个/SM      | 三角函数、倒数等                        |
 
 **Warp 调度机制：**
 
@@ -131,7 +131,7 @@ $$I = \frac{\text{FLOPs}}{\text{Bytes Accessed (HBM)}} \quad \left[\text{FLOP/By
 **Roofline Model：**
 ![](assets/Pasted%20image%2020260312174636.png)
 
-性能上界由两个"屋顶"决定：
+性能上界由"屋顶"决定：
 
 $$\text{Performance} = \min!\left(I \times BW_{\text{mem}},P_{\text{peak}}\right)$$
 
@@ -150,10 +150,10 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 
 **Q8. LLM 推理的 Prefill 阶段和 Decode 阶段分别属于哪种瓶颈？**
 
-|阶段|输入形状|主要算子|瓶颈类型|原因|
-|---|---|---|---|---|
-|**Prefill**|Batch × $S_{\text{in}}$（$S_{\text{in}}$ 大）|GEMM（大矩阵）|Compute-bound|$S_{\text{in}}$ 大时 GEMM 形状方正，Tensor Core 利用率高，$I \gg I^*$|
-|**Decode**|Batch × 1（逐 Token）|GEMV（矩阵×向量）|Memory-bound|每步仅生成 1 Token，权重矩阵被读取一遍但计算量极少，$I \ll I^*$|
+| 阶段          | 输入形状                                       | 主要算子        | 瓶颈类型          | 原因                                                        |
+| ----------- | ------------------------------------------ | ----------- | ------------- | --------------------------------------------------------- |
+| **Prefill** | Batch × $S_{\text{in}}$（$S_{\text{in}}$ 大） | GEMM（大矩阵）   | Compute-bound | $S_{\text{in}}$ 大时 GEMM 形状方正，Tensor Core 利用率高，$I \gg I^*$ |
+| **Decode**  | Batch × 1（逐 Token）                         | GEMV（矩阵×向量） | Memory-bound  | 每步仅生成 1 Token，权重矩阵被读取一遍但计算量极少，$I \ll I^*$                 |
 
 **Decode 阶段的 $I$ 估算：** 以 Linear 层为例，权重大小 $W \in \mathbb{R}^{d \times d}$，Batch=1 时：
 
@@ -167,7 +167,7 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 
 **GEMM（$M \times N \times K$，$M, N, K$ 均大）：**
 
-$$I_{\text{GEMM}} = \frac{2MNK}{2(MK + NK + MN)} \approx \frac{M}{2} \quad (M=N=K)$$
+$$I_{\text{GEMM}} = \frac{2MNK}{2(MK + NK + MN) \cdot \text{dtype\_bytes}} \approx \frac{M}{2} $$$$\quad (M=N=K, FP16, dtype_bytes=2)$$
 
 典型值：$M=4096$ 时，$I \approx 2048 \text{ FLOP/Byte}$，Compute-bound。
 
@@ -175,7 +175,7 @@ $$I_{\text{GEMM}} = \frac{2MNK}{2(MK + NK + MN)} \approx \frac{M}{2} \quad (M=N=
 
 $$I_{\text{GEMV}} = \frac{2MK}{2MK + 2K} \approx 1 \text{ FLOP/Byte}$$
 
-**结论：** Decode 阶段每步需从 HBM 读取模型**全部权重**（数十 GB），而计算量仅为读取量的 $\sim$1 FLOP/Byte。H100 HBM 带宽 3.35 TB/s，读取 70B FP16 模型权重（140 GB）需要 $\sim$42 ms，这直接决定了单步 Decode 的延迟下界。**增大 Batch Size 是提升 GEMV 计算密度、从 Memory-bound 向 Compute-bound 迁移的核心手段。**
+**结论：** Decode 阶段每步需从 HBM 读取模型**全部权重**（数十 GB），而计算量仅为读取量的 $\sim$ 1 FLOP/Byte。H100 HBM 带宽 3.35 TB/s，读取 70B FP16 模型权重（140 GB）需要 $\sim$ 42 ms，这直接决定了单步 Decode 的延迟下界。**增大 Batch Size 是提升 GEMV 计算密度、从 Memory-bound 向 Compute-bound 迁移的核心手段。**
 
 ## 第 2 章·参考答案：CUDA Kernel 开发与优化
 
