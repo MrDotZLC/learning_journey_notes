@@ -208,7 +208,7 @@ __device__ float warp_reduce_max(float val) {
 }
 ```
 
-**`__shfl_xor_sync` 原理：** 线程 $i$ 与线程 $i \oplus \text{offset}$ 交换寄存器值，经过 $\log_2 32 = 5$ 轮后，每个线程持有全 Warp 的 Reduce 结果。
+**`__shfl_xor_sync` 原理：** 每轮线程 $i$ 读取线程 $i \oplus \text{offset}$ 的寄存器值并累加，经过 $\log_2 32 = 5$ 轮后，每个线程持有全 Warp 的 Reduce 结果。
 
 **为什么比 Shared Memory Reduce 更快：**
 
