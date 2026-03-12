@@ -4079,3 +4079,884 @@ $$\text{每卡每 Chunk Token 数} = C / P$$
 **Mistral / Mixtral 的实践：**
 
 使用窗口大小 $w = 4096$（Mistral 7B），配合 Rolling Buffer KV Cache（环形队列），Sink Tokens 通过特殊位置编码（`sink_token_pos = 0` 固定）实现，在流式生成场景下有效工作。但对于需要跨越 4k 窗口的长程依赖（如长文档问答），SWA 本质上无法解决，需改用全 KV Cache 或 Ring Attention。
+
+# 第 15 章·参考答案：推理时计算扩展（Test-Time Compute Scaling）
+
+---
+
+## 15.1 核心概念
+
+---
+
+**Q104. 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？**
+
+**Training-Time Scaling（训练时计算扩展）：**
+
+通过增大训练计算量提升模型能力，遵循 Chinchilla Scaling Law：
+
+$$L(N, D) = \frac{A}{N^\alpha} + \frac{B}{D^\beta} + L_\infty$$
+
+其中 $N$ 为模型参数量，$D$ 为训练 Token 数。提升路径为：
+
+- 扩大模型参数（更大的 $N$）
+- 增加训练数据（更大的 $D$）
+- 增加训练 FLOPs（$C \approx 6ND$）
+
+**Train-Time Scaling 的边界问题（2024 年出现的瓶颈）：**
+
+- 高质量训练数据接近枯竭（互联网文本总量有限）。
+- 训练成本指数增长，边际收益递减。
+- 部分能力（如复杂推理、数学证明）仅靠扩大训练难以突破。
+
+**Test-Time Compute Scaling（推理时计算扩展）：**
+
+在**推理阶段**投入更多计算，通过让模型"多想一会儿"来提升输出质量，而无需重新训练更大的模型。
+
+$$\text{质量} = f(\text{模型参数}, \underbrace{\text{推理时计算量}}_{\text{新维度}})$$
+
+**实现方式：**
+
+|方式|机制|代表|
+|---|---|---|
+|Chain-of-Thought（CoT）|生成中间推理步骤，分解复杂问题|GPT-4o、Llama-3.1|
+|Extended Thinking|模型生成"思考 Token"（不直接输出），再给出答案|Claude 3.7、o1、DeepSeek-R1|
+|Self-consistency|多次采样后投票取最优答案|Wang et al. 2023|
+|Best-of-N|生成 $N$ 个答案，用 Reward Model 选最优|AlphaCode 2|
+|Tree-of-Thought（ToT）|树状搜索，在推理过程中评估并剪枝|Yao et al. 2023|
+|MCTS（蒙特卡洛树搜索）|用价值函数引导推理路径搜索|AlphaProof|
+
+**本质区别：**
+
+|维度|Training-Time Scaling|Test-Time Scaling|
+|---|---|---|
+|成本承担|模型提供方（一次性）|用户/推理服务（按次）|
+|灵活性|固定（训练后能力确定）|**动态**（可按任务难度投入不同计算）|
+|适用任务|通用能力提升|**推理密集型**（数学、代码、逻辑）|
+|计算形式|FLOPs（训练）|**输出 Token 数**（推理）|
+|扩展规律|Chinchilla Law|$\text{质量} \propto \log(\text{Token 数})$（经验）|
+
+**OpenAI Scaling 研究的关键发现：** 在数学、编程等任务上，Test-Time Compute Scaling 的边际收益显著高于等量 Training Compute，即"多想"比"更大模型"更高效（对特定难题）。
+
+---
+
+**Q105. Chain-of-Thought / Extended Thinking 对推理系统的负载特征有何改变？**
+
+**标准生成 vs CoT/Extended Thinking 的负载对比：**
+
+|特征|标准生成|CoT / Extended Thinking|
+|---|---|---|
+|平均输出 Token 数（OSL）|50–500|**1000–32000+**|
+|OSL 分布|相对集中（方差小）|**长尾分布**（方差极大）|
+|KV Cache 峰值大小|ISL + OSL（小）|ISL + OSL（极大）|
+|Decode 阶段占比|30–60% 总时间|**80–95% 总时间**|
+|主要瓶颈|Prefill + Decode 均衡|**Decode 极度主导**|
+|TTFT 重要性|高|相对降低（首 Token 后长时间生成）|
+|TPOT 重要性|中|**极高**（决定用户等待总时长）|
+
+**对系统设计的具体冲击：**
+
+**① KV Cache 显存压力激增：**
+
+Extended Thinking 场景下，单请求 OSL 可达 32k tokens，KV Cache 显存：
+
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times (1024 + 32768) \times 2 \approx 10.7 \text{ GB（单请求，Llama-3 70B）}$$
+
+单 H100（80 GB）最多并发 **7 个**此类请求（扣除权重后），并发上限骤降。
+
+**② Decode 阶段 Batch Size 下降：**
+
+KV Cache 显存被少数长请求占满时，能并发的 Decode 请求数减少，GEMV 算术强度下降，GPU MBU 降低（从 70% 降至 30% 以下）。
+
+**③ 调度不公平问题：**
+
+OSL 极度不均（有的请求 100 tokens，有的 20000 tokens）时，长请求长期占据 Batch Slot，短请求等待时间增加（Head-of-Line Blocking）。
+
+**系统层应对策略：**
+
+```
+问题                          应对方案
+──────────────────────────────────────────────────────
+KV Cache 显存不足           → FP8 KV Cache + KV 压缩（H2O/SnapKV）
+                            → 增大 D 节点显存（H20 96 GB）
+Decode Batch Size 小         → 预留更多显存给 KV Cache
+                            → 动态调整 max_model_len 上限
+调度不公平（长请求霸占）      → 抢占式调度（Preemption）
+                            → 设置 max_tokens_per_request 上限
+TPOT 要求极高               → Speculative Decoding（EAGLE）
+                            → 更大 Decode Batch（多实例聚合）
+```
+
+**抢占式调度（Preemption）：**
+
+vLLM 支持对超长请求进行抢占（Swap Out）：将其 KV Cache 换出到 CPU 内存，让出 GPU 资源给其他请求，待资源充足时再换回（Swap In）继续生成。代价是换出/换入的 PCIe 传输延迟（~10 GB/s，换出 1 GB KV Cache 需 ~100ms）。
+
+---
+
+**Q106. o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？**
+
+**推理模型的 OSL 分布特征：**
+
+o1、DeepSeek-R1 等推理模型在处理复杂任务时，"思考 Token"（Thinking Tokens）数量高度依赖问题难度：
+
+```
+简单问题（如基础算术）：OSL ~ 200–500 tokens
+中等难度（如竞赛数学）：OSL ~ 2000–8000 tokens
+困难问题（如定理证明）：OSL ~ 10000–32000 tokens
+```
+
+OSL 分布呈**重尾分布（Heavy-tailed）**，P50 可能仅 1000 tokens，但 P99 超过 20000 tokens。
+
+**对 KV Cache 规划的具体影响：**
+
+**① 无法按平均 OSL 分配 KV Cache 容量：**
+
+若按 P50 OSL = 1000 tokens 规划，P99 请求会因 KV Cache 耗尽被强制截断（OOM Kill 或 max_tokens 截断），影响输出质量。
+
+**② 必须按 P99 OSL 规划，导致显存利用率低：**
+
+按 P99 = 20000 tokens 规划 KV Cache：
+
+$$M_{\text{KV per req}} \approx 2 \times 80 \times 8 \times 128 \times 20000 \times 1 \approx 3.28 \text{ GB（FP8）}$$
+
+H100 扣除权重后可用约 10 GB KV Cache，最大并发仅 **3 个请求**，GPU 利用率极低。
+
+**③ 实际工程中的平衡策略：**
+
+**策略 A：动态 KV Cache 分配 + 抢占**
+
+```
+初始：按较小容量（如 P75 OSL）分配 KV Block
+运行：请求超出预算时，动态申请更多 Block
+溢出：Block 不足时，抢占低优先级请求，换出其 KV Cache
+```
+
+**策略 B：按难度分级路由**
+
+```
+简单请求（分类器预测 OSL < 1000）→ 小 KV 预算实例
+困难请求（分类器预测 OSL > 5000）→ 大 KV 预算实例（专用 H20 节点，96 GB）
+```
+
+**策略 C：思考 Token 上限 + 质量-效率权衡**
+
+设置 `max_thinking_tokens`（如 DeepSeek-R1 支持 `thinking_budget` 参数），强制限制思考长度：
+
+```python
+response = client.chat.completions.create(
+    model="deepseek-r1",
+    messages=[...],
+    max_tokens=8192,
+    extra_body={"thinking_budget": 4096}  # 限制思考 Token 上限
+)
+```
+
+**显存规划建议（推理模型专用集群）：**
+
+|组件|普通 LLM|推理模型（R1/o1 类）|
+|---|---|---|
+|权重显存占比|40–60%|**20–30%**（留更多给 KV）|
+|KV Cache 占比|30–50%|**60–70%**|
+|最大并发（H100 80GB）|64–128|**4–16**|
+|推荐硬件|H100 SXM|**H20（96 GB 大显存）**|
+
+---
+
+## 15.2 系统层响应
+
+---
+
+**Q107. 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？**
+
+**理论预期：**
+
+Speculative Decoding 的接受率 $\alpha$ 衡量 Draft 分布 $q$ 与 Target 分布 $p$ 的匹配程度。对于推理模型的长 CoT 输出，有以下挑战：
+
+**挑战 1：推理链的语义连贯性要求高**
+
+CoT 中每个 Token 依赖前面完整的推理链（逻辑关键词如 "therefore"、"since"、变量名、等式中间步骤），Draft 模型若参数量远小于 Target 模型，对复杂推理链的预测准确率低。
+
+**实验观测（EAGLE-2 on DeepSeek-R1）：**
+
+|内容类型|接受率 $\alpha$|加速比|
+|---|---|---|
+|普通对话|0.85–0.92|2.5–3.5×|
+|代码生成|0.80–0.88|2.0–3.0×|
+|**数学推理（CoT）**|**0.65–0.78**|**1.5–2.2×**|
+|**长思考链（Thinking Token）**|**0.55–0.70**|**1.3–1.8×**|
+
+**挑战 2：推理链不同阶段接受率差异大**
+
+```
+推理链阶段分析：
+阶段 A（问题分析，自然语言）：α ≈ 0.85（分布接近普通对话）
+阶段 B（数学推导，符号运算）：α ≈ 0.60（专业符号序列难预测）
+阶段 C（结论总结，自然语言）：α ≈ 0.82（分布再次接近普通对话）
+```
+
+**挑战 3：Draft 模型本身不具备推理能力**
+
+若 Draft 模型（如 1B 参数的小模型）未经推理能力训练，在数学/代码推理步骤上的预测接近随机，$\alpha$ 可能低至 0.3–0.5，Speculative Decoding 反而引入额外开销（Draft 计算浪费）。
+
+**应对策略：**
+
+**策略 1：使用同系列蒸馏小模型作为 Draft**
+
+DeepSeek-R1-Distill-Qwen-1.5B 作为 DeepSeek-R1-671B 的 Draft，因经过同分布蒸馏，推理链上的 $\alpha$ 显著高于通用小模型（0.70–0.80 vs 0.55–0.65）。
+
+**策略 2：EAGLE 架构（复用 Target 特征）**
+
+EAGLE 的 Draft 头以 Target 模型的最后一层隐状态为条件，即使在复杂推理链上也能保持较高 $\alpha$（因为复用了 Target 的"理解"，只需预测下一步）。
+
+**策略 3：动态 Draft 长度（自适应 $\gamma$）**
+
+在推理链的高 $\alpha$ 阶段（自然语言段）增大 $\gamma$（多猜测几步），在低 $\alpha$ 阶段（数学符号段）减小 $\gamma$，避免低接受率时大量 Draft 计算浪费。
+
+**结论：** Speculative Decoding 在长 CoT 上**仍有收益**（1.3–2.2×），但收益低于普通对话场景（2.5–3.5×）。推理模型专用 Draft（同系列蒸馏）是关键，通用小模型 Draft 在推理链上效果差。
+
+---
+
+**Q108. 推理模型的 SLO 设计：TTFT vs Total Latency 的权衡如何变化？**
+
+**标准 LLM 服务的 SLO 体系：**
+
+```
+TTFT SLA：P99 < 500ms（用户等待首字时间，决定交互感）
+TPOT SLA：P99 < 50ms/token（流式输出流畅度）
+E2E Latency：TTFT + TPOT × OSL（总等待时间）
+```
+
+**推理模型的 SLO 体系变化：**
+
+推理模型（R1、o1）在输出"答案"之前会生成大量"思考 Token"，这些 Token 通常**不展示给用户**（或以折叠形式展示），用户实际关注的是**最终答案的延迟**。
+
+**SLO 设计的核心变化：**
+
+|SLO 指标|标准 LLM|推理模型|
+|---|---|---|
+|**TTFT**|极重要（首字决定体验）|**重要性降低**（用户知道需等待思考）|
+|**TPOT**|重要（流畅度）|仍重要（思考完成后的答案输出速度）|
+|**Time to Answer（TTA）**|等同 E2E Latency|**新核心指标**：思考结束到答案完成的时间|
+|**Total Latency**|次要（OSL 短，E2E 短）|**最重要**（OSL 长，总等待可达分钟级）|
+|**Thinking Token Budget**|不适用|新增：控制思考深度与延迟的旗钮|
+
+**SLO 设计建议（推理模型专用）：**
+
+```
+用户交互模式（对话）：
+  - TTFT P99 < 2s（可接受略长的首字等待）
+  - TPOT P99 < 100ms（答案流式输出要流畅）
+  - Total Latency P99 < 60s（超过 1 分钟用户会放弃）
+  - Thinking Budget：动态（简单问题 < 2000 tokens，困难问题 < 16000 tokens）
+
+批量任务（离线，如代码审查、文档分析）：
+  - TTFT：不重要
+  - Throughput（Tokens/s）：核心指标
+  - Total Latency P99 < 5min
+  - Thinking Budget：最大值（质量优先）
+```
+
+**Thinking Budget 与质量-延迟曲线：**
+
+实验表明（DeepSeek-R1，AIME 数学竞赛题）：
+
+|Thinking Budget|AIME 正确率|平均 Total Latency|
+|---|---|---|
+|1000 tokens|45%|~15s|
+|4000 tokens|68%|~45s|
+|8000 tokens|79%|~85s|
+|16000 tokens|85%|~160s|
+|无限制|87%|~220s|
+
+**结论：** 推理模型的 SLO 体系需从"低 TTFT + 低 TPOT"转向"合理 Thinking Budget + 可接受 Total Latency"，并根据任务难度动态调整。固定 max_tokens 的简单限制会在简单问题上浪费计算、在困难问题上截断思考，**自适应 Thinking Budget 是推理模型系统的核心调度能力**。
+
+# 第 16 章·参考答案：模型结构轻量化
+
+---
+
+## 16.1 知识蒸馏
+
+---
+
+**Q109. 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？**
+
+**知识蒸馏的基本框架：**
+
+蒸馏目标：用大模型（Teacher）指导小模型（Student）训练，使 Student 在参数量更少的情况下逼近 Teacher 的能力。
+
+$$\mathcal{L}_{\text{total}} = \alpha \cdot \mathcal{L}_{\text{task}} + (1-\alpha) \cdot \mathcal{L}_{\text{distill}}$$
+
+**① Logit Distillation（逻辑蒸馏）：**
+
+Student 的输出 Logit 分布对齐 Teacher 的输出 Logit 分布，使用 KL 散度作为损失：
+
+$$\mathcal{L}_{\text{KD}} = \text{KL}!\left(p_T(y|x; \tau) ,|, p_S(y|x; \tau)\right) = \sum_y p_T \log \frac{p_T}{p_S}$$
+
+其中 $\tau$ 为温度参数（Temperature），用于软化分布：
+
+$$p_T(y_i|x; \tau) = \frac{\exp(z_i^T / \tau)}{\sum_j \exp(z_j^T / \tau)}$$
+
+**温度 $\tau$ 的作用：** $\tau > 1$ 使分布更平滑，低概率类别的信息（"暗知识"，Dark Knowledge）被放大，Student 学到更多类间相似性信息。
+
+**优点：**
+
+- 实现简单，只需 Teacher 的输出层 Logit，无需访问中间层。
+- 对 Teacher 和 Student 架构差异无限制（异构蒸馏友好）。
+- Teacher 可以是 API 黑盒（只需输出概率分布）。
+
+**缺点：**
+
+- 仅传递最终输出的知识，Teacher 中间层的表征信息完全丢失。
+- 当 Teacher 与 Student 容量差异极大时，Logit 分布差异过大，Student 难以拟合。
+
+**② Feature Distillation（特征蒸馏）：**
+
+对齐 Teacher 和 Student 的中间层特征（隐状态、Attention 图、FFN 输出等）：
+
+$$\mathcal{L}_{\text{feat}} = \sum_{l \in \mathcal{L}} \left| f_S^l(x) - \phi!\left(f_T^l(x)\right) \right|_2^2$$
+
+其中 $\phi$ 为适配器（线性投影），处理 Teacher/Student 维度不一致的情况。
+
+**Attention 图蒸馏（TinyBERT 等）：**
+
+$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}!\left(A_S^h,\ A_T^h\right)$$
+
+对齐每个 Attention 头的注意力权重矩阵。
+
+**优点：**
+
+- 传递更丰富的中间表征知识，Student 学习更充分。
+- 对容量差异大的 Teacher-Student 对效果更好（逐层引导）。
+
+**缺点：**
+
+- 要求 Teacher 开放中间层权重（不支持黑盒 API）。
+- Teacher 与 Student 层数不同时，需要层间映射策略（如跳层对齐）。
+- 实现复杂，超参数（对齐层数、权重）调优困难。
+
+**综合对比：**
+
+|维度|Logit 蒸馏|Feature 蒸馏|
+|---|---|---|
+|实现复杂度|低|高|
+|Teacher 访问要求|仅输出层|需中间层|
+|知识传递丰富度|低（仅最终分布）|高（逐层表征）|
+|架构异构性|友好|受限（需层对齐）|
+|适用 Student 大小|Teacher/Student 差距小时效果好|差距大时更优|
+|LLM 推理场景|**主流**（黑盒 API 可用）|用于白盒微调优化|
+
+---
+
+**Q110. 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？**
+
+**推理模型蒸馏的特殊性：**
+
+推理模型（R1、o1 类）的核心能力是**生成高质量的思考链（CoT）**，蒸馏目标不只是输出答案，而是让 Student 学会"如何思考"。
+
+**方法 1：序列级 Logit 蒸馏（DeepSeek-R1 的主要方案）**
+
+用 Teacher（DeepSeek-R1-671B）对大量问题生成完整的思考链 + 答案，作为 Student（Qwen-7B/14B/32B）的监督训练数据：
+
+```
+训练数据格式：
+<think>
+  [Teacher 生成的完整推理链，数千 tokens]
+</think>
+<answer>
+  [最终答案]
+</answer>
+```
+
+Student 在此数据上做 SFT（Supervised Fine-tuning），直接模仿 Teacher 的推理过程。
+
+**关键细节：**
+
+- 训练数据来自 Teacher 的**采样输出**（非 Greedy），保留多样性。
+- 仅使用"答案正确"的样本过滤（Rejection Sampling Fine-tuning，RFT），剔除 Teacher 推理错误的样本。
+- Student 无需与 Teacher 同架构，Qwen-7B 可直接蒸馏 DeepSeek-R1-671B。
+
+**方法 2：在线蒸馏（On-policy Distillation）**
+
+Student 自身生成推理链，Teacher 实时评分并提供 Token 级别的 KL 损失：
+
+$$\mathcal{L}_{\text{online}} = \mathbb{E}_{x \sim \text{train}} \left[ \text{KL}(p_T(\cdot|x, y_{<t}) ,|, p_S(\cdot|x, y_{<t})) \right]$$
+
+其中 $y_{<t}$ 为 Student 自身生成的历史，而非固定的 Teacher 输出。
+
+**优点：** Student 在自身分布上训练，避免 Exposure Bias（训练时看 Teacher 输出，推理时看自己输出）。 **缺点：** 需要 Teacher 实时推理，计算成本极高（每步都要跑 Teacher）。
+
+**方法 3：RLVR（强化学习验证奖励）配合蒸馏**
+
+先用序列蒸馏得到基础推理能力的 Student，再用可验证任务（数学、代码）的规则奖励（答案正确/错误）做 RL 微调，进一步提升推理准确率：
+
+```
+Phase 1: SFT on Teacher CoT data（蒸馏获得推理格式）
+Phase 2: RL with rule-based reward（强化推理准确性）
+```
+
+**DeepSeek-R1-Distill 系列效果（AIME 2024）：**
+
+|模型|参数量|正确率|
+|---|---|---|
+|DeepSeek-R1-Distill-Qwen-1.5B|1.5B|28.9%|
+|DeepSeek-R1-Distill-Qwen-7B|7B|55.5%|
+|DeepSeek-R1-Distill-Qwen-32B|32B|72.6%|
+|DeepSeek-R1（Teacher）|671B|79.8%|
+|OpenAI o1（参考）|未知|74.4%|
+
+**结论：** 32B 的蒸馏模型已超越 o1，以极低成本获得接近 Teacher 的推理能力，是 2025 年推理模型部署的主流路径。
+
+---
+
+## 16.2 结构剪枝
+
+---
+
+**Q111. Unstructured Pruning vs. Structured Pruning 对推理加速的实际贡献差异？**
+
+**Unstructured Pruning（非结构化剪枝）：**
+
+将权重矩阵中绝对值小于阈值的元素置零，产生**任意稀疏模式**：
+
+```
+原始权重:  [0.8, -0.1, 0.3, 0.0, -0.7, 0.05, 0.4, -0.2]
+剪枝后:    [0.8,  0.0, 0.3, 0.0, -0.7,  0.0, 0.4,  0.0]（50% 稀疏）
+```
+
+**推理加速的问题：**
+
+稀疏模式任意（非结构化），现有 GPU 的 CUDA Core 和 Tensor Core 均针对**稠密矩阵**优化，稀疏矩阵乘需要特殊格式（CSR、COO）和稀疏 GEMM Kernel，在 GPU 上实际加速收益极低：
+
+- **理论加速（50% 稀疏）：** 2× FLOPs 减少
+- **实际 GPU 加速：** 约 **0–20%**（稀疏格式的内存访问不规则，掩盖了计算节省）
+- **内存节省：** 需要存储非零值索引，实际节省约 30–40%（非 50%）
+
+**适用场景：** CPU 推理（Intel MKL-sparse 支持不规则稀疏）、端侧部署（ARM NEON 有限稀疏支持）。
+
+**Structured Pruning（结构化剪枝）：**
+
+以规则的结构单元为粒度删除权重，保持剩余权重的**稠密矩阵结构**，可直接用标准 GEMM 加速：
+
+|剪枝粒度|删除单元|推理加速（GPU）|精度损失|
+|---|---|---|---|
+|**Attention Head Pruning**|整个注意力头（$H \to H'$）|**线性于 $H'/H$**|中（5–10%）|
+|**Layer Dropping**|整个 Transformer 层（$L \to L'$）|**线性于 $L'/L$**|中-高（10–20%）|
+|**FFN Neuron Pruning**|FFN 中间维度（$4d \to nd$）|**线性于 $n/4$**|低-中（2–8%）|
+|**Width Pruning**|隐藏维度（$d \to d'$）|线性于 $(d'/d)^2$|高（>15%）|
+
+**实际推理加速对比（以 Llama-2 7B，20% 剪枝率为例）：**
+
+|方法|GPU 实际加速|精度（PPL）|模型大小|
+|---|---|---|---|
+|Unstructured（20% 零化）|~2%|几乎无损|无变化（需稀疏存储）|
+|Head Pruning（20% Head 删除）|~18%|+0.5 PPL|-20%|
+|Layer Dropping（20% 层删除）|~20%|+1.2 PPL|-20%|
+|FFN Pruning（20% 中间维度）|~15%|+0.8 PPL|-20%|
+
+**工程选型建议：**
+
+- **延迟敏感、精度要求高**：FFN Neuron Pruning（精度损失最小）+ 量化组合。
+- **显存受限、快速部署**：Layer Dropping（简单粗暴，每层独立评估重要性后直接删除）。
+- **不建议单独使用 Unstructured Pruning**（GPU 上几乎无实际加速收益）。
+
+---
+
+**Q112. 2:4 稀疏格式（NVIDIA Sparse Tensor Core）的激活方式与精度损失分析？**
+
+**2:4 稀疏格式详解（见 Q90 部分内容，此处深化）：**
+
+**存储格式：**
+
+每 4 个连续权重值中保留 2 个非零值，配合 2-bit 索引记录非零位置：
+
+```
+原始权重（FP16，4 个值）: [w₀, w₁, w₂, w₃]
+2:4 剪枝后:               保留 [w₀, w₂]（值）+ [0, 2]（索引，各 2 bits）
+
+存储对比：
+  原始: 4 × 2 Bytes = 8 Bytes
+  压缩: 2 × 2 Bytes（值）+ 4 bits（索引）= 4.5 Bytes
+  压缩比: 8 / 4.5 ≈ 1.78×（非精确 2×，因为索引有开销）
+```
+
+**硬件加速机制（Ampere A100+）：**
+
+Sparse Tensor Core 内置解压逻辑：
+
+1. 从压缩存储中读取非零值和索引（带宽节省 ~50%）。
+2. 硬件在 MMA 计算前自动将稀疏值展开到对应位置。
+3. 计算等效于 Dense MMA，但输入带宽减半。
+
+理论吞吐提升：**2× FP16 Dense TFLOPS**（A100：312 → 624 TFLOPS）。
+
+**激活 2:4 稀疏的步骤：**
+
+```python
+import torch
+from torch.ao.pruning import WeightNormSparsifier
+
+# Step 1: 确定剪枝方案（幅值剪枝，保留每组 4 个中最大的 2 个）
+sparsifier = WeightNormSparsifier(sparsity_level=0.5, sparse_block_shape=(1, 4))
+sparsifier.prepare(model, config=[{"tensor_fqn": "linear.weight"}])
+
+# Step 2: 执行剪枝（将小值置零，形成 2:4 模式）
+sparsifier.step()
+sparsifier.squash_mask()
+
+# Step 3: 转换为压缩存储格式
+from torch.sparse import to_sparse_semi_structured
+model.linear.weight = to_sparse_semi_structured(model.linear.weight)
+
+# Step 4: 推理时自动使用 Sparse Tensor Core
+output = model(input)  # 透明加速
+```
+
+**精度损失分析：**
+
+2:4 稀疏要求每 4 个权重中恰好 2 个为零，这个约束比自由剪枝更严格，因此精度损失来源于：
+
+**① 剪枝误差（结构约束导致）：**
+
+最优的 50% 非结构化剪枝可以选择全局最不重要的 50% 权重，但 2:4 约束限制了每组 4 个必须剪 2 个，即使某组 4 个权重都很重要也必须剪 2 个。
+
+**② 典型精度损失（以 Llama-2 7B 为例）：**
+
+|精度格式|稀疏度|PPL（WikiText-2）|精度损失|
+|---|---|---|---|
+|FP16 Dense|0%|5.47|基准|
+|FP16 + 2:4（SparseGPT）|50%|5.98|+0.51|
+|INT8 Dense|0%|5.53|+0.06|
+|INT8 + 2:4|50%|6.34|+0.87|
+|**FP16 + 2:4（ASP 微调）**|**50%**|**5.61**|**+0.14**|
+
+**缓解精度损失的关键——Sparse-Aware 训练（ASP）：**
+
+在训练中引入 2:4 稀疏约束，模型权重主动学习在约束下表达能力：
+
+```
+Phase 1: 正常 Dense 训练（或加载预训练权重）
+Phase 2: 施加 2:4 掩码，继续训练 10–20% 步数（权重自适应稀疏模式）
+Phase 3: 固定掩码，转换为压缩格式部署
+```
+
+ASP 训练后精度损失从 +0.51 PPL 降至 +0.14 PPL，工业可接受。
+
+**实际 GPU 加速（A100 实测）：**
+
+- 理论峰值：2×
+- GEMM 密集计算实测加速：**1.5–1.8×**（受内存延迟和非 GEMM 算子影响）
+- 端到端推理加速：**1.2–1.5×**（非 GEMM 算子如 LayerNorm、Attention 不受益）
+
+---
+
+## 16.3 模型架构设计题
+
+---
+
+**Q113. 给定延迟 SLA = 50ms / Token，如何在 7B 模型的基础上通过蒸馏 + 量化组合达到目标，说明决策链？**
+
+**Step 1：建立基线，评估当前延迟**
+
+```
+模型: Llama-3 7B（FP16）
+硬件: H100 SXM × 1
+Decode 延迟基线（Batch=1）:
+
+单步理论下界 = 模型权重读取时间
+  = 7B × 2 Bytes(FP16) / 3.35 TB/s
+  = 14 GB / 3.35 TB/s ≈ 4.2 ms/Token
+
+实测（含 Kernel Launch、LayerNorm 等开销）≈ 8–12 ms/Token
+
+→ 基线已满足 50ms SLA（8–12ms << 50ms）
+→ 需要确认 SLA 是在什么 Batch Size 下的要求
+```
+
+**实际场景假设（Batch=64，P99 < 50ms）：**
+
+```
+Batch=64 时，权重读取 + GEMM 计算：
+  GEMM FLOPs = 2 × 64 × 7B ≈ 9 × 10¹¹ FLOPs
+  H100 峰值（FP16）= 989 TFLOPS
+  GEMM 计算时间 = 9×10¹¹ / 989×10¹² ≈ 0.91 ms（Compute-bound）
+  实测（含所有开销）≈ 30–45 ms/Token（Batch=64）
+→ P99 可能超过 50ms SLA，需要优化
+```
+
+**Step 2：决策链（按收益/代价排序逐步尝试）**
+
+```
+优化 Level 1：量化（零精度损失代价，快速部署）
+├─ W8A8 INT8（SmoothQuant）
+│   收益: 权重读取减半（14 GB → 7 GB），GEMM 加速 ~1.5×
+│   Decode 延迟: 30ms → ~20ms ✅（满足 50ms SLA，余量充足）
+│   精度损失: < 1%（MMLU）
+│   部署成本: 低（SmoothQuant 校准约 1 小时）
+│   → 若此步已满足，停止优化
+│
+优化 Level 2：量化进一步（若 W8A8 不足）
+├─ W4A16（AWQ/GPTQ）
+│   收益: 权重读取降至 3.5 GB（4× 压缩），Decode 延迟 ~10ms
+│   精度损失: ~1–2%（PPL +0.5）
+│   → 延迟极低，但 Prefill 吞吐下降（需解压）
+│
+优化 Level 3：蒸馏（若量化精度损失不可接受）
+├─ 蒸馏为 3B 模型（Logit 蒸馏 + RLVR）
+│   收益: 模型大小减半，Decode 延迟 ~15ms（vs 7B 30ms）
+│   精度损失: ~5–10%（视任务而定）
+│   部署成本: 高（需 GPU 蒸馏训练，数天）
+│   → 适合精度要求严格但硬件资源有限的场景
+│
+优化 Level 4：蒸馏 + 量化组合（最优组合）
+└─ 3B 模型（蒸馏）+ W8A8 量化
+    收益: 模型 1.5 GB，Decode 延迟 ~7ms（Batch=64）
+    精度损失: ~8–12%（蒸馏损失为主）
+    → 适合吞吐优先、精度可牺牲的场景（如实时推荐、摘要）
+```
+
+**Step 3：选型决策（最终推荐）**
+
+```
+目标: Batch=64，P99 TPOT < 50ms，精度损失 < 2%
+
+推荐方案: 7B + W8A8（SmoothQuant）
+  ✅ Decode 延迟: ~20ms（远满足 50ms）
+  ✅ 精度损失: < 1%
+  ✅ 部署周期: 1–2 天
+  ✅ 无需蒸馏（避免训练成本）
+
+若未来 Batch 增大至 256（延迟压力增加）:
+  升级方案: 7B + W4A16（AWQ）
+  ✅ 带宽瓶颈缓解，Decode 延迟维持 < 30ms
+  ⚠️ 精度损失 ~2%，需业务侧验证
+
+若业务对精度要求极高（损失 < 0.5%）且延迟不满足:
+  升级硬件: 1 × H100 → 2 × H100（TP=2）
+  代价: 硬件成本翻倍，延迟降至 ~15ms
+```
+
+**Step 4：验证流程**
+
+```bash
+# 1. 量化校准（SmoothQuant，~1小时）
+python smooth_quant.py --model llama3-7b --calib-data pile --output llama3-7b-w8a8
+
+# 2. 精度验证
+lm_eval --model llama3-7b-w8a8 --tasks mmlu,hellaswag --batch-size 32
+
+# 3. 延迟 Benchmark
+python benchmark_serving.py --model llama3-7b-w8a8 --batch-size 64 \
+    --num-prompts 1000 --request-rate 10 --percentile 99
+```
+
+# 第 17 章·参考答案：多模态推理（VLM/MLM）
+
+---
+
+**Q114. Vision Encoder 的输出 Token 数量对 Prefill 显存和计算的影响？**
+
+**Vision Encoder 的 Token 化过程：**
+
+主流 VLM（如 LLaVA、Qwen-VL、InternVL）使用 ViT（Vision Transformer）将图像切分为 Patch，每个 Patch 映射为一个 Image Token：
+
+$$N_{\text{image tokens}} = \frac{H_{\text{img}} \times W_{\text{img}}}{P^2}$$
+
+其中 $P$ 为 Patch 大小（像素），$H_{\text{img}}, W_{\text{img}}$ 为图像分辨率。
+
+**典型配置：**
+
+|模型|图像分辨率|Patch 大小|Image Tokens|备注|
+|---|---|---|---|---|
+|LLaVA-1.5|336×336|14|576|单分辨率|
+|Qwen-VL|448×448|14|1024|单分辨率|
+|InternVL-2|448×448 × N|14|256 × N|动态分辨率，N 最大 12|
+|LLaVA-HD|任意|14|最大 2880|高分辨率切片|
+
+**对 Prefill 显存的影响：**
+
+Image Token 与 Text Token 在 LLM 中一视同仁，均生成 KV Cache。对于 Llama-3 70B（GQA，$H_{\text{KV}}=8, d=128, L=80$，FP16）：
+
+$$M_{\text{KV per image token}} = 2 \times 80 \times 8 \times 128 \times 1 \times 2 = 327{,}680 \text{ Bytes} \approx 320 \text{ KB/token}$$
+
+|场景|Image Tokens|KV Cache（单图）|等效文本 Token 数|
+|---|---|---|---|
+|LLaVA-1.5（336×336）|576|~180 MB|576 个词|
+|InternVL-2（高分辨率 N=6）|1536|~480 MB|1536 个词|
+|视频（16 帧，每帧 256 tokens）|4096|~1.28 GB|4096 个词|
+
+**对 Prefill 计算的影响：**
+
+Prefill 的 Attention 计算量为 $O((N_{\text{img}} + N_{\text{text}})^2 \cdot d)$，Image Token 大量增加序列长度，Attention 计算量以**平方增长**：
+
+$$\frac{\text{FLOPs with image}}{\text{FLOPs text only}} \approx \left(\frac{N_{\text{img}} + N_{\text{text}}}{N_{\text{text}}}\right)^2$$
+
+**示例（$N_{\text{text}} = 512$，$N_{\text{img}} = 1024$）：**
+
+$$\text{计算量比} = \left(\frac{1024 + 512}{512}\right)^2 = 3^2 = 9\times$$
+
+Attention 计算量激增 **9 倍**，但 FFN 层计算量仅增加 3 倍，整体 Prefill FLOPs 增加约 **3–5×**（视 Attention 在总计算中的占比）。
+
+**动态分辨率的显存管理挑战：**
+
+不同请求的 Image Token 数差异大（256 到 4096），使用 PagedAttention 的 KV Block 动态分配可有效应对，但调度器需提前估算 Image Token 数（需等 ViT 编码完成后才知道精确值）：
+
+```python
+# VLM 推理流程
+# Step 1: ViT 编码（CPU/GPU，可提前进行）
+image_features = vision_encoder(image)  # [N_img, d_vision]
+
+# Step 2: 投影到 LLM 空间
+image_tokens = projection(image_features)  # [N_img, d_llm]
+
+# Step 3: 与 Text Token 拼接，送入 LLM Prefill
+input_embeds = torch.cat([image_tokens, text_tokens], dim=1)
+```
+
+---
+
+**Q115. Image Token 的 KV Cache 是否应与 Text Token 区别对待（不同 Eviction 策略）？**
+
+**Image Token 与 Text Token 的本质差异：**
+
+|特征|Text Token|Image Token|
+|---|---|---|
+|语义性|高（每个词有明确含义）|中（Patch 级视觉特征，局部语义）|
+|注意力模式|集中于关键词（Sparse）|分散于整个图像区域（Dense）|
+|可重要性排序|可用 Attention Score 排序|图像区域重要性难量化|
+|丢弃代价|可通过上下文推测|视觉信息不可恢复|
+|复用可能性|高（相同 System Prompt 可复用）|**极高**（相同图像 KV 可跨请求共享）|
+
+**为何需要区别对待：**
+
+**问题 1：标准 Token Eviction 策略对 Image Token 效果差**
+
+H2O 等方法基于 Attention Score 累积值驱逐 Token，但 Image Token 的注意力往往比较分散（图像的每个区域都会被查询），整体 Score 较低，容易被误判为不重要而提前驱逐，导致视觉信息丢失、幻觉（Hallucination）增加。
+
+**问题 2：Image Token 的驱逐不可逆性更强**
+
+Text Token 被驱逐后，模型可通过上下文语义近似推断；Image Token 被驱逐后，对应的视觉细节（如图中特定区域的颜色、形状）**完全丢失**，无法从 Text 上下文恢复。
+
+**推荐的区分策略：**
+
+**策略 1：Image Token 全量保留（保守方案）**
+
+将 Image Token 标记为"不可驱逐"，KV Eviction 仅作用于 Text Token。
+
+```python
+# vLLM / SGLang 的 KV 驱逐掩码（示意）
+eviction_mask = torch.ones(seq_len, dtype=torch.bool)
+eviction_mask[:N_img] = False  # Image Token 不参与驱逐候选
+```
+
+- **适用**：Image Token 数量不大（≤ 1024），显存充裕。
+- **代价**：Image Token 始终占用 KV Cache，长对话中无法释放。
+
+**策略 2：视觉显著性引导的 Image Token 剪枝**
+
+利用 Cross-Attention 中 Text Query 对 Image Token 的注意力权重（反映文本对图像各区域的关注度）来评估 Image Token 重要性：
+
+$$\text{importance}(i) = \sum_{t \in \text{text}} \alpha_{t \to i}$$
+
+高 importance 的 Image Token（被文本频繁查询的视觉区域）予以保留，低 importance 的驱逐。此方法在视觉问答任务上精度损失比盲目驱逐降低约 **30–50%**。
+
+**策略 3：Prefix Sharing 复用 Image KV（最高价值策略）**
+
+同一图像被多个请求共享时（如多轮对话、RAG 召回同一图片），Image Token 的 KV Cache 通过 Prefix Sharing 只存储一份：
+
+```
+请求 A："图中的猫是什么颜色？"
+请求 B："图中有几只动物？"
+请求 C："图中的背景是什么？"
+
+→ Image Token KV 只存 1 份（通过 PagedAttention Block Table 共享）
+→ 3 个请求各自只需存 Text Token KV（几十个 Token）
+```
+
+对于同一图像的多轮问答场景，Prefix Sharing 可将 KV Cache 占用降低 **60–90%**（视 N_img 与 N_text 的比例）。
+
+---
+
+**Q116. 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size？**
+
+**问题根源：**
+
+纯文本 Prefill 的 Chunk Size（如 $C = 512$）是为了在 Decode 阶段可接受的 TPOT 中断时间（约 50ms）下设计的。VLM 的 Prefill 包含大量 Image Token，相同 Chunk Size 下单步计算时间更长，需要重新评估。
+
+**Chunk Size 的选择原则：**
+
+$$C = \frac{\text{TPOT 可接受中断时间（ms）}}{\text{每 Token Prefill 时间（ms/token）}}$$
+
+**纯文本 vs VLM 的每 Token Prefill 时间对比：**
+
+以 Llama-3 70B（H100×8，TP=8）为例，Prefill 吞吐约 50,000 tokens/s：
+
+- 纯文本：每 Token Prefill 时间 = $1/50000 \approx 0.02$ ms/token
+    
+- VLM（含 Image Attention 开销，图像 N_img = 1024，文本 N_text = 512）：
+    
+    序列总长 $= 1536$，Attention 计算量 $\propto N^2$，相比纯文本 512 tokens：
+    
+    $$\text{时间比} \approx \frac{1536^2}{512^2} \approx 9\times$$
+    
+    有效每 Token 时间 $\approx 0.02 \times 9 / (1536/512) \approx 0.06$ ms/token（因为总 token 数也增加了）
+    
+
+**Chunk Size 调整策略：**
+
+**策略 1：按 Token 数固定（统一处理）**
+
+保持 $C = 512$（Token 数），但 VLM 中每个 Chunk 的实际计算时间更长（因为序列内 Attention 范围更大），导致 Decode 中断时间超预期。
+
+**策略 2：按计算量动态调整（推荐）**
+
+将 Chunk Size 从"固定 Token 数"改为"固定 FLOPs"：
+
+$$C_{\text{effective}} = \frac{C_{\text{text}} \times N_{\text{text}}^2}{(N_{\text{img}} + N_{\text{text}})^2}$$
+
+**示例（$C_{\text{text}} = 512$，$N_{\text{img}} = 1024$，$N_{\text{text}} = 512$）：**
+
+$$C_{\text{effective}} = \frac{512 \times 512^2}{1536^2} \approx 57 \text{ tokens}$$
+
+即 VLM 场景下 Chunk Size 应缩小至约 57 tokens，以保持与纯文本相同的单步计算时间。
+
+**策略 3：Image Token 优先整块处理**
+
+Image Token 天然构成一个语义完整的单元（一张图像），将 Image Token 作为独立的"Image Chunk"整块处理，Text Token 按标准 $C$ 分块：
+
+```
+VLM Prefill 流程（Chunked）：
+Chunk 0: [Image Token 0~1023]（整图，1 个 Chunk，占 1 步）
+Chunk 1: [Text Token 0~511]（文本第一块）
+Chunk 2: [Text Token 512~1023]（文本第二块）
+...
+```
+
+- **优点**：Image KV 一次性生成，后续 Text Chunk 可以 Attend 完整的图像 KV，语义连贯。
+- **代价**：Image Chunk 较大时（N_img = 1024），单步计算时间长，对 Decode 阶段中断时间较大。
+
+**策略 4：Vision Encoder 预计算 + 异步 Prefill**
+
+将 ViT 编码（Vision Encoder 的前向）从 LLM Prefill 解耦，提前在 CPU 或独立 GPU 上完成：
+
+```
+时间轴：
+  请求到达时：立即启动 ViT 编码（异步，独立 CUDA Stream）
+  调度时：ViT 已完成，Image Features 就绪
+  Prefill 时：直接用 Image Features（跳过 ViT 计算），Prefill 时间缩短
+
+  ViT 编码时间（ViT-L，336×336，H100）≈ 15ms
+  若在请求排队期间完成，对 TTFT 无额外影响
+```
+
+**实践建议（综合）：**
+
+```
+VLM 服务 Chunked Prefill 配置：
+  - 优先用策略 3（Image 整块 + Text 分块）
+  - Image Chunk 过大时（> 2048 tokens），对 Image Token 也分块
+  - Decode 阶段 TPOT 告警时：
+    ├─ 减小 Text Chunk Size（C：512 → 256）
+    └─ 将 ViT 编码移到异步预处理（策略 4）
+  - 高并发同图场景：
+    └─ 启用 Image KV Prefix Sharing（见 Q115 策略 3）
+```
+
