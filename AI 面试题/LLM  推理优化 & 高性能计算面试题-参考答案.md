@@ -133,7 +133,7 @@ $$I = \frac{\text{FLOPs}}{\text{Bytes Accessed (HBM)}} \quad \left[\text{FLOP/By
 
 性能上界由两个"屋顶"决定：
 
-$$\text{Performance} = \min!\left(I \times BW_{\text{mem}},; P_{\text{peak}}\right)$$
+$$\text{Performance} = \min!\left(I \times BW_{\text{mem}},P_{\text{peak}}\right)$$
 
 其中 $BW_{\text{mem}}$ 为 HBM 带宽，$P_{\text{peak}}$ 为峰值算力。
 
