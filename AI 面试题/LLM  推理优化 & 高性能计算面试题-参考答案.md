@@ -289,6 +289,9 @@ $$m = \max(m_1, m_2), \quad d = d_1 \cdot e^{m_1 - m} + d_2 \cdot e^{m_2 - m}$$
 
 $$O \leftarrow O \cdot e^{m_{\text{old}} - m_{\text{new}}}$$
 
+$$m^{\text{new}} = \max(m^{\text{old}}, m\_{\text{tile}})$$
+$$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m\_{\text{tile}} - m^{\text{new}}} \cdot \tilde{O}\_{\text{tile}}$$
+
 此技巧使 Attention 的 Softmax 可以在单次遍历 KV Tile 时完成，无需将整个序列载入 SRAM，是 FlashAttention 实现 $O(N)$ 显存复杂度的关键（见 Q23）。
 
 ---
