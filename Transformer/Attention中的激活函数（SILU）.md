@@ -1,4 +1,4 @@
-## Attention中的激活函数（SILU）
+## Attention中的激活函数
 ### 1. 概念
 **SiLU（又称 Swish）** 的定义是：
 $$\text{SiLU}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}$$
