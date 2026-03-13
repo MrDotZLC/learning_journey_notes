@@ -708,6 +708,6 @@ pytorch中是单个算子，llama.cpp中包含了：
 |`contiguous()`|否|可能|是|
 
 # 11. SILU
-一个 **平滑、非线性、非对称** 的激活函数。[Attention中的激活函数（SILU）](../Transformer/Attention中的激活函数（SILU）.md)
+一个 **平滑、非线性、非对称** 的激活函数。[Attention中的激活函数](../Transformer/Attention中的激活函数.md)
 $$\text{SiLU}(x) = x \cdot \sigma(x) = x \cdot \frac{1}{1 + e^{-x}}$$
 ![](assets/Pasted%20image%2020260120043155.png)
