@@ -16,12 +16,12 @@
 
 > **【图示占位 1】**：`[B, T, d]` 三维张量示意图，分别高亮 BN（沿 Batch 维）、LN（沿 Feature 维）、RMSNorm（沿 Feature 维，无中心化）、GroupNorm（分组 Channel 维）的归一化切片方向
 
-|方法|归一化维度|每次统计范围|依赖 Batch？|
-|---|---|---|---|
-|BatchNorm|Batch 维（per feature）|同一特征的 $B \times T$ 个值|✅ 强依赖|
-|LayerNorm|Feature 维（per sample）|同一 token 的 $d$ 个特征|❌|
-|RMSNorm|Feature 维（per sample，无中心化）|同一 token 的 $d$ 个特征|❌|
-|GroupNorm|分组 Channel 维|同一样本内分组的 $C/G$ 个通道|❌|
+| 方法        | 归一化维度                      | 每次统计范围                | 依赖 Batch？ |
+| --------- | -------------------------- | --------------------- | --------- |
+| BatchNorm | Batch 维（per feature）       | 同一特征的 $B \times T$ 个值 | ✅ 强依赖     |
+| LayerNorm | Feature 维（per sample）      | 同一 token 的 $d$ 个特征    | ❌         |
+| RMSNorm   | Feature 维（per sample，无中心化） | 同一 token 的 $d$ 个特征    | ❌         |
+| GroupNorm | 分组 Channel 维               | 同一样本内分组的 $C/G$ 个通道    | ❌         |
 
 ---
 
