@@ -14,7 +14,7 @@
 
 设输入张量形状为 `[B, T, d]`（Batch × Sequence Length × Hidden dim）：
 ![](assets/Gemini_Generated_Image_pqc2yxpqc2yxpqc2.png)
-> **【图1】**：`[B, T, d]` 三维张量示意图，分别高亮 BN（沿 Batch 维）、LN（沿 Feature 维）、RMsSNorm（沿 Feature 维，无中心化）、GroupNorm（分组 Channel 维）的归一化切片方向
+> **【图1】**：`[B, T, d]` 三维张量示意图，分别高亮 BN（沿 Batch 维）、LN（沿 Feature 维）、RMSNorm（沿 Feature 维，无中心化）、GroupNorm（分组 Channel 维）的归一化切片方向
 
 | 方法        | 归一化维度                      | 每次统计范围                | 依赖 Batch？ |
 | --------- | -------------------------- | --------------------- | --------- |
