@@ -220,7 +220,7 @@ $$ \frac{\partial \mathcal{L}}{\partial \hat{x}_j} = \frac{\partial \mathcal{L}}
 
 **Step 2**：损失对方差的梯度（聚合所有特征维度）：
 
-$$ \frac{\partial \mathcal{L}}{\partial \sigma^2} = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot (x_j - \mu) \cdot \left(-\frac{1}{2}\right) \bar{\sigma}^{-3} $$
+$$ \frac{\partial \mathcal{L}}{\partial \sigma^2} = 1d​∂x^j​∂L​⋅∂σ2∂x^j​​ = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot (x_j - \mu) \cdot \left(-\frac{1}{2}\right) \bar{\sigma}^{-3} $$
 
 **Step 3**：利用恒等式 $\sum_{j}(x_j - \mu) = 0$，均值梯度第二项消去：
 
