@@ -191,8 +191,8 @@ Ba et al.（2016）提出，专门解决 BN 不适用于 RNN 的问题——归�
 $$ \text{output} = x + \text{SubLayer}(\text{LN}(x)) $$
 
 梯度绕过 LN 直接流向残差路径，训练更稳定，无需 Warmup。GPT-2、LLaMA 系列均采用 Pre-LN。
-
-> **【图示占位 2】**：Post-LN vs. Pre-LN 结构对比图，标注梯度流路径差异
+![](assets/Gemini_Generated_Image_upm67lupm67lupm6.png)
+> **【图 2】**：Post-LN vs. Pre-LN 结构对比图，标注梯度流路径差异
 
 ### 3.3 完整公式推导
 
@@ -701,8 +701,8 @@ $$ y_{b,c,h,w} = \gamma_c \hat{x}_{b,c,h,w} + \beta_c $$
 $$ \text{Arithmetic Intensity} = \frac{\text{FLOPs}}{\text{Bytes}} \approx \frac{2d}{4 \cdot 2d} = 0.25 \text{ FLOPs/Byte} $$
 
 对比 A100 GPU 的 Roofline：峰值算力 312 TFLOPS（FP16），HBM 带宽 2 TB/s，Ridge Point $\approx 156$ FLOPs/Byte。RMSNorm 的 Arithmetic Intensity 远低于 Ridge Point，**瓶颈完全在显存带宽**，提高计算利用率无意义，核心优化方向是**减少 HBM 读写次数**。
-
-> **【图示占位 3】**：Roofline 模型示意图，标注 RMSNorm/LN（Memory-Bound 区域）vs. GEMM（Compute-Bound 区域）的位置
+![](assets/Gemini_Generated_Image_iv2rkgiv2rkgiv2r.png)
+> **【图 3】**：Roofline 模型示意图，标注 RMSNorm/LN（Memory-Bound 区域）vs. GEMM（Compute-Bound 区域）的位置
 
 ### 6.2 Kernel Fusion 原理
 
