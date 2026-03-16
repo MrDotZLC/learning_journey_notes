@@ -789,7 +789,7 @@ LinkedIn 开源（2024），在 Triton 中为 LLM 训练/推理提供全套 Fuse
 
 **RMSNorm backward 的关键技巧**：缓存 `inv_rms`（$1/r$）供反向传播复用，避免重新计算平方和——此值在前向 pass 中计算成本低，缓存后可将反向 pass 的额外 HBM 读操作降至最小。
 
-```python
+```
 # 伪代码：缓存 inv_rms 供反向使用
 # 前向保存：ctx.save_for_backward(x, g, inv_rms)
 # 反向中直接使用 inv_rms，无需重新扫描 x
