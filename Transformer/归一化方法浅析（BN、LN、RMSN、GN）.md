@@ -686,7 +686,7 @@ $$ y_{b,c,h,w} = \gamma_c \hat{x}_{b,c,h,w} + \beta_c $$
 
 ### 5.3 优缺点汇总
 
-**优点**：完全不依赖 batch size，小 batch 下性能稳定；适合目标检测、分割等内存受限场景；ImageNet 实验中，所有 batch size 下误差稳定在 $\approx 24%$。
+**优点**：完全不依赖 batch size，小 batch 下性能稳定；适合目标检测、分割等内存受限场景；ImageNet 实验中，所有 batch size 下误差稳定在 $\approx 24\%$。
 
 **缺点**：引入超参数 $G$（组数），需调参（通常 $G=32$ 或 $G=16$）；计算量略高于 BN Folded 后的推理；无法做 BN Folding。
 
