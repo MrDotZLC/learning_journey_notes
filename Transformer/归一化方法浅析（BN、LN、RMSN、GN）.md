@@ -214,23 +214,55 @@ $$ y_j = \gamma_j \hat{x}_j + \beta_j, \qquad \gamma, \beta \in \mathbb{R}^d $$
 
 定义 $\bar{\sigma} = \sqrt{\sigma^2 + \epsilon}$。
 
-**Step 1**：
+**Step 1**：计算 $\frac{\partial \mathcal{L}}{\partial \hat{x}_j}$、$\frac{\partial \mathcal{L}}{\partial \gamma}$、$\frac{\partial \mathcal{L}}{\partial \beta}$
 
 $$ \frac{\partial \mathcal{L}}{\partial \hat{x}_j} = \frac{\partial \mathcal{L}}{\partial y_j} \cdot \gamma_j $$
+$$\frac{\partial \mathcal{L}}{\partial \gamma} = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial y_j} \cdot \hat{x}_j$$
+$$\frac{\partial \mathcal{L}}{\partial \beta} = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial y_j}$$
 
-**Step 2**：损失对方差的梯度（聚合所有特征维度）：
+**Step 2**：计算 $\frac{\partial \mathcal{L}}{\partial \sigma^2}$，损失对方差的梯度（聚合所有特征维度）：
 
-$$ \frac{\partial \mathcal{L}}{\partial \sigma^2} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot (x_j - \mu) \cdot \left(-\frac{1}{2}\right) \bar{\sigma}^{-3} $$
+使用链式法则： $$\frac{\partial \mathcal{L}}{\partial \sigma^2} = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2}$$
+计算 $\frac{\partial \hat{x}_j}{\partial \sigma^2}$： 
+$$\hat{x}_j = (x_j - \mu) \cdot (\sigma^2 + \epsilon)^{-1/2}$$
+$$\frac{\partial \hat{x}_j}{\partial (\sigma^2 + \epsilon)} = (x_j - \mu) \cdot \left( -\frac{1}{2} \right) \cdot (\sigma^2 + \epsilon)^{-3/2}$$
+由于 $\frac{\partial (\sigma^2 + \epsilon)}{\partial \sigma^2} = 1$： $$\frac{\partial \hat{x}_j}{\partial \sigma^2} = (x_j - \mu) \cdot \left( -\frac{1}{2} \right) \cdot \bar{\sigma}^{-3}$$
+代入原式： 
+$$\frac{\partial \mathcal{L}}{\partial \sigma^2} = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot (x_j - \mu) \cdot \left( -\frac{1}{2} \right) \bar{\sigma}^{-3}$$
+$$\frac{\partial \mathcal{L}}{\partial \sigma^2} = -\frac{1}{2\bar{\sigma}^3} \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot (x_j - \mu)$$
 
-**Step 3**：利用恒等式 $\sum_{j}(x_j - \mu) = 0$，均值梯度第二项消去：
-$$\frac{\partial \mathcal{L}}{\partial \mu} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \mu} = -\frac{1}{\bar{\sigma}} \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} + \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} \cdot \frac{\partial \sigma^2}{\partial x_j} \cdot \frac{\partial x_j}{\partial \mu}$$
-- 第一项（直接依赖）： $$\frac{\partial \hat{x}_j}{\partial \mu} = \frac{\partial}{\partial \mu} \left( \frac{x_j - \mu}{\bar{\sigma}} \right) = -\frac{1}{\bar{\sigma}}$$
-- 第二项（间接依赖）： $$\frac{\partial \sigma^2}{\partial x_j} = \frac{1}{d} \cdot \frac{\partial}{\partial x_j} \sum_{k=1}^{d} (x_k - \mu)^2 = \frac{1}{d} \cdot 2(x_j - \mu)$$
-- 代入后：
-$$\sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} \cdot \frac{2}{d}(x_j - \mu)$$
+**Step 3**：计算 $\frac{\partial \mathcal{L}}{\partial \mu}$
+均值 $\mu = \frac{1}{d} \sum_{j=1}^{d} x_j$，$\hat{x}_j$ 对 $\mu$ 有两条依赖路径： 
+**路径一：直接依赖**
+$$\frac{\partial \hat{x}_j}{\partial \mu}\bigg|_{\bar{\sigma}} = \frac{\partial}{\partial \mu} \left( \frac{x_j - \mu}{\bar{\sigma}} \right) = -\frac{1}{\bar{\sigma}}$$
+**路径二：通过 $\sigma^2$ 间接依赖** 
+$$\frac{\partial \mathcal{L}}{\partial \mu}\bigg|_{\text{indirect}} = \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} \cdot \frac{\partial \sigma^2}{\partial \mu}$$
+计算 $\frac{\partial \sigma^2}{\partial \mu}$： 
+$$\sigma^2 = \frac{1}{d} \sum_{k=1}^{d} (x_k - \mu)^2$$
+$$\frac{\partial \sigma^2}{\partial \mu} = \frac{1}{d} \sum_{k=1}^{d} \frac{\partial}{\partial \mu} (x_k - \mu)^2 = \frac{1}{d} \sum_{k=1}^{d} -2(x_k - \mu)$$
+利用恒等式 $\sum_{k=1}^{d} (x_k - \mu) = 0$：
+$$\frac{\partial \sigma^2}{\partial \mu} = 0$$
+因此，**间接路径被消去**。 **最终结果：** 
+$$\frac{\partial \mathcal{L}}{\partial \mu} = -\frac{1}{\bar{\sigma}} \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j}$$
 
-**Step 4（最终梯度）**：
-$$ \frac{\partial \mathcal{L}}{\partial x_j} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{1}{\bar{\sigma}} + \frac{\partial \mathcal{L}}{\partial \sigma^2} \cdot \frac{2(x_j - \mu)}{d} + \frac{\partial \mathcal{L}}{\partial \mu} \cdot \frac{1}{d} $$
+**Step 4**：计算 $\frac{\partial \mathcal{L}}{\partial x_j}$
+输入 $x_j$ 同样有三条依赖路径：$\hat{x}_j$、$\mu$、$\sigma^2$。 
+**路径一：$\hat{x}_j$ 的直接依赖** 
+$$\frac{\partial \mathcal{L}}{\partial x_j}\bigg|_{\hat{x}_j} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial x_j}\bigg|_{\mu, \sigma^2}$$
+其中： 
+$$\frac{\partial \hat{x}_j}{\partial x_j} = \frac{1}{\bar{\sigma}}$$
+**路径二：通过均值 $\mu$ 的依赖** 
+$$\frac{\partial \mathcal{L}}{\partial x_j}\bigg|_{\mu} = \frac{\partial \mathcal{L}}{\partial \mu} \cdot \frac{\partial \mu}{\partial x_j} = \frac{\partial \mathcal{L}}{\partial \mu} \cdot \frac{1}{d}$$
+**路径三：通过方差 $\sigma^2$ 的依赖** 
+$$\frac{\partial \mathcal{L}}{\partial x_j}\bigg|_{\sigma^2} = \frac{\partial \mathcal{L}}{\partial \sigma^2} \cdot \frac{\partial \sigma^2}{\partial x_j}$$
+其中： 
+$$\frac{\partial \sigma^2}{\partial x_j} = \frac{1}{d} \cdot 2(x_j - \mu) = \frac{2}{d}(x_j - \mu)$$
+**合并三项：** 
+$$\frac{\partial \mathcal{L}}{\partial x_j} = \frac{1}{\bar{\sigma}} \cdot \frac{\partial \mathcal{L}}{\partial \hat{x}_j} + \frac{1}{d} \cdot \frac{\partial \mathcal{L}}{\partial \mu} + \frac{2}{d}(x_j - \mu) \cdot \frac{\partial \mathcal{L}}{\partial \sigma^2}$$
+将 $\frac{\partial \mathcal{L}}{\partial \mu}$ 和 $\frac{\partial \mathcal{L}}{\partial \sigma^2}$ 的表达式代入： 
+$$\frac{\partial \mathcal{L}}{\partial x_j} = \frac{1}{\bar{\sigma}} \cdot \frac{\partial \mathcal{L}}{\partial \hat{x}_j} + \frac{1}{d} \left( -\frac{1}{\bar{\sigma}} \sum_{k=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_k} \right) + \frac{2}{d}(x_j - \mu) \left( -\frac{1}{2\bar{\sigma}^3} \sum_{k=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_k} \cdot (x_k - \mu) \right)$$
+**简化：** 
+$$\frac{\partial \mathcal{L}}{\partial x_j} = \frac{1}{\bar{\sigma}} \left( \frac{\partial \mathcal{L}}{\partial \hat{x}_j} - \frac{1}{d} \sum_{k=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_k} - \frac{(x_j - \mu)}{\bar{\sigma}^2} \sum_{k=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_k} \cdot (x_k - \mu) \right)$$
 
 **与 BN 梯度的本质区别**：LN 的梯度完全由单样本自身决定，无任何 batch 间耦合，任意 batch size 下行为完全一致。
 
