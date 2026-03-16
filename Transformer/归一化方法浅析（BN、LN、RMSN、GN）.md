@@ -514,14 +514,14 @@ $$ \frac{\partial \mathcal{L}}{\partial x_j} = \underbrace{\frac{\delta_j g_j}{r
 
 ### 4.5 与 LayerNorm 的公式对比
 
-|对比项|LayerNorm|RMSNorm|
-|---|---|---|
-|是否减均值|✅ 是|❌ 否|
-|归一化分母|$\sqrt{\sigma^2 + \epsilon}$|$\sqrt{\frac{1}{d}\sum x_i^2 + \epsilon}$|
-|可学习参数|$\gamma$（weight）$+ \beta$（bias）|$\mathbf{g}$（weight，无 bias）|
-|参数量|$2d$|$d$|
-|梯度项数|3 项|2 项|
-|相对计算量|基准|约节省 $40%$|
+| 对比项   | LayerNorm                       | RMSNorm                                   |
+| ----- | ------------------------------- | ----------------------------------------- |
+| 是否减均值 | ✅ 是                             | ❌ 否                                       |
+| 归一化分母 | $\sqrt{\sigma^2 + \epsilon}$    | $\sqrt{\frac{1}{d}\sum x_i^2 + \epsilon}$ |
+| 可学习参数 | $\gamma$（weight）$+ \beta$（bias） | $\mathbf{g}$（weight，无 bias）               |
+| 参数量   | $2d$                            | $d$                                       |
+| 梯度项数  | 3 项                             | 2 项                                       |
+| 相对计算量 | 基准                              | 约节省 $40\%$                                |
 
 ### 4.6 工程实现
 
