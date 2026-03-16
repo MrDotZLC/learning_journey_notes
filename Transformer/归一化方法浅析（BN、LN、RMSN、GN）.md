@@ -223,11 +223,13 @@ $$ \frac{\partial \mathcal{L}}{\partial \hat{x}_j} = \frac{\partial \mathcal{L}}
 $$ \frac{\partial \mathcal{L}}{\partial \sigma^2} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot (x_j - \mu) \cdot \left(-\frac{1}{2}\right) \bar{\sigma}^{-3} $$
 
 **Step 3**：利用恒等式 $\sum_{j}(x_j - \mu) = 0$，均值梯度第二项消去：
-
-$$ \frac{\partial \mathcal{L}}{\partial \mu} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \mu} = -\frac{1}{\bar{\sigma}} \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} $$
+$$\frac{\partial \mathcal{L}}{\partial \mu} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \mu} = -\frac{1}{\bar{\sigma}} \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} + \sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} \cdot \frac{\partial \sigma^2}{\partial x_j} \cdot \frac{\partial x_j}{\partial \mu}$$
+- 第一项（直接依赖）： $$\frac{\partial \hat{x}_j}{\partial \mu} = \frac{\partial}{\partial \mu} \left( \frac{x_j - \mu}{\bar{\sigma}} \right) = -\frac{1}{\bar{\sigma}}$$
+- 第二项（间接依赖）： $$\frac{\partial \sigma^2}{\partial x_j} = \frac{1}{d} \cdot \frac{\partial}{\partial x_j} \sum_{k=1}^{d} (x_k - \mu)^2 = \frac{1}{d} \cdot 2(x_j - \mu)$$
+- 代入后：
+$$\sum_{j=1}^{d} \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{\partial \hat{x}_j}{\partial \sigma^2} \cdot \frac{2}{d}(x_j - \mu)$$
 
 **Step 4（最终梯度）**：
-
 $$ \frac{\partial \mathcal{L}}{\partial x_j} = \frac{\partial \mathcal{L}}{\partial \hat{x}_j} \cdot \frac{1}{\bar{\sigma}} + \frac{\partial \mathcal{L}}{\partial \sigma^2} \cdot \frac{2(x_j - \mu)}{d} + \frac{\partial \mathcal{L}}{\partial \mu} \cdot \frac{1}{d} $$
 
 **与 BN 梯度的本质区别**：LN 的梯度完全由单样本自身决定，无任何 batch 间耦合，任意 batch size 下行为完全一致。
