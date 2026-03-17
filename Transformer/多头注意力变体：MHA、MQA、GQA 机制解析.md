@@ -173,6 +173,7 @@ $$M_{KV} = 2 \times 32 \times 8 \times S \times 128 \times 2\ \text{bytes}$$
 
 ## 8. 面试题库
 ### 8.1 概念辨析类
+>
 **Q1：MHA/MQA/GQA 的本质区别？**
 > KV 头数：$H$ / $1$ / $G$。本质是 KV Cache 内存与模型表达能力的 trade-off。
 **Q2：GQA 为什么比 MQA 质量更好？**
