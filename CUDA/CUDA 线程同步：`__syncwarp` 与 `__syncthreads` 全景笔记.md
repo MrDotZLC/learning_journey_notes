@@ -75,7 +75,8 @@ Volta（sm_70）引入 **per-thread PC** 和 **per-thread call stack**，每条�
 
 **关键问题**：Volta 之后，converge 的时机不再保证在分支汇合点立即发生，调度器可能延迟 converge 以优化吞吐。`__syncwarp()` 的作用之一正是**强制 converge**，使 warp 内所有活跃线程对齐到该同步点。
 
-> 【图示占位】三层状态图：分支前（全 32 线程 active）→ diverge（两个执行子集串行）→ `__syncwarp()` 强制 converge（重新全激活）
+![](assets/Gemini_Generated_Image_hi26rqhi26rqhi26.png)
+> 【图 1】三层状态图：分支前（全 32 线程 active）→ diverge（两个执行子集串行）→ `__syncwarp()` 强制 converge（重新全激活）
 
 ---
 
