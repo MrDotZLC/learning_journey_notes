@@ -355,6 +355,65 @@ $$n = n_a + n_b, \quad \delta = \mu_b - \mu_a$$ $$\mu = \mu_a + \delta \cdot \fr
 
 ---
 
+**Q_J. Warp Reduce 的 `mask` 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？**
+
+**`mask` 参数的语义：**
+
+`__shfl_xor_sync(mask, val, offset)` 中，`mask` 是一个 32-bit 整数，其第 $i$ 位置 1 表示 lane $i$ **参与**本次 shuffle。CUDA 运行时要求：**所有在 `mask` 中标记的线程必须在同一时间点执行该调用**，否则行为未定义（Undefined Behavior）。
+
+两类错误场景：
+
+**错误 1：在分支内对部分线程使用 `0xffffffff`**
+
+```cpp
+// ❌ 错误：只有 lane < N 的线程进入此分支
+//    lane >= N 的线程不执行 __shfl_xor_sync，
+//    但 mask 声称它们参与，产生 UB / 死锁
+if (threadIdx.x < N) {
+    val = __shfl_xor_sync(0xffffffff, val, offset);
+}
+```
+
+**错误 2：Block 尾部 Warp 的活跃线程不足 32 个**
+
+当 `blockDim.x` 不是 32 的整数倍时，最后一个 Warp 的实际活跃线程数 $n < 32$，此时直接使用 `0xffffffff` 会让非活跃 lane 的 shuffle 目标为非活跃线程，读到 UB 数据。
+
+**正确处理方式：动态计算活跃 mask**
+
+```cpp
+__device__ float warp_reduce_sum_safe(float val) {
+    // 获取当前执行分支中实际活跃的线程 mask
+    unsigned int active_mask = __activemask();
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1)
+        val += __shfl_xor_sync(active_mask, val, offset);
+    return val;
+}
+```
+
+**`__activemask()` 的语义：** 返回当前 Warp 中**在此调用时刻实际执行该指令的线程**构成的 mask，不依赖编译器推断。
+
+**`__ballot_sync` 替代方案（更精确）：**
+
+```cpp
+// 若已知活跃条件（如 threadIdx.x < N），可用 __ballot_sync 预先计算
+unsigned int mask = __ballot_sync(0xffffffff, threadIdx.x < N);
+if (threadIdx.x < N)
+    val = __shfl_xor_sync(mask, val, offset);
+```
+
+**对比总结：**
+
+|场景|推荐 mask|原因|
+|---|---|---|
+|Block 大小是 32 整数倍，无分支|`0xffffffff`|所有线程必然活跃|
+|Block 尾部 Warp 或有条件分支|`__activemask()`|仅对活跃线程 shuffle|
+|已知活跃条件表达式|`__ballot_sync(0xffffffff, cond)`|语义最精确，可验证活跃集合|
+
+**重要：** `__activemask()` 在 Warp Divergence 场景下只返回当前分支执行路径的活跃线程，若在收敛路径外调用可能返回不完整的 mask。最安全的做法是将 shuffle 操作置于 Warp 无分支的位置（收敛后）并使用 `0xffffffff`。
+
+---
+
 ### 2.2 GEMM 优化
 
 ---
@@ -477,6 +536,123 @@ $$C = \sum_{s=0}^{S-1} A[:, s \cdot K/S : (s+1) \cdot K/S] \times B[s \cdot K/S 
 
 ---
 
+**Q_K. Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？**
+
+**问题背景：**
+
+Q15 的 Tiled GEMM 将数据复用层次提升到 Shared Memory 级别。但 Shared Memory 延迟仍有 ~20 cycles。Register Tiling 在此基础上再进一步，让每个线程负责计算 $T_m \times T_n$ 个输出元素（而非 1 个），将 Shared Memory 读取的数据**在寄存器中直接复用**，消除重复的 Shared Memory 读取。
+
+**核心思想：外积（Outer Product）累加**
+
+将线程的计算模式从"点积"改为"外积"：
+
+- 每次从 `smem_A` 中读取 1 列（长度 $T_m$）→ 存入寄存器数组 `reg_a[Tm]`
+- 每次从 `smem_B` 中读取 1 行（长度 $T_n$）→ 存入寄存器数组 `reg_b[Tn]`
+- 对 `reg_a` 和 `reg_b` 做外积，一次更新 $T_m \times T_n$ 个累加器
+
+```cpp
+// Thread-level Tiling 示意（Tm=4, Tn=4 的外积累加）
+float reg_a[Tm], reg_b[Tn];
+float acc[Tm][Tn] = {0.f};  // 寄存器中的累加器
+
+for (int k = 0; k < TILE_K; ++k) {
+    // 从 SMEM 各读一次（Tm + Tn 次读），而非 Tm*Tn 次
+    #pragma unroll
+    for (int m = 0; m < Tm; ++m)
+        reg_a[m] = smem_A[k][ty * Tm + m];
+    #pragma unroll
+    for (int n = 0; n < Tn; ++n)
+        reg_b[n] = smem_B[k][tx * Tn + n];
+
+    // 外积：更新 Tm*Tn 个累加器，全在寄存器中
+    #pragma unroll
+    for (int m = 0; m < Tm; ++m)
+        #pragma unroll
+        for (int n = 0; n < Tn; ++n)
+            acc[m][n] += reg_a[m] * reg_b[n];
+}
+```
+
+**数据复用分析（以 $T_m = T_n = 4$，$T_k = 8$ 为例）：**
+
+|访问类型|朴素 Tile（每元素 1 输出）|Register Tile（$4 \times 4$ 输出）|
+|---|---|---|
+|`smem_A` 读取次数|$T_k \times T_n = 32$|$T_k \times 1 = 8$（被 $T_n$ 复用）|
+|`smem_B` 读取次数|$T_k \times T_m = 32$|$T_k \times 1 = 8$（被 $T_m$ 复用）|
+|输出元素数|1|16|
+|SMEM 读/输出元素|64|16（下降 4×）|
+
+**寄存器消耗：** $T_m \times T_n$ 个累加器 + $T_m + T_n$ 个操作数寄存器。$T_m = T_n = 8$ 时累加器占 64 个 FP32 寄存器（128 bytes），构成寄存器压力的主体。这是 CUTLASS 文档所述"累加器至少占线程寄存器总量一半"的来源。
+
+**CUTLASS 中的对应层次：**
+
+CUTLASS 的计算层次为：Grid → CTA（Thread Block）→ Warp → Thread，Register Tiling 对应最内层"Thread-level GEMM"。CUTLASS 的 `GemmShape<CtaTileM, CtaTileN, CtaTileK>` 在模板参数中同时指定 CTA 级 Tile 和 Warp 级 Tile，最终 Thread 级 Tile 由硬件 MMA 指令尺寸和 Warp 内线程数推导得出。
+
+<图示占位：三级 Tiling 层次图。CTA tile (128×128) → Warp tile (64×64) → Thread tile (8×8)，每一层的数据驻留位置分别为 HBM / SMEM / Register，对应 CUTLASS 的 BlockShape / WarpShape / InstructionShape>
+
+---
+
+**Q_L. 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？**
+
+**问题动机：**
+
+GEMM 主循环（Mainloop）完成后，累加器（Accumulator）结果 $D_{\text{raw}}$ 位于**寄存器**中。若不融合，需先写回 HBM，再启动独立 Kernel 做 Bias Add、Activation、量化等操作，产生额外的 HBM Round-trip。
+
+**Epilogue 的执行位置：**
+
+Epilogue 在主循环结束后、写出结果前执行，此时累加器仍在**寄存器**中。因此所有 Epilogue 操作可以在**不写回 HBM** 的前提下完成，只需最终写一次输出。
+
+**标准 GEMM Epilogue 基本形式：**
+
+$$D = \alpha \cdot (A \times B) + \beta \cdot C$$
+
+融合扩展后：
+
+$$D = \text{Activation}!\left(\alpha \cdot (A \times B) + \text{bias}\right)$$
+
+**CUTLASS EVT（Epilogue Visitor Tree，Hopper 3.x API）：**
+
+EVT 将 Epilogue 的计算逻辑描述为一棵有向无环图（DAG），其中节点为基本算子（乘法、加法、Activation、类型转换等），叶节点为输入来源（累加器、全局内存广播量）。
+
+```cpp
+// EVT 示例：(global_scale × acc) + per-row-bias → ReLU → BF16 输出
+using NodeMul  = Sm90Compute<cutlass::multiplies, float, float, RoundStyle>;
+using NodeAdd  = Sm90Compute<cutlass::plus, float, float, RoundStyle>;
+using NodeReLU = Sm90Compute<cutlass::epilogue::thread::ReLU, bfloat16_t, float, RoundStyle>;
+
+// 构建 EVT 树：
+// 叶节点：累加器 Sm90AccFetch，标量广播 Sm90ScalarBroadcast，列向量广播 Sm90ColBroadcast
+using EVT_Scale = Sm90EVT<NodeMul,
+    Sm90ScalarBroadcast<float>,   // global_scale
+    Sm90AccFetch>;                // acc
+
+using EVT_Bias  = Sm90EVT<NodeAdd,
+    Sm90ColBroadcast<0, TileShape, float>,  // per-row bias
+    EVT_Scale>;
+
+using EVT_Out   = Sm90EVT<NodeReLU, EVT_Bias>;
+```
+
+CUTLASS 编译器将 EVT 展开为 Epilogue 代码，直接操作累加器寄存器，**零 HBM 中间存储**。
+
+**三种典型 Epilogue Fusion 场景对比：**
+
+|场景|非 Fused 访存|Fused 访存|加速来源|
+|---|---|---|---|
+|GEMM + Bias + ReLU|写 $D_{\text{raw}}$，读 $D_{\text{raw}}$，写 $D$|直接写 $D$|省去 1 次 HBM 读写|
+|GEMM + FP8 量化输出|写 BF16（$2N$），再量化写 FP8（$N$）|直接写 FP8|省去 BF16 中间写|
+|GEMM₁ + GEMM₂ Fusion|写累加器₁，读作激活₂|累加器₁留寄存器作 GEMM₂ 输入|省去中间矩阵的 HBM 存取|
+
+最后一种（GEMM-GEMM Fusion，CUTLASS example 13）要求两个 GEMM 使用相同的 CTA Tile $M$，且权重矩阵整体驻留于 SMEM。在 LLM 推理中，FFN 层的 Gate × Up → SiLU → Down 三矩阵乘融合正是该模式，TRT-LLM 和 vLLM 的 FusedMLP Kernel 均采用此策略。
+
+**Epilogue Fusion 的限制：**
+
+- 融合操作必须是 **Elementwise**（逐元素独立），Reduction 类操作（如 LayerNorm）需要跨行通信，无法直接在 Epilogue 中完成
+- 寄存器压力增加（维护更多中间变量）
+- 编译模板实例化膨胀，编译时间显著增加（CUTLASS 已知缺点）
+
+---
+
 ### 2.3 Kernel Fusion
 
 ---
@@ -557,6 +733,71 @@ cudaGraphLaunch(graphExec, stream);
 
 - Prefill 阶段：输入序列长度每次不同，计算图形状动态变化，无法复用。
 - 包含 CPU 条件分支的动态控制流（如动态 Batch 调度）。
+
+---
+
+**Q_M. 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？**
+
+**普通 Kernel 的执行模型：**
+
+标准 CUDA Kernel 的生命周期：
+
+1. CPU 调用 `kernel<<<grid, block>>>`，产生 Launch Overhead（5–20 μs）
+2. Grid 中所有 CTA 被调度到各 SM，执行完自己分配的 Tile 后**立即退出**
+3. 若工作量是 $T$ 个 Tile，需要 $\lceil T / N_{\text{SM}} \rceil$ 波次（Wave），最后一波通常不满，产生 **Wave Quantization 浪费**
+
+<图示占位：普通 Kernel 执行时序。三个 Wave，第三 Wave 只有 SM 0–3 活跃，SM 4–7 空闲，利用率 50%>
+
+**Persistent Kernel 的核心思想：**
+
+启动恰好等于 SM 数量（或其整数倍）的 CTA，每个 CTA **不退出**，而是通过软件调度队列持续拉取工作（Tile），直到所有 Tile 处理完毕：
+
+```cpp
+__global__ void persistent_gemm_kernel(WorkQueue* queue, ...) {
+    // 每个 CTA 循环拉取工作，直到队列为空
+    while (true) {
+        int tile_idx = atomicAdd(&queue->head, 1);  // 原子自增拉取下一个 Tile
+        if (tile_idx >= queue->total_tiles) break;
+
+        // 计算第 tile_idx 个 Tile
+        compute_tile(tile_idx, ...);
+    }
+}
+
+// 启动 N_SM 个 CTA（不超过 GPU 全量）
+persistent_gemm_kernel<<<N_SM, block_size>>>(queue, ...);
+```
+
+**与普通 Kernel 的核心对比：**
+
+|维度|普通 Kernel|Persistent Kernel|
+|---|---|---|
+|CTA 生命周期|计算 1 个 Tile 后退出|循环处理多个 Tile，一直驻留|
+|Wave Quantization|存在（最后一波空闲 SM 浪费）|消除（所有 SM 始终有工作）|
+|Kernel Launch 开销|每次计算都需启动|仅启动一次，多个问题在内部循环处理|
+|负载均衡|静态（编译时确定分配）|动态（运行时原子拉取，自动均衡）|
+|编程复杂度|低|高（需要软件调度器、同步屏障）|
+
+**Stream-K：Persistent Kernel 在 GEMM SplitK 上的演进**
+
+Stream-K 是 CUTLASS 引入的调度策略，本质是在 Persistent Kernel 框架下对 $K$ 维度的动态分割：SM 不再按固定 Tile 边界分工，而是以"流"的方式连续消费 $K$ 方向的工作，彻底消除 Wave Quantization，在 Decode 阶段的小 Batch GEMM（瘦矩阵）上比 SplitK + Atomic 的效果更均衡。
+
+**在 LLM 推理中的应用场景：**
+
+|场景|Persistent Kernel 的收益|
+|---|---|
+|**MoE GroupGEMM**|各 Expert 的 Token 数不均匀（非均匀矩阵乘），Persistent Kernel 动态分配 Tile，避免某些 Expert 对应的 SM 空等|
+|**Decode 阶段小 Batch GEMM**|矩阵形状瘦（$M$ 小），Tile 数少，Wave 数少，Wave Quantization 严重，Persistent + Stream-K 收益显著|
+|**FlashDecoding（FlashAttention Decode 变体）**|Decode 时序列长度 $N$ 大（历史 KV Cache 长），将 $N$ 维度并行分配到多 SM，各 SM 持续拉取 KV Tile 计算局部 Softmax，最后 Reduce，原理与 Stream-K 一致|
+|**CUTLASS Grouped GEMM Kernel**|显式 Persistent Kernel：启动 $N_{\text{SM}}$ 个 CTA，内部 Problem Visitor（调度器）分配来自不同 Expert 的 Tile 序列|
+
+**Persistent Kernel 的主要限制：**
+
+- 使用 `atomicAdd` 做工作队列会引入原子操作竞争，SM 数量多（H100 有 132 个 SM）时竞争较显著，需要层级化队列或预分配策略
+- 驻留 CTA 长期占据 SM 资源（寄存器、SMEM），可能阻止其他 Kernel 并发运行（对 SM 级并发敏感的场景需权衡）
+- 调试复杂度远高于普通 Kernel
+
+---
 
 ## 第 3 章·参考答案：Attention 机制优化
 

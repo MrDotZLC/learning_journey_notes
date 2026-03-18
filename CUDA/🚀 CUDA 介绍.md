@@ -141,7 +141,7 @@ vecAdd<<<gridSize, blockSize>>>(A_d, B_d, C_d, N);
 warp是GPU 一次性同时执行的 32 个线程组成的“固定小队”。Warp Scheduler能够调度线程执行哪个任务（等待状态的任务会被切换成可立即执行的任务，减少空闲等待）。
 - Warp 大小固定 = 32。[为什么 Warp 有32个线程，而不是16或64](%E4%B8%BA%E4%BB%80%E4%B9%88%20Warp%20%E6%9C%8932%E4%B8%AA%E7%BA%BF%E7%A8%8B%EF%BC%8C%E8%80%8C%E4%B8%8D%E6%98%AF16%E6%88%9664.md)
 - Block 内线程会被划分为 `blockDim.x / 32` 个 warp（按内存连续排列）。
-- 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[__syncwarp()与__syncthreads()](__syncwarp%28%29%E4%B8%8E__syncthreads%28%29.md)
+- 使用 `__syncwarp()`（CUDA 新增）可以在 warp 级别进行同步与掩码控制（比 `__syncthreads()` 更轻量，且不会跨 warp）。[CUDA 线程同步：`__syncwarp` 与 `__syncthreads` 全景笔记](CUDA%20线程同步：`__syncwarp`%20与%20`__syncthreads`%20全景笔记.md)
 ### 3.6 线程维度选择实践
 [GPU 维度解析](GPU%20%E7%BB%B4%E5%BA%A6%E8%A7%A3%E6%9E%90.md)
 - 对于一维数据：`blockDim.x = 128/256` 常合理。
