@@ -524,6 +524,7 @@ __global__ void reduce_kernel(const float* input, float* output, int n) {
 ```cpp
 // Blelloch 双向扫描（up-sweep + down-sweep），block 内 inclusive scan
 // 要求 blockDim.x 为 2 的幂次
+// 举例：[a, b, c, d]
 __global__ void block_scan(float* data, int n) {
     extern __shared__ float s[];   // 大小 = blockDim.x
     int tid = threadIdx.x;
@@ -531,6 +532,8 @@ __global__ void block_scan(float* data, int n) {
     __syncthreads();
 
     // Up-sweep（归约树）
+    // stride = 1，更新 tid = 1, 3：[a, a+b, c, c+d]
+    // stride = 2，更新 tid = 3   ：[a, a+b, c, a+b+c+d]
     for (int stride = 1; stride < blockDim.x; stride <<= 1) {
         if ((tid + 1) % (stride << 1) == 0)
             s[tid] += s[tid - stride];
@@ -538,9 +541,12 @@ __global__ void block_scan(float* data, int n) {
     }
 
     // Down-sweep（前缀展开）
+    // 根清零：[a, a+b, c, 0]
     if (tid == blockDim.x - 1) s[tid] = 0.0f; // exclusive scan 初始化
     __syncthreads();
 
+	// stride = 2，更新 tid = 3   ：[a, 0, c, a+b]
+	// stride = 1，更新 tid = 1, 3：[0, a, a+b, a+b+c]
     for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
         if ((tid + 1) % (stride << 1) == 0) {
             float tmp  = s[tid - stride];
@@ -551,6 +557,7 @@ __global__ void block_scan(float* data, int n) {
     }
 
     // 转为 inclusive：每个位置 += 原值（exclusive → inclusive）
+    // data = s + orig → [a, a+b, a+b+c, a+b+c+d]
     float orig = (tid < n) ? data[tid] : 0.0f;
     __syncthreads();
     if (tid < n) data[tid] = s[tid] + orig;
