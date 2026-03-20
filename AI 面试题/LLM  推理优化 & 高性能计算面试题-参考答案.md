@@ -586,7 +586,7 @@ for (int k = 0; k < TILE_K; ++k) {
 
 **CUTLASS 中的对应层次：**
 
-CUTLASS 的计算层次为：Grid → CTA（Thread Block）→ Warp → Thread，Register Tiling 对应最内层"Thread-level GEMM"。CUTLASS 的 `GemmShape<CtaTileM, CtaTileN, CtaTileK>` 在模板参数中同时指定 CTA 级 Tile 和 Warp 级 Tile，最终 Thread 级 Tile 由硬件 MMA 指令尺寸和 Warp 内线程数推导得出。
+CUTLASS 的计算层次为：Grid → CTA（协程组，对应Thread Block）→ Warp → Thread，Register Tiling 对应最内层"Thread-level GEMM"。CUTLASS 的 `GemmShape<CtaTileM, CtaTileN, CtaTileK>` 在模板参数中同时指定 CTA 级 Tile 和 Warp 级 Tile，最终 Thread 级 Tile 由硬件 MMA 指令尺寸和 Warp 内线程数推导得出。
 
 <图示占位：三级 Tiling 层次图。CTA tile (128×128) → Warp tile (64×64) → Thread tile (8×8)，每一层的数据驻留位置分别为 HBM / SMEM / Register，对应 CUTLASS 的 BlockShape / WarpShape / InstructionShape>
 
