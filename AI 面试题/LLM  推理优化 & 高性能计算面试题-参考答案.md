@@ -993,7 +993,7 @@ $$K = c^{KV} W^{UK},\quad V = c^{KV} W^{UV} \quad \text{（Up-projection，推�
 - MHA KV Cache：$2 \times H \times d \times S$
 - MLA KV Cache：$d_c \times S$（$d_c$ 通常为 $H \times d / 8 \sim / 16$）
 
-**DeepSeek-V2/V3 参数（示例）：** $H = 128$，$d = 128$，$d_c = 512$，压缩比约 $128 \times 128 \times 2 / 512 \approx 64\times$（相比 MHA）。
+**DeepSeek-V2/V3 参数（示例）：** $H = 128$，$d = 128$，$d_c = 512$，压缩比约 $128 \times 128 \times 2 / 512 \approx 64$（相比 MHA）。
 
 **推理时的计算策略：**
 
