@@ -836,7 +836,7 @@ $$m_j = \max(m_{j-1},\ \text{rowmax}(\tilde{S}_j))$$
 
 $$\ell_j = e^{m_{j-1} - m_j} \cdot \ell_{j-1} + \text{rowsum}(e^{\tilde{S}_j - m_j})$$
 
-$$O_j = \text{diag}(e^{m_{j-1} - m_j})^{-1} \cdot O_{j-1} + e^{\tilde{S}_j - m_j} \cdot V_j$$
+$$O_j = \text{diag}(e^{m_{j-1} - m_j}) \cdot O_{j-1} + e^{\tilde{S}_j - m_j} \cdot V_j$$
 
 遍历结束后：$O = \text{diag}(\ell)^{-1} \cdot O$，得到正确归一化结果。
 
