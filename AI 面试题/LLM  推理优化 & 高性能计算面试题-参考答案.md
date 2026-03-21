@@ -813,7 +813,7 @@ Stream-K 是 CUTLASS 引入的调度策略，本质是在 Persistent Kernel 框�
 
 **标准 Attention 的问题：**
 
-$$\text{Attention}(Q, K, V) = \text{Softmax}!\left(\frac{QK^T}{\sqrt{d}}\right) V$$
+$$\text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V$$
 
 朴素实现需将 $S = QK^T \in \mathbb{R}^{N \times N}$ 完整写入 HBM，再读回做 Softmax，再写出 $P = \text{Softmax}(S)$，再读回计算 $O = PV$。
 
