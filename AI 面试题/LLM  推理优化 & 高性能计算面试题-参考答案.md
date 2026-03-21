@@ -689,12 +689,12 @@ Q, K → [HBM写] S = QK^T → [HBM读] P = Softmax(S) → [HBM写] → [HBM读]
 
 **Fusion 有害的情况：**
 
-|场景|原因|
-|---|---|
-|寄存器压力过大（Register Spilling）|融合算子后每线程需维护更多寄存器变量，超过上限后溢出到 Local Memory（HBM），性能反而下降|
-|Occupancy 大幅降低|寄存器/Shared Memory 占用增加，每 SM 可驻留的 Warp 数减少，延迟隐藏能力下降|
-|两个算子均 Compute-bound|Fusion 对 IO 无收益，徒增代码复杂度|
-|算子形状不匹配|如 Reduction 后接 Broadcast，线程块映射方式不同，强行 Fusion 导致低效|
+| 场景                         | 原因                                                   |
+| -------------------------- | ---------------------------------------------------- |
+| 寄存器压力过大（Register Spilling） | 融合算子后每线程需维护更多寄存器变量，超过上限后溢出到 Local Memory（HBM），性能反而下降 |
+| Occupancy 大幅降低             | 寄存器/Shared Memory 占用增加，每 SM 可驻留的 Warp 数减少，延迟隐藏能力下降   |
+| 两个算子均 Compute-bound        | Fusion 对 IO 无收益，徒增代码复杂度                              |
+| 算子形状不匹配                    | 如 Reduction 后接 Broadcast，线程块映射方式不同，强行 Fusion 导致低效    |
 
 ---
 
