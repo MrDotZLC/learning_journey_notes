@@ -747,7 +747,8 @@ cudaGraphLaunch(graphExec, stream);
 2. Grid 中所有 CTA 被调度到各 SM，执行完自己分配的 Tile 后**立即退出**
 3. 若工作量是 $T$ 个 Tile，需要 $\lceil T / N_{\text{SM}} \rceil$ 波次（Wave），最后一波通常不满，产生 **Wave Quantization 浪费**
 
-<图示占位：普通 Kernel 执行时序。三个 Wave，第三 Wave 只有 SM 0–3 活跃，SM 4–7 空闲，利用率 50%>
+![](assets/Pasted%20image%2020260321180642.png)
+>【图 2】普通 Kernel 执行时序：三个 Wave，第三 Wave 只有 SM 0–3 活跃，SM 4–7 空闲，利用率 50%>
 
 **Persistent Kernel 的核心思想：**
 
@@ -771,13 +772,13 @@ persistent_gemm_kernel<<<N_SM, block_size>>>(queue, ...);
 
 **与普通 Kernel 的核心对比：**
 
-|维度|普通 Kernel|Persistent Kernel|
-|---|---|---|
-|CTA 生命周期|计算 1 个 Tile 后退出|循环处理多个 Tile，一直驻留|
-|Wave Quantization|存在（最后一波空闲 SM 浪费）|消除（所有 SM 始终有工作）|
-|Kernel Launch 开销|每次计算都需启动|仅启动一次，多个问题在内部循环处理|
-|负载均衡|静态（编译时确定分配）|动态（运行时原子拉取，自动均衡）|
-|编程复杂度|低|高（需要软件调度器、同步屏障）|
+| 维度                | 普通 Kernel        | Persistent Kernel |
+| ----------------- | ---------------- | ----------------- |
+| CTA 生命周期          | 计算 1 个 Tile 后退出  | 循环处理多个 Tile，一直驻留  |
+| Wave Quantization | 存在（最后一波空闲 SM 浪费） | 消除（所有 SM 始终有工作）   |
+| Kernel Launch 开销  | 每次计算都需启动         | 仅启动一次，多个问题在内部循环处理 |
+| 负载均衡              | 静态（编译时确定分配）      | 动态（运行时原子拉取，自动均衡）  |
+| 编程复杂度             | 低                | 高（需要软件调度器、同步屏障）   |
 
 **Stream-K：Persistent Kernel 在 GEMM SplitK 上的演进**
 
