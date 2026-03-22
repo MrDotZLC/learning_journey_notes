@@ -86,18 +86,25 @@
 $$M_{\text{KV}} = 2 \times L \times H \times d \times S \times \text{sizeof(dtype)}$$
 
 - **Q31.** 为什么传统框架的 KV Cache 存在严重的内存碎片？Internal Fragmentation 与 External Fragmentation 分别指什么？
+- **Q30-b.** GQA / MQA 对 KV Cache 显存的节省推导：设 MHA 的 KV 头数为 $H$，GQA 分 $G$ 组，每组共享一对 KV 头，缩减比为 $G/H$；以 LLaMA-3 70B（$H=64$，$G=8$）代入 Q30 的公式，对比 MHA 节省 87.5%，说明 GQA 成为工程默认选择的根本原因。（与 Q27 形成完整闭环）
+- **Q30-c.** MLA（Multi-head Latent Attention）的 KV Cache 压缩比推导：缓存低秩向量 $c$（维度 $d_c$）而非展开的 $K, V$，压缩比为 $d_c / (H \cdot d)$；DeepSeek-V2 中 $d_c = 512$，$H \cdot d = 16384$，压缩比约 $1/32$；与 GQA 路径对比，分析两种方案的工程取舍。（与第 3 章 Q28、Q30 形成闭环）
+- **Q30-d.** Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异：Prefill 阶段 $S_{\text{prompt}}$ 个 Token 的 KV 在单次前向中批量写入，显存在 Prefill 结束时跳变至峰值；Decode 阶段每步追加 1 个 Token，线性递增。两阶段对 Block 分配策略的要求不同，说明此差异如何驱动 Chunked Prefill（Q39）的设计。
 
 ### 4.2 PagedAttention
 
 - **Q32.** PagedAttention 的核心思路：类比 OS 虚拟内存页表机制，Block 大小如何选择（典型值 16 tokens/block）？
 - **Q33.** PagedAttention 如何支持 Prefix Sharing（多请求共享同一 Prompt 的 KV Block）？
 - **Q34.** 相比连续 KV Buffer，PagedAttention 的 Attention Kernel 有哪些额外开销？
+- **Q34-b.** RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 有何本质改进？Radix Tree 的最长公共前缀匹配（LCP）机制与 LRU 驱逐策略是什么？对多轮对话、Tree-of-Thought、RAG 等场景的覆盖能力如何？（与 Q66 形成闭环）
+- **Q34-c.** KV Block 的引用计数管理与安全释放时机：共享 Block 何时可以回收？显存压力下的驱逐优先级如何排序？错误提前释放会导致什么后果，为何此类 Bug 难以复现？
 
 ### 4.3 KV Cache 压缩
 
 - **Q35.** Token Eviction 方法（H2O、SnapKV）的基本思路：基于 Attention Score 保留"Heavy Hitter" Tokens？
 - **Q36.** KV Cache 量化（INT8 / FP8 KV）的精度损失分析？
+- **Q36-b.** H100 上 FP8 KV Cache 的量化与反量化时机：为何 H100 无需软件反量化 Kernel？与 INT8 KV Cache 方案的工程差异是什么？实测带宽节省与精度损失的数量级？
 - **Q37.** StreamingLLM 的 Attention Sink 机制是什么？
+- **Q37-b.** KV Cache 分级存储方案（HBM $\to$ CPU DRAM $\to$ NVMe SSD）：各级有效带宽的数量级，以及恢复延迟对 TTFT 的叠加影响；适用场景与精度无损的前提条件？
 
 ---
 
@@ -107,6 +114,7 @@ $$M_{\text{KV}} = 2 \times L \times H \times d \times S \times \text{sizeof(dtyp
 
 - **Q38.** Static Batching 与 Continuous Batching（Iteration-level Scheduling）的区别？后者如何消除 Padding 浪费？
 - **Q39.** Chunked Prefill 的原理：将长 Prompt 的 Prefill 拆分为多个 Chunk，与 Decode 请求交错执行，有何收益与代价？
+- **Q39-KV.** Chunked Prefill 执行期间 KV Block 的按需分配策略（与 Q39 关联）：是否需要预分配全量显存？与 Decode 请求共批时如何隔离 Block Pool？Chunk 大小与内部碎片率 $\approx (B-1)/(2C)$ 的量化关系？
 - **Q40.** Prefill / Decode 分离（Disaggregated PD）架构的动机：两阶段计算特性不同，分离部署如何提升集群利用率？
 
 ### 5.2 调度指标
