@@ -1296,6 +1296,7 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 归约 Kernel 的计算量：$O(C \times H \times d)$，远小于主计算量，可忽略。
 
 ---
+
 ### 3.5 长序列与分布式 Attention
 
 ---
