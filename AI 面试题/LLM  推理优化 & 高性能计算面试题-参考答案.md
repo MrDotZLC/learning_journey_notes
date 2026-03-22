@@ -1222,12 +1222,12 @@ Kernel 循环遍历所有物理块，在每块内做局部 Attention（类似 Fl
 
 **收益：**
 
-|指标|朴素 KV Cache|PagedAttention|
-|---|---|---|
-|内部碎片|$1 - S_{\text{actual}}/S_{\max}$（可达 80%+）|$< 1/B$（一块内最后块的浪费，典型 $< 4%$）|
-|外部碎片|严重|接近零（块大小固定）|
-|KV Cache 利用率|~20–40%|~95%+|
-|并发请求数（A100 80G）|基准|提升 $2\sim4\times$|
+| 指标              | 朴素 KV Cache                               | PagedAttention                |
+| --------------- | ----------------------------------------- | ----------------------------- |
+| 内部碎片            | $1 - S_{\text{actual}}/S_{\max}$（可达 80%+） | $< 1/B$（一块内最后块的浪费，典型 $< 4\%$） |
+| 外部碎片            | 严重                                        | 接近零（块大小固定）                    |
+| KV Cache 利用率    | ~20–40%                                   | ~95%+                         |
+| 并发请求数（A100 80G） | 基准                                        | 提升 $2\sim4\times$             |
 
 **Copy-on-Write 与 Beam Search：**
 
@@ -1280,10 +1280,10 @@ $$o_{\text{final}} = \frac{1}{\ell_{\text{final}}} \sum_c e^{m_c - m_{\text{fina
 
 **3.3 并行度与延迟分析**
 
-|方案|并行度|序列 $S=32768$，$H=32$，$B=1$ 的 SM 利用率|
-|---|---|---|
-|FA-2|$B \times H = 32$|$32/132 \approx 24%$|
-|Flash-Decoding|$B \times H \times C$（$C$ 可取 $128\sim512$）|$32 \times 128 / 132 \approx 3100%$（充足过载）|
+| 方案             | 并行度                                        | 序列 $S=32768$，$H=32$，$B=1$ 的 SM 利用率         |
+| -------------- | ------------------------------------------ | ------------------------------------------ |
+| FA-2           | $B \times H = 32$                          | $32/132 \approx 24\%$                      |
+| Flash-Decoding | $B \times H \times C$（$C$ 可取 $128\sim512$） | $32 \times 128 / 132 \approx 3100\%$（充足过载） |
 
 Flash-Decoding 在长序列 Decode 场景下，延迟可降低 $8\times$（实测 $S=8192$，$d=64$，$B=1$）。
 
@@ -1296,6 +1296,137 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 归约 Kernel 的计算量：$O(C \times H \times d)$，远小于主计算量，可忽略。
 
 ---
+### 3.5 长序列与分布式 Attention
+
+---
+
+#### Q34. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
+
+**1. 问题背景**
+
+序列长度 $N > 128k$ 时，单卡显存无法容纳完整的 Q/K/V 矩阵（FP16，$d=128$，$H=32$，$N=128k$，单矩阵 $= 128k \times 32 \times 128 \times 2 \approx 1\text{ GB}$，三矩阵 $\approx 3\text{ GB}$，还不含激活）。
+
+**Tensor Parallelism（按头切分）** 无法解决此问题，因为每个头仍需访问完整的序列长度。
+
+**Context Parallelism（CP）** 将序列维度切分到多卡：
+
+- 设 $P$ 张卡，每卡负责 $N/P$ 个 Token 的 $Q, K, V$。
+
+**2. 朴素 CP 的通信问题**
+
+每张卡有局部 $Q_i \in \mathbb{R}^{(N/P) \times d}$，但需要访问**全局** $K, V \in \mathbb{R}^{N \times d}$。朴素方案为先 All-Gather $K, V$，再本地计算。
+
+All-Gather 通信量：$2 \times N \times H \times d \times \text{sizeof}$，以 $N=128k$，$P=8$，FP16 为例：
+
+$$2 \times 128k \times 32 \times 128 \times 2 \approx 2\text{ GB}$$
+
+在 $P=8$ 的 NVLink 环境（NVLink 带宽 ~900 GB/s）下通信时间约 $2\text{ ms}$，远大于计算时间——通信成为瓶颈。
+
+**3. Ring Attention**
+
+核心思想：将 All-Gather 与 Attention 计算**流水重叠**，消除通信等待。
+
+$P$ 张卡形成逻辑环，每步：
+
+1. 每卡用本地 $Q_i$ 与当前持有的 $K_j, V_j$ 计算局部 Attention（Online Softmax 累积）
+2. 同时，通过 P2P Send/Recv 将 $K_j, V_j$ 传递给下一卡
+
+经过 $P$ 步后，每卡的 $Q_i$ 已与所有 $K, V$ 做完 Attention，合并统计量得到最终输出。
+
+**通信-计算重叠条件：**
+
+每步计算时间：
+
+$$T_{\text{compute}} = \frac{2 \times (N/P)^2 \times H \times d}{P_{\text{FLOPS}}}$$
+
+每步通信时间（P2P，NVLink）：
+
+$$T_{\text{comm}} = \frac{2 \times (N/P) \times H \times d \times \text{sizeof}}{B_{\text{NVLink}}}$$
+
+要完全隐藏通信：$T_{\text{compute}} \geq T_{\text{comm}}$，即：
+
+$$\frac{N/P}{P_{\text{FLOPS}} / (B_{\text{NVLink}} \times \text{sizeof})} \geq 1 \quad \Rightarrow \quad \frac{N}{P} \geq \frac{P_{\text{FLOPS}}}{B_{\text{NVLink}} \times \text{sizeof}}$$
+
+H100（$P_{\text{FLOPS}}^{\text{FP16}} \approx 989\text{ TFLOPS}$，$B_{\text{NVLink}} \approx 900\text{ GB/s}$）：
+
+$$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 550k$$
+
+即每卡分配 $\geq 550k$ Token 时通信可被完全隐藏，Ring Attention 对**超长序列**（单卡 $> 64k$）最为有效。
+
+**4.4 Causal Mask 下的负载均衡问题**
+
+因果掩码下，第 $i$ 个 Token 仅 Attend 前 $i$ 个 Token，序列前部 Token 的计算量远小于后部，朴素 CP 切分导致负载不均。
+
+**解决方案：** 将序列按"锯齿形"分配给各卡（Zigzag 分配），每卡同时持有一段头部 Token 和一段尾部 Token，使各卡的有效计算量近似相等。
+
+**4.5 与 Tensor Parallelism 的组合**
+
+实际系统（如 Megatron-LM）同时使用 TP（按头切分）和 CP（按序列切分），形成二维并行：
+
+- TP 组内（同一节点，NVLink 互联）：按 Head 维度切分。
+- CP 组跨节点（跨机，InfiniBand 互联）：按序列维度切分。
+
+两者正交，总并行度 $= P_{\text{TP}} \times P_{\text{CP}}$。
+
+---
+
+#### Q35. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理
+
+**5.1 MHA 的标准 TP 切分（Megatron-LM 方案）**
+
+MHA 中 Q/K/V 投影和输出投影的切分遵循 **Column Parallel → Row Parallel** 的经典模式。
+
+**Q/K/V 投影（Column Parallel）：**
+
+$W^Q \in \mathbb{R}^{d \times H d}$ 按 Head 维度（列）切分到 $P$ 张卡：
+
+$$W^Q_i = W^Q[:, i \cdot Hd/P : (i+1) \cdot Hd/P] \in \mathbb{R}^{d \times (Hd/P)}$$
+
+每卡计算 $H/P$ 个 Head 的 Q（$K, V$ 同理）。各卡完全独立，无需通信。
+
+**Attention 计算：**
+
+每卡在本地完成 $H/P$ 个 Head 的完整 Attention（Q/K/V 均已本地切分），无需通信。
+
+**输出投影（Row Parallel）：**
+
+$W^O \in \mathbb{R}^{Hd \times d}$ 按行（Head 维度）切分：
+
+$$W^O_i = W^O[i \cdot Hd/P : (i+1) \cdot Hd/P, :] \in \mathbb{R}^{(Hd/P) \times d}$$
+
+每卡输出局部结果 $o_i = \text{Attn}_i \cdot W^O_i \in \mathbb{R}^{d}$，最终 All-Reduce 求和：
+
+$$o = \sum_{i=1}^P o_i$$
+
+**通信分析：** 仅需**一次 All-Reduce**（输出投影后），通信量 $= 2 \times B \times N \times d \times \text{sizeof}$（All-Reduce = Reduce-Scatter + All-Gather）。
+
+**5.2 GQA 下 TP 的约束**
+
+GQA 中 $H_{\text{KV}} = H / G$（KV Head 数），若 $P > H_{\text{KV}}$，则每个 KV Head 无法整除分配到所有卡——出现**TP > KV Head 数**的问题。
+
+**约束：** $P$ 必须整除 $H_{\text{KV}}$，即 $P \leq H_{\text{KV}}$ 且 $H_{\text{KV}} \mod P = 0$。
+
+以 LLaMA-3 70B（$H = 64$，$G = 8$，$H_{\text{KV}} = 8$）为例：最大 TP = 8（再大则 KV Head 无法整除）。
+
+**若需更大 TP（如 TP = 16）的处理方案：**
+
+方案 1（KV 复制）：每个 KV Head 复制到多张卡，各卡持有完整的 KV Head 副本，Q Head 正常切分。代价：KV 冗余存储。
+
+方案 2（TP 与 DP 解耦）：Q 的 TP 维度独立于 KV 的 TP 维度，KV 用较小的 TP（如 8），Q 用更大的 TP，中间通过额外通信对齐。
+
+TensorRT-LLM 和 vLLM 均采用方案 1，在 $P > H_{\text{KV}}$ 时自动触发 KV 复制。
+
+**5.3 KV Cache 在 TP 下的分布**
+
+KV Cache 按 KV Head 切分存放在各卡本地，Decode 时各卡直接读取本地 KV Cache，无需跨卡通信（这是 TP 切分 Attention 的主要优势之一）。
+
+每卡 KV Cache 大小：
+
+$$M_{\text{KV/card}} = 2 \times L \times \frac{H_{\text{KV}}}{P} \times d \times S \times \text{sizeof}$$
+
+以上述 LLaMA-3 70B，TP=8，$S=8192$，FP16 为例：
+
+$$M_{\text{KV/card}} = 2 \times 80 \times 1 \times 128 \times 8192 \times 2 \approx 335 \text{ MB/卡}$$
 
 ---
 
