@@ -1466,6 +1466,132 @@ $$M = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 = 2 \times 80 \times 
 
 ---
 
+**Q30-b. GQA / MQA 对 KV Cache 显存的节省推导**
+
+**背景：** Q30 给出了 MHA 下 KV Cache 的通用公式。GQA 与 MQA 是现代生产模型（LLaMA-3、Mistral、Qwen）的默认 Attention 配置，其核心工程动机正是 KV Cache 的显存节省。
+
+**推导：**
+
+设 MHA 的注意力头数为 $H$，头维度为 $d$，层数为 $L$，序列长度为 $S$，数据类型 sizeof 为 $b$ 字节。
+
+MHA 的 KV Cache：
+
+$$M_{\text{KV}}^{\text{MHA}} = 2 \times L \times H \times d \times S \times b$$
+
+GQA 将 $H$ 个头分为 $G$ 组（$G \leq H$，$H/G$ 须为整数），每组内所有 Query 头共享同一对 KV 头，实际存储的 KV 头数从 $H$ 降为 $G$：
+
+$$M_{\text{KV}}^{\text{GQA}} = 2 \times L \times G \times d \times S \times b$$
+
+**缩减比：**
+
+$$r_{\text{GQA}} = \frac{M_{\text{KV}}^{\text{GQA}}}{M_{\text{KV}}^{\text{MHA}}} = \frac{G}{H}$$
+
+MQA 为 $G = 1$ 的极端情形：
+
+$$r_{\text{MQA}} = \frac{1}{H}$$
+
+**LLaMA-3 70B 具体数值**（$L=80$，$H=64$，$G=8$，$d=128$，FP16 即 $b=2$，$S=4096$）：
+
+$$M_{\text{KV}}^{\text{MHA}} = 2 \times 80 \times 64 \times 128 \times 4096 \times 2 \approx 10.74 \text{ GB}$$
+
+$$M_{\text{KV}}^{\text{GQA}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \approx 1.34 \text{ GB}$$
+
+$$\text{节省} = 1 - \frac{8}{64} = 87.5\%$$
+
+**精度代价分析：**
+
+GQA 的精度损失来源于同组内多个 Query 头共享同一 KV，无法各自关注不同的 Key 子空间。实践中，$G=8$（LLaMA-3 70B）的精度损失相对于 MHA 极小（MMLU 等基准差距通常 $< 0.3\%$），而 $G=1$（MQA）在某些任务上损失可达 $1\text{–}3\%$。
+
+**工程意义：** 在 Batch Size = 32、$S = 4096$ 的典型服务场景下，GQA 将 KV Cache 从 $\approx 343$ GB 压缩至 $\approx 42.9$ GB，使单节点 8×H100 可同时承载 Batch 而不触及显存上限，这是 GQA 取代 MHA 成为默认配置的根本原因。
+
+---
+
+**Q30-c. MLA 的 KV Cache 压缩比推导**
+
+**MHA / GQA 的局限：** 两者均以完整的 $K, V$ 向量形式存储 KV Cache，压缩只能靠减少 KV 头数实现，存在精度下限。
+
+**MLA 核心思路：** 不缓存展开后的 $K, V$，而是缓存一个**低秩压缩向量** $c_t$（维度 $d_c \ll H \cdot d$），推理时按需从 $c_t$ 解压出 $K_t, V_t$：
+
+$$c_t = W_{\text{DKV}} \cdot x_t \in \mathbb{R}^{d_c} \quad \text{（Down-projection，训练时学习）}$$
+
+$$K_t = W_{\text{UK}} \cdot c_t \in \mathbb{R}^{H \times d}, \quad V_t = W_{\text{UV}} \cdot c_t \in \mathbb{R}^{H \times d}$$
+
+其中 $W_{\text{DKV}} \in \mathbb{R}^{d_c \times d_{\text{model}}}$，$W_{\text{UK}}, W_{\text{UV}} \in \mathbb{R}^{(H \times d) \times d_c}$。
+
+**KV Cache 大小：**
+
+$$M_{\text{KV}}^{\text{MLA}} = L \times d_c \times S \times b$$
+
+注意：MLA 只存一份 $c_t$，无需区分 $K/V$ 两路，故系数为 $1$（相比 MHA 的 $2$）。
+
+**压缩比：**
+
+$$r_{\text{MLA vs MHA}} = \frac{d_c}{2 \times H \times d}$$
+
+**DeepSeek-V2 具体数值**（$H = 128$，$d = 128$，$d_c = 512$，$L = 60$）：
+
+$$r = \frac{512}{2 \times 128 \times 128} = \frac{512}{32768} \approx \frac{1}{64}$$
+
+相比 GQA（$G=8$，$r=G/H=1/16$），MLA 进一步压缩 **4×**，合计相比 MHA 压缩 **64×**。
+
+**RoPE 的特殊处理（Decoupled RoPE）：**
+
+RoPE 要求对每个位置 $t$ 的 $K$ 施加旋转，但 MLA 缓存的是压缩前的 $c_t$，解压后的 $K_t$ 在 Decode 时才被计算，因此 RoPE 无法在存储阶段施加。DeepSeek-V2 的解决方案是额外缓存一小份带 RoPE 的"位置感知 Key"分量（维度 $d_r \ll H \cdot d$），与 $c_t$ 拼接存储：
+
+$$M_{\text{KV}}^{\text{MLA+RoPE}} = L \times (d_c + d_r) \times S \times b$$
+
+DeepSeek-V2 中 $d_r = 64$，相比 $d_c = 512$ 仅增加 12.5%，压缩比仍远优于 GQA。
+
+**两种路径的工程取舍对比：**
+
+|方案|KV Cache 压缩比（vs MHA）|解压计算开销|实现复杂度|主要使用模型|
+|---|---|---|---|---|
+|GQA（$G=8$）|$\times 1/8$|无|低|LLaMA-3, Mistral|
+|MQA（$G=1$）|$\times 1/H$|无|低|Falcon|
+|MLA|$\times 1/64$（典型值）|每步 $2 \times (H \times d) \times d_c$ 的小 GEMM|高|DeepSeek-V2/V3|
+
+MLA 的每步解压代价：$W_{\text{UK}}, W_{\text{UV}}$ 各一次 GEMV（$d_c \to H \times d$），在 Decode 阶段（已是 Memory-bound 主导）其计算量相对 Attention 本身可忽略，但实现复杂度显著高于 GQA。
+
+---
+
+**Q30-d. Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异**
+
+**Prefill 阶段的增长行为：**
+
+输入 Prompt 共 $S_p$ 个 Token，Prefill 执行单次前向，同时计算所有 Token 的 $K, V$ 并写入 KV Cache。从分配器视角看，KV Cache 在 Prefill **开始前为 0**，**结束后跳变至峰值**：
+
+$$M_{\text{peak}}^{\text{Prefill}} = M_{\text{KV}}(S_p) = 2 \times L \times H_{\text{KV}} \times d \times S_p \times b$$
+
+整个 Prefill 期间，该请求需要占用 $M_{\text{peak}}^{\text{Prefill}}$ 的 KV 空间（逐层写入，但调度器必须在开始前预留，否则 OOM）。
+
+**Decode 阶段的增长行为：**
+
+每个 Decode 步新生成 1 个 Token，追加 1 个 Token 的 $K, V$：
+
+$$\Delta M_{\text{step}} = 2 \times L \times H_{\text{KV}} \times d \times 1 \times b$$
+
+以 LLaMA-3 70B GQA FP16（$L=80$，$H_{\text{KV}}=8$，$d=128$）为例：
+
+$$\Delta M_{\text{step}} = 2 \times 80 \times 8 \times 128 \times 1 \times 2 = 327{,}680 \text{ B} \approx 320 \text{ KB / step}$$
+
+生成 $S_o$ 个输出 Token 后，KV Cache 总大小为 $M_{\text{KV}}(S_p + S_o)$，从 Prefill 峰值起线性递增。
+
+**两阶段行为对比：**
+
+|维度|Prefill 阶段|Decode 阶段|
+|---|---|---|
+|每次操作新增 Token 数|$S_p$（批量）|1（逐步）|
+|KV Cache 增长形态|阶跃（Prefill 结束时跳变）|线性递增|
+|对分配器的要求|开始前预留 $M_{\text{peak}}^{\text{Prefill}}$ 的连续/分散 Block|细粒度按需分配新 Block|
+|PagedAttention 适配|可预先分配 $\lceil S_p / B \rceil$ 个 Block|每步最多追加 1 个新 Block|
+|对调度的影响|Prefill 请求需通过"可用 Block 数 $\geq \lceil S_p/B \rceil$"的准入检查|Decode 请求可能因 Block 耗尽而中断（需抢占机制）|
+
+**对 Chunked Prefill 的设计动机：**
+
+传统整段 Prefill 的问题在于：① 长 Prompt 的峰值 KV 占用会瞬间挤占大量 Block，阻塞同批 Decode 请求的 KV 追加；② Prefill 本身是 Compute-bound，与 Memory-bound 的 Decode 争抢 GPU 计算资源，导致 Decode 请求的 TPOT 抖动。Chunked Prefill 将大跳变拆解为多个小阶跃（每次 $C$ 个 Token），使 Block 分配压力分散到多个迭代步，从而与 Decode 请求更均匀地共享 Block Pool。
+
+---
+
 **Q31. 为什么传统框架的 KV Cache 存在严重的内存碎片？**
 
 **传统方案：** 为每个请求预分配一块**连续的最大长度**显存（按最大序列长度 $S_{\max}$ 预分配），生成过程中逐步填充。
@@ -1536,7 +1662,7 @@ $B = 16$ 时，每个 Block 的 KV 数据大小为 $16 \times H \times d \times 
 
 **Prefix Sharing 原理：**
 
-若多个请求拥有相同的前缀 Prompt（如 System Prompt），这些 Prompt Token 对应的 KV Block 内容完全相同。PagedAttention 通过**引用计数（Reference Counting）**让多个请求的 Block Table 指向**同一组物理 Block**，该 Block 只在显存中存储一份。
+若多个请求拥有相同的前缀 Prompt（如 System Prompt），这些 Prompt Token 对应的 KV Block 内容完全相同。PagedAttention 通过**引用计数（Reference Counting）** 让多个请求的 Block Table 指向**同一组物理 Block**，该 Block 只在显存中存储一份。
 
 ```
 System Prompt: "You are a helpful assistant..."（256 tokens = 16 个 Block）
@@ -1590,6 +1716,94 @@ float* kv_ptr = kv_cache + physical_block * block_size * kv_dim + block_offset *
 Block Table 本身占用极小（每个 Block 一个 int32，序列 4096 tokens / 16 = 256 个 Block，仅 1 KB）。
 
 **实践结论：** vLLM 的测量表明，PagedAttention 相比连续 KV 的 Attention Kernel 性能损失约 **10–20%**，但其带来的内存利用率提升（从 20–40% 提升至 ~90%+）远超该开销，整体吞吐显著提升。
+
+---
+
+**Q34-b. RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 的本质改进**
+
+**PagedAttention Prefix Sharing 的局限：**
+
+vLLM 的 Prefix Sharing 依赖**调度器手动标注**公共前缀范围，且要求前缀在 Token 级别完全对齐、Block 边界对齐。这意味着：
+
+- 只支持同一批次内具有相同 System Prompt 的请求共享；
+- 多轮对话的每轮新增内容无法自动复用上轮的 KV；
+- Tree-of-Thought 中不同推理分支的公共前缀无法识别。
+
+**Radix Tree 数据结构：**
+
+SGLang 将所有历史 KV Block 组织为 **Radix Tree**（基数树，又称压缩前缀树）。树的每个节点对应一段 Token 序列（可跨越多个 Block），从根到某节点的路径拼接即为一条已缓存的 Token 序列前缀。
+
+**插入操作**（新请求到来）：
+
+1. 从根节点开始，按输入 Token 序列沿树做最长公共前缀匹配（LCP）。
+2. 匹配到的节点路径对应的 KV Block **直接复用**（引用计数 +1）。
+3. 未匹配的后缀部分：创建新节点，分配新 Block，计算并写入 KV。
+
+**LRU 驱逐策略：**
+
+每个节点维护最近访问时间戳。显存不足时，优先驱逐**引用计数为 0（无活跃请求引用）且最久未被访问**的叶节点，从叶向根递归回收，直到释放足够 Block。
+
+**收益场景对比：**
+
+|场景|PagedAttention Prefix Sharing|RadixAttention|
+|---|---|---|
+|相同 System Prompt|✓（需手动配置）|✓（自动识别）|
+|多轮对话（每轮追加）|✗|✓（每轮新消息作为新分支）|
+|Tree-of-Thought（共享主干）|✗|✓（主干为公共前缀）|
+|RAG（相同检索结果）|✓（若完全对齐）|✓（自动 LCP 匹配）|
+|不同用户的部分相同前缀|✗|✓（Radix Tree 自然合并）|
+
+**复杂度：** 插入与查找均为 $O(S / B)$（$S$ 为序列长度，$B$ 为 Block 大小），与 PagedAttention 的 Block Table 查找量级相同，无额外显著开销。
+
+**与 Q66 的关系：** Q66 提及 RadixAttention 的名称，本题补充其数据结构机制。面试中若问 SGLang 的核心差异，需能清楚描述 Radix Tree 的 LCP 匹配逻辑，而不仅是"前缀树复用 KV"这一表层结论。
+
+---
+
+**Q34-c. KV Block 的引用计数管理与安全释放时机**
+
+**引用计数机制：**
+
+每个物理 Block 维护整数引用计数 $\text{ref}$：
+
+- Block 被某请求的 Block Table 引用时：$\text{ref} \mathrel{+}= 1$；
+- 请求完成或该 Block 被 Block Table 移除时：$\text{ref} \mathrel{-}= 1$；
+- $\text{ref} = 0$ 时，Block 进入 **Free Pool**，可被新请求分配。
+
+**共享 Block 的释放条件：**
+
+Prefix Sharing 的共享 Block 同时被多个请求引用（$\text{ref} > 1$）。只有当**所有引用该 Block 的请求均完成**，$\text{ref}$ 降至 0 后，该 Block 才可安全回收。
+
+```
+示例：Block #7 被请求 A、B、C 共同引用
+  初始 ref = 3
+  请求 A 完成 → ref = 2（Block #7 不释放）
+  请求 B 完成 → ref = 1（Block #7 不释放）
+  请求 C 完成 → ref = 0 → Block #7 进入 Free Pool
+```
+
+**显存压力下的驱逐优先级（RadixAttention）：**
+
+```
+驱逐候选条件：ref == 0（无活跃请求引用）
+驱逐优先顺序：
+  1. 叶节点 + LRU（距上次访问时间最长）
+  2. 叶节点 + 非 LRU
+  3. 内部节点（驱逐后其子树全部失效，代价更大）
+禁止驱逐：ref > 0 的任何 Block
+```
+
+**错误提前释放的后果：**
+
+若调度器 Bug 导致 $\text{ref} > 0$ 的 Block 被提前回收并分配给新请求，新请求的 KV 写入会**覆盖原请求仍在使用的物理地址**。Attention Kernel 读取到的 KV 为新请求的 KV 数据（脏数据），输出 Token 的 logit 分布被污染，模型输出产生**随机语义错误**。
+
+**为何难以复现：**
+
+- 只有在特定的 Block 分配时序（原请求尚未完成、新请求恰好分配到同一物理 Block）下才触发；
+- 错误表现为输出语义异常，而非程序崩溃，不产生 CUDA Error；
+- 在低负载（Block 充足，复用概率低）下几乎不出现，仅在 Block Pool 紧张时概率上升；
+- 多请求并发使复现路径具有不确定性。
+
+**工程防御：** 生产级框架（vLLM、SGLang）在 Block 回收前通过断言检查 $\text{ref} == 0$，在 Debug 模式下对 Free Pool 的 Block 执行全零填充（Poison），使错误尽早暴露为可观测的错误输出（全零 KV 导致 Attention Score 均等，输出明显异常）。
 
 ---
 
