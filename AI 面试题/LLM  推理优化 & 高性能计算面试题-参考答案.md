@@ -1127,11 +1127,11 @@ $$s = q^C (c^{KV})^\top + q^R (\tilde{k}^R)^\top$$
 
 #### Q31. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
 
-**1.1 位置编码的本质问题**
+**1. 位置编码的本质问题**
 
 Transformer 的 Attention 是置换不变的（permutation-invariant），必须显式注入位置信息。主流方案分为**绝对位置编码**和**相对位置编码**两类。
 
-**1.2 RoPE（Rotary Position Embedding）**
+**2. RoPE（Rotary Position Embedding）**
 
 核心思想：通过旋转矩阵将位置信息编码为 Q/K 向量的**相位**，使得内积天然体现相对位置关系。
 
@@ -1147,7 +1147,7 @@ $$q_m^\top k_n = \text{Re}\left[\sum_k (q_{m,k} e^{im\theta_k})\overline{(k_{n,k
 
 即 $q_m^\top k_n$ 只依赖**相对位置** $m - n$，与绝对位置无关。
 
-**1.3 ALiBi（Attention with Linear Biases）**
+**3. ALiBi（Attention with Linear Biases）**
 
 核心思想：不修改 Q/K，而是在 Attention Score 上直接加一个与**相对距离成线性关系**的偏置：
 
@@ -1157,21 +1157,145 @@ $$s_{ij} = \frac{q_i^\top k_j}{\sqrt{d}} - \lambda_h \cdot |i - j|$$
 
 **对比总结：**
 
-|特性|RoPE|ALiBi|
-|---|---|---|
-|作用位置|Q/K 旋转变换|Attention Score 加偏置|
-|外推性|原始 RoPE 外推性差；YaRN/LongRoPE 扩展后改善|天然线性外推，无需修改|
-|与 FlashAttention 兼容性|完全兼容|需在 Tile 内加偏置，支持但实现稍复杂|
-|与 KV Cache 复用|依赖绝对位置（K 被旋转），**影响 Prefix Caching**|偏置在 Score 层计算，K 本身不含位置，**天然支持 Prefix Caching**|
-|代表模型|LLaMA、Mistral、Qwen、DeepSeek|MPT、BLOOM|
+| 特性                   | RoPE                                | ALiBi                                          |
+| -------------------- | ----------------------------------- | ---------------------------------------------- |
+| 作用位置                 | Q/K 旋转变换                            | Attention Score 加偏置                            |
+| 外推性                  | 原始 RoPE 外推性差；YaRN/LongRoPE 扩展后改善    | 天然线性外推，无需修改                                    |
+| 与 FlashAttention 兼容性 | 完全兼容                                | 需在 Tile 内加偏置，支持但实现稍复杂                          |
+| 与 KV Cache 复用        | 依赖绝对位置（K 被旋转），**影响 Prefix Caching** | 偏置在 Score 层计算，K 本身不含位置，**天然支持 Prefix Caching** |
+| 代表模型                 | LLaMA、Mistral、Qwen、DeepSeek         | MPT、BLOOM                                      |
 
-**1.4 Prefix Caching 与 RoPE 的冲突**
+**4. Prefix Caching 与 RoPE 的冲突**
 
 Prefix Caching（也称 Prompt Caching）复用相同 Prefix 的 KV Cache，避免重复计算。其前提是：**相同 Token 序列在相同位置上产生相同的 K/V**。
 
 RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位置 $m$。当 Prefix 后续接不同长度的内容时，若尝试"拼接"不同请求的 KV Cache，因为新 Token 的绝对位置不同，新生成的 K 与缓存的 K 位置基准不统一。
 
 **结论：** RoPE 下的 Prefix Caching 要求前缀的 Token 序列和它们的绝对位置完全一致才可复用，通常只能复用 System Prompt 等固定前缀，不能跨请求灵活复用中间片段。这是 RoPE 相比 ALiBi 在 KV Cache 管理上的主要工程代价。
+
+---
+
+### 3.4 Decode 阶段 Attention 优化
+
+---
+
+#### Q32. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
+
+**1. 朴素 KV Cache 的碎片化问题**
+
+朴素实现中，为每个请求**预分配连续显存**存放 KV Cache，大小为最大序列长度 $S_{\max}$：
+
+$$M_{\text{alloc}} = 2 \times L \times H \times d \times S_{\max} \times \text{sizeof(dtype)}$$
+
+以 LLaMA-2 7B（$L=32, H=32, d=128$，FP16）为例，$S_{\max}=4096$：
+
+$$M_{\text{alloc}} = 2 \times 32 \times 32 \times 128 \times 4096 \times 2 \approx 2 \text{ GB/请求}$$
+
+**三类碎片：**
+
+1. **Internal Fragmentation（内部碎片）：** 请求实际生成长度 $S_{\text{actual}} \ll S_{\max}$，大量预分配空间浪费。
+2. **External Fragmentation（外部碎片）：** 不同长度的请求释放后产生零散空洞，无法被新请求利用。
+3. **Over-reservation（过度预留）：** 推理时序列长度未知，必须保守预留，进一步降低并发度。
+
+**2. PagedAttention 的分页机制**
+
+借鉴操作系统虚拟内存的分页思想：将 KV Cache 切分为固定大小的**物理块（Block）**，每块存放 $B$ 个 Token 的 KV（$B$ 典型值为 16）。每个请求维护一张**块表（Block Table）**，记录逻辑块号到物理块号的映射。
+
+**显存布局：**
+
+$$\text{物理块大小} = 2 \times L \times H \times d \times B \times \text{sizeof(dtype)}$$
+
+逻辑上连续的 KV Cache 在物理显存中可以**不连续存放**，通过块表索引。
+
+**Attention 计算的适配：**
+
+朴素 Attention 假设 KV 在显存中连续，PagedAttention 的 CUDA Kernel 在访问 KV 时通过块表做二级寻址：
+
+```
+逻辑位置 token_idx →
+  block_idx   = token_idx / B          // 块号
+  block_offset = token_idx % B         // 块内偏移
+  物理地址 = block_table[block_idx] * block_size + block_offset
+```
+
+Kernel 循环遍历所有物理块，在每块内做局部 Attention（类似 Flash-Decoding），最终合并结果。
+
+**收益：**
+
+|指标|朴素 KV Cache|PagedAttention|
+|---|---|---|
+|内部碎片|$1 - S_{\text{actual}}/S_{\max}$（可达 80%+）|$< 1/B$（一块内最后块的浪费，典型 $< 4%$）|
+|外部碎片|严重|接近零（块大小固定）|
+|KV Cache 利用率|~20–40%|~95%+|
+|并发请求数（A100 80G）|基准|提升 $2\sim4\times$|
+
+**Copy-on-Write 与 Beam Search：**
+
+多个请求共享同一 Prefix 时，其逻辑块可映射到**同一物理块**（引用计数 > 1）。当某请求需写入新 Token 时，触发 CoW：分配新物理块，复制内容，更新块表。这使 Prefix Caching 的显存开销为零（直到分叉点才复制）。
+
+---
+
+#### Q33. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
+
+**3.1 Decode 阶段 FA 的并行度瓶颈**
+
+FA（FA-1/2）的并行维度为 Batch Size × Head 数。Decode 阶段的典型参数：
+
+- $B_{\text{seq}} = 1$（单请求）或 $\leq 64$（在线服务）
+- $H = 32$（LLaMA-2 7B）
+
+总并行度 $= B_{\text{seq}} \times H \leq 2048$，而 H100 有 **132 个 SM**，每 SM 可运行多个 Block。
+
+当 $B_{\text{seq}} = 1$，$H = 32$ 时，仅 32 个 CUDA Block 参与计算，大量 SM 空闲。即使每个 Block 处理完整的序列长度 $S$（如 $S = 32768$），也无法填满硬件。
+
+**3.2 Flash-Decoding 的核心思想：沿序列维度并行**
+
+Flash-Decoding 在 FA 的 Batch/Head 并行基础上，增加**第三个并行维度：KV 序列的分块**。
+
+设将序列 $S$ 切分为 $C$ 块，每块长度 $S/C$，不同 SM 并行处理不同 KV 块。
+
+**三步计算流程：**
+
+**Step 1：并行局部 Attention（各 SM 独立）**
+
+每个 SM 负责 Q（固定，仅 1 Token）与其分配的 KV 块做局部 Attention：
+
+$$o_c,\ \ell_c,\ m_c = \text{LocalAttention}(Q,\ K[c:c+S/C],\ V[c:c+S/C])$$
+
+输出：局部未归一化输出 $o_c \in \mathbb{R}^d$，局部 softmax 统计量 $(\ell_c, m_c)$。
+
+**Step 2：写出中间结果**
+
+所有块将 $(o_c, \ell_c, m_c)$ 写入显存中间缓冲区，大小 $O(C \cdot d)$（而非 $O(S \cdot d)$，通常 $C \ll S$）。
+
+**Step 3：归约（Reduction）**
+
+单独启动一个轻量 Kernel，将 $C$ 个局部结果合并为最终输出，利用 Online Softmax 的可结合性：
+
+$$m_{\text{final}} = \max_c(m_c)$$
+
+$$\ell_{\text{final}} = \sum_c e^{m_c - m_{\text{final}}} \cdot \ell_c$$
+
+$$o_{\text{final}} = \frac{1}{\ell_{\text{final}}} \sum_c e^{m_c - m_{\text{final}}} \cdot o_c$$
+
+**3.3 并行度与延迟分析**
+
+|方案|并行度|序列 $S=32768$，$H=32$，$B=1$ 的 SM 利用率|
+|---|---|---|
+|FA-2|$B \times H = 32$|$32/132 \approx 24%$|
+|Flash-Decoding|$B \times H \times C$（$C$ 可取 $128\sim512$）|$32 \times 128 / 132 \approx 3100%$（充足过载）|
+
+Flash-Decoding 在长序列 Decode 场景下，延迟可降低 $8\times$（实测 $S=8192$，$d=64$，$B=1$）。
+
+**3.4 代价：额外显存与归约开销**
+
+中间缓冲区大小：$C \times H \times d \times 3$（存 $o, \ell, m$），取 $C=256$，$H=32$，$d=128$，FP32：
+
+$$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
+
+归约 Kernel 的计算量：$O(C \times H \times d)$，远小于主计算量，可忽略。
+
+---
 
 ---
 
