@@ -1861,6 +1861,62 @@ KV 中的 **Value（V）** 数值分布相对平滑，量化误差小；**Key（
 
 ---
 
+**Q36-b. H100 上 FP8 KV Cache 的量化与反量化时机**
+
+**问题背景：**
+
+KV Cache 以 FP16 存储时，Decode 阶段每步从 HBM 读取所有历史 KV 的带宽开销是主要瓶颈（Memory-bound）。将 KV Cache 量化为 FP8（1 字节）可将 HBM 读取量减半，但需要解决量化精度和反量化计算开销两个问题。
+
+**H100 FP8 的硬件支持：**
+
+H100 Tensor Core 原生支持 E4M3 和 E5M2 两种 FP8 格式作为矩阵乘法输入，在 Tensor Core **输入端**硬件透明地完成 FP8 $\to$ BF16/FP16 的数值扩展，无需调用任何软件反量化 Kernel。
+
+**完整计算流（H100 FP8 KV Cache）：**
+
+```
+Step 1：Projection（输入 BF16，输出 BF16）
+   x_t ──[W_K]──> K_t (BF16)
+   x_t ──[W_V]──> V_t (BF16)
+
+Step 2：量化写入 HBM
+   K_t (BF16) ──[per-token quant]──> K_t^fp8 (FP8，写入 KV Cache)
+   V_t (BF16) ──[per-token quant]──> V_t^fp8 (FP8，写入 KV Cache)
+   ── HBM 存储带宽节省 ~50% ──
+
+Step 3：Attention Kernel（GEMM）
+   读取 K_s^fp8, V_s^fp8 (s = 1..t-1) from HBM
+   Tensor Core 输入端硬件透明扩展：FP8 → BF16
+   矩阵乘以 BF16 精度执行
+   输出 Attention(Q, K, V) ∈ BF16
+```
+
+**与 INT8 KV Cache 的关键差异：**
+
+|方案|反量化位置|执行主体|额外 CUDA Core 负担|额外 Kernel Launch|
+|---|---|---|---|---|
+|FP8（H100 原生）|Tensor Core 输入端|硬件自动|无|无|
+|INT8（软件反量化）|Attention 计算前|软件 Kernel|有（反量化 Kernel）|有（或需 Fused）|
+
+INT8 方案需要在 Attention Kernel 前插入一个 Dequantize Kernel（INT8 → FP16），或将反量化融合（Fuse）进 Attention Kernel 中，增加实现复杂度。
+
+**量化粒度的精度影响：**
+
+Key 的数值分布中存在少量异常值（Outlier），Per-tensor FP8 量化时 Scale 被 Outlier 拉大，导致正常值精度损失；Per-token FP8（每个 Token 的 K/V 独立 Scale）可有效抑制 Outlier 影响。
+
+| 量化粒度            | 精度损失（MMLU）   | 实现开销 |
+| --------------- | ------------ | ---- |
+| Per-tensor FP8  | $\leq 0.5\%$ | 最低   |
+| Per-token FP8   | $\leq 0.3\%$ | 低    |
+| Per-channel FP8 | $\leq 0.2\%$ | 中    |
+
+**实测数据（TensorRT-LLM，LLaMA-3 70B，H100）：**
+
+- Decode 阶段 HBM 带宽利用率：FP8 KV 相比 FP16 KV 降低约 **45–50\%**；
+- 端到端吞吐提升：约 **1.3–1.5×**（带宽节省不能完全转化为吞吐，因存在其他瓶颈）；
+- MMLU 精度损失：$< 0.3\%$（Per-token FP8）。
+
+---
+
 **Q37. StreamingLLM 的 Attention Sink 机制是什么？**
 
 **问题背景：**
@@ -1882,6 +1938,46 @@ $$\text{KV Cache} = \text{Sink Tokens}(k) \cup \text{Recent Tokens}(w)$$
 总 KV Cache 大小固定为 $k + w$，可实现**无限长序列流式生成**，且 Perplexity 与全 KV Cache 方案几乎相同（相差 < 0.1）。
 
 **局限性：** 仅适合不依赖远距离历史的生成任务（如对话），对需要长程依赖的任务（如超长文档问答）无法使用。
+
+---
+
+**Q37-b. KV Cache 分级存储（HBM → CPU DRAM → NVMe SSD）**
+
+**动机：**
+
+高频 System Prompt（如 RAG 场景的知识库、固定 Agent 指令）对应的 KV Block 内容完全确定且可重复使用。若每次请求都重新计算 Prefill，是对 GPU 算力的浪费；若常驻 HBM 中，则占用宝贵的显存容量。分级存储将 KV Block 持久化到低速介质，在需要时恢复到 HBM，以**存储成本换 GPU 算力**。
+
+**三级缓存架构：**
+
+$$\underbrace{\text{HBM（热）}}_{\text{活跃请求}} \xrightarrow{\text{evict}} \underbrace{\text{CPU DRAM（温）}}_{\text{高频前缀}} \xrightarrow{\text{evict}} \underbrace{\text{NVMe SSD（冷）}}_{\text{低频知识库}}$$
+
+**各级带宽与恢复延迟（参照实测数据）：**
+
+|存储层|传输路径|有效带宽|恢复 128 MB KV 的延迟|适用场景|
+|---|---|---|---|---|
+|HBM 内（同卡）|HBM $\to$ SM|$\approx 3.35$ TB/s（H100）|$\approx 0.04$ ms|当前 Decode 步|
+|CPU DRAM $\to$ HBM|PCIe 5.0 x16|$\approx 64$ GB/s|$\approx 2$ ms|高频 System Prompt（$< 4\text{k tokens}$）|
+|NVMe $\to$ HBM|GPUDirect Storage|$\approx 7$ GB/s|$\approx 18$ ms|冷启动、低频知识库|
+|NVMe $\to$ CPU $\to$ HBM|DMA + H2D|$\approx 4$ GB/s|$\approx 32$ ms|无 GPUDirect 的普通部署|
+
+恢复延迟**直接叠加到 TTFT**（用户感知到的首 Token 延迟）：
+
+$$\text{TTFT} = T_{\text{KV load}} + T_{\text{Prefill（未缓存部分）}} + T_{\text{队列等待}}$$
+
+**各级适用场景分析：**
+
+- **CPU DRAM（$\sim 2$ ms）**：TTFT 增加在 P99 = 500 ms 的 SLA 中可接受，适合 System Prompt 长度 $S_p \leq 8\text{k tokens}$、并发请求量大（重复前缀频率高）的对话服务。
+- **NVMe（$\sim 18$ ms）**：TTFT 增加幅度较大，仅适合 TTFT SLA 宽松（$> 500$ ms）的批处理推理、离线 RAG 问答。
+- **精度无损前提**：分级存储的 KV Block 与在线计算结果完全一致（相同模型权重、相同输入），不引入任何精度损失，与 KV 量化方案正交（可叠加使用 FP8 存储进一步压缩磁盘/内存占用）。
+
+**工程实现要点：**
+
+- KV Block 以 Block 粒度（而非整个序列）迁移，恢复时可部分命中（仅搬运 cache miss 的 Block）；
+- CPU DRAM 缓存可用 `mmap` + Huge Page 管理，减少 TLB Miss；
+- GPUDirect Storage 要求显卡与 NVMe 控制器在同一 PCIe Domain，部分云实例不满足，需回退到 CPU 中转路径；
+- 与 RadixAttention 结合时，Radix Tree 节点的 LRU 驱逐顺序可扩展为分级淘汰（先降温到 DRAM，再驱逐到 NVMe，而非直接删除）。
+
+---
 
 ## 第 5 章·参考答案：调度与批处理策略
 
@@ -1970,6 +2066,51 @@ Continuous Batching 中，当一个长 Prompt 请求进入时，其 Prefill 阶�
 - **Chunk 大小 $C$ 需调优**：$C$ 过小导致 Prefill 效率低（GEMM 形状退化），$C$ 过大则 Decode 延迟改善不明显。典型值 $C = 256 \sim 2048$。
 
 **实现：** vLLM v0.4+、SGLang 均支持 Chunked Prefill，是现代推理框架的标配。
+
+---
+
+**Q39-KV. Chunked Prefill 执行期间 KV Block 的按需分配策略**
+
+**① 是否需要预分配全量显存？**
+
+不需要。传统整段 Prefill 的分配器会在 Prefill 开始前一次性预留 $\lceil S_p / B \rceil$ 个 Block（防止执行到中途因 OOM 而中止，产生部分写入的脏 KV）。Chunked Prefill 将 Prefill 拆分为 $\lceil S_p / C \rceil$ 个大小为 $C$ 的 Chunk，每个 Chunk 在**本次迭代开始前**仅分配本 Chunk 所需的 $\lceil C / B \rceil$ 个 Block，其余 Block 留给同批的 Decode 请求，避免一次性预留导致 OOM 或 Block 饥饿。
+
+**② 与 Decode 请求共批时的 Block 隔离机制：**
+
+调度器维护全局 Block Pool，Prefill 请求和 Decode 请求共享。防止 Decode 请求因 Block 耗尽而中断的典型策略如下：
+
+```
+调度决策（每次迭代前）：
+  available_blocks = total_blocks - used_blocks
+
+  // 先为所有活跃 Decode 请求预留下一步所需 Block
+  reserved_for_decode = num_active_decode_requests × 1 Block/step
+  
+  // 剩余 Block 分配给 Chunked Prefill
+  prefill_budget = (available_blocks - reserved_for_decode) × B tokens
+  actual_chunk_size = min(C, prefill_budget)
+
+  if actual_chunk_size == 0:
+    本迭代跳过所有 Prefill 请求，仅执行 Decode
+```
+
+若可用 Block 不足以同时满足 Decode 预留和 Prefill 需求，调度器优先保障 Decode（TPOT 稳定性高于 TTFT）。
+
+**③ Chunk 大小与内部碎片率的量化关系：**
+
+每个 Chunk 末尾的最后一个 Block 可能只有部分 Token 槽被填充（$\leq B-1$ 个 Token 的内部碎片）。对单个 Chunk：
+
+$$\text{期望碎片} = \frac{B - 1}{2} \text{ 个 Token 槽}$$
+
+Chunk 内的有效 Token 数为 $C$，内部碎片率：
+
+$$\rho_{\text{frag}} = \frac{(B-1)/2}{C} = \frac{B-1}{2C}$$
+
+代入典型值（$C = 512$，$B = 16$）：
+
+$$\rho_{\text{frag}} = \frac{15}{1024} \approx 1.46\%$$
+
+**结论：** 只要 $C \gg B$（Chunk 远大于 Block），内部碎片率可忽略不计。实践中 $C$ 通常取 512–2048 tokens，而 $B = 16$ tokens，碎片率 $\leq 1.5\%$。
 
 ---
 
@@ -4904,6 +5045,58 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times S \times 2 \text{ Bytes
 $$\text{每卡每 Chunk Token 数} = C / P$$
 
 以 $C = 4096, P = 8$ 为例，每卡每 Chunk 处理 512 tokens，GEMM 形状极小，需配合 SplitK（见 Q19）提升效率。
+
+---
+
+**Q102-KV. 128k+ 上下文时单请求 KV Cache 显存压力量化**
+
+**基线计算（LLaMA-3 70B GQA FP16）：**
+
+参数：$L = 80$，$H_{\text{KV}} = 8$（GQA），$d = 128$，$b = 2$（FP16），$S = 131072$（128k）：
+
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 131072 \times 2$$
+
+$$= 2 \times 80 \times 8 \times 128 \times 131072 \times 2 = 43{,}486{,}543{,}872 \text{ B} \approx 40.5 \text{ GB}$$
+
+单 H100 显存 80 GB，模型权重约 140 GB（FP16，需多卡），在 8×H100 TP=8 的配置下，每卡权重占用约 $140/8 \approx 17.5$ GB，剩余可用显存 $\approx 62.5$ GB。单请求 128k KV Cache 占用 40.5 GB，**Batch Size 实际仅能为 1**，GPU 利用率极低。
+
+**三种应对路径的分析：**
+
+**路径一：FP8 KV Cache 量化**
+
+$$M_{\text{KV}}^{\text{FP8}} = 40.5 \text{ GB} \times \frac{1}{2} \approx 20.3 \text{ GB}$$
+
+Batch Size 可提升至 2–3。精度损失 $< 0.3\%$（Per-token FP8）。实现成本低，H100 硬件原生支持，推荐作为**第一道优化**。
+
+**路径二：Token Eviction（H2O / SnapKV）**
+
+保留预算 $B_{\text{budget}}$ 个 Token 的 KV，压缩比 $r = B_{\text{budget}} / 131072$。若保留 $B_{\text{budget}} = 16384$（12.5%），则：
+
+$$M_{\text{KV}}^{\text{Eviction}} \approx 40.5 \times 0.125 \approx 5.1 \text{ GB}$$
+
+Batch Size 可达 8–10。但精度损失与任务强相关：对需要长程依赖的任务（超长文档问答、多跳推理），丢弃远端 Token 的 KV 会导致关键信息丢失，质量下降显著；对对话生成类任务损失相对可控。适合**对质量要求不苛刻或已验证特定任务的部署**。
+
+**路径三：Context Parallelism（CP）**
+
+将序列维度切分到 $N_{\text{CP}}$ 张 GPU，每张 GPU 仅持有 $S / N_{\text{CP}}$ 个 Token 的 KV：
+
+$$M_{\text{KV}}^{\text{per-GPU}} = \frac{40.5}{N_{\text{CP}}} \text{ GB}$$
+
+$N_{\text{CP}} = 4$ 时每卡 $\approx 10.1$ GB，Batch Size 恢复正常。但引入额外的跨 GPU 通信（Ring Attention 的 P2P KV 交换），每步 Attention 通信量为：
+
+$$V_{\text{comm}} = 2 \times \frac{S}{N_{\text{CP}}} \times H_{\text{KV}} \times d \times b \times (N_{\text{CP}} - 1)$$
+
+通信与计算可以 Overlap（见 Q100），但增加了系统复杂度和 GPU 数量成本。适合**显存不足但 GPU 数量充足**的场景。
+
+**三路径综合对比：**
+
+|路径|显存节省比|Batch Size 提升| 精度影响      |延迟影响|推荐优先级|
+| ------ | ------------ | ------------- | --------- | ---- | -------- |
+|FP8 量化|$\times 0.5$|$\times 2$| $< 0.3\%$ |可忽略|**第一优先**|
+|Token Eviction|$\times 0.05\text{–}0.2$|$\times 5\text{–}20$|任务相关|可忽略（Prefill 阶段筛选）|经验证后使用|
+|Context Parallelism|$\times 1/N_{\text{CP}}$|$\times N_{\text{CP}}$|无损|增加通信延迟|GPU 充足时使用|
+
+实践中三种方案可叠加：先 FP8 量化减半显存，再 CP 多卡分散，必要时辅以轻度 Token Eviction（仅驱逐明确低重要性 Token），以获得最优的显存利用率与质量平衡。
 
 ---
 
