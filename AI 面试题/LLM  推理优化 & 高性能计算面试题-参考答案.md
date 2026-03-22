@@ -848,7 +848,7 @@ $$O_j = \text{diag}(e^{m_{j-1} - m_j}) \cdot O_{j-1} + e^{\tilde{S}_j - m_j} \cd
 |SRAM 占用|$O(N^2)$（需存 $S, P$）|$O(B_r \cdot d + B_c \cdot d)$（常数级）|
 |FLOPs|$O(N^2 \cdot d)$|$O(N^2 \cdot d)$（相同）|
 
-**Tile 大小选择：** 需满足 $B_r \cdot d + B_c \cdot d \leq \text{SRAM}$，H100 上典型 $B_r = B_c = 64 \sim 128$。
+**Tile 大小选择：** 需满足 $4 \cdot B_r \cdot d + B_c \cdot d \leq \text{SRAM}$，存放 $Q$（$B_r \times d$）、$K$（$B_c \times d$）、$V$（$B_c \times d$）、$O$（$B_r \times d$）四个矩阵，以及运行时的 $m, \ell$ 向量（相对较小可忽略），H100 上典型 $B_r = B_c = 64 \sim 128$。
 
 ---
 
@@ -998,6 +998,12 @@ $$K = c^{KV} W^{UK},\quad V = c^{KV} W^{UV} \quad \text{（Up-projection，推�
 **推理时的计算策略：**
 
 - 可在 Prefill 时预计算并缓存 $c^{KV}$，Decode 时只需存 $c^{KV}$，不展开 $K, V$，通过矩阵吸收（Absorption）技巧将 $W^{UK}$ 融入 $W_Q$，实现无额外计算开销。
+
+**解决 RoPE（Rotary Position Embedding）与低秩压缩的兼容性问题**：
+
+RoPE 依赖位置信息，无法在压缩的 $c^{KV}$ 上直接应用（因为压缩后维度失去了头的语义）。
+
+DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额外附加一组携带 RoPE 的 $k^R \in \mathbb{R}^{d_R^h}$，缓存时同时存 $c^{KV}$ 和 $k^R$，这部分会**额外增加 KV Cache**，是 Q28 压缩比计算中容易被忽略的项。
 
 ---
 

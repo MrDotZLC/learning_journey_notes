@@ -298,7 +298,7 @@ $$K_t = W^{UK} c_t^{KV} \in \mathbb{R}^{H \cdot d_h}, \quad V_t = W^{UV} c_t^{KV
 
 完整注意力计算：
 
-$$\text{head}_i = \text{softmax}!\left(\frac{Q_i K_i^\top}{\sqrt{d_h}}\right) V_i$$
+$$\text{head}_i = \text{softmax}\left(\frac{Q_i K_i^\top}{\sqrt{d_h}}\right) V_i$$
 
 ### 6.2 Q 侧低秩压缩
 
