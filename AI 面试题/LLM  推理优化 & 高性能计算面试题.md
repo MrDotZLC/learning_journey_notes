@@ -26,6 +26,7 @@
 - **Q12.** 如何实现 numerically stable 的 Online Softmax？推导 3-pass → 2-pass → 1-pass 的演化过程。
 - **Q13.** 实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？
 - **Q14.** LayerNorm 的 Welford 在线算法如何实现？
+- **Q_J.** Warp Reduce 的 `mask` 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？
 
 ### 2.2 GEMM 优化
 
@@ -34,12 +35,15 @@
 - **Q17.** Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper 的 WGMMA 与 Ampere MMA 的区别？
 - **Q18.** cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？何时需要手写？
 - **Q19.** GEMM-SplitK 分解的适用场景（瘦矩阵 / Decode 阶段小 Batch）？
+- **Q_K.** Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？
+- **Q_L.** 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？
 
 ### 2.3 Kernel Fusion
 
 - **Q20.** Kernel Fusion 的本质收益是什么（减少 HBM Round-trip）？举例说明 FlashAttention 的 Fusion 策略。
 - **Q21.** 什么样的算子适合 Fusion？什么情况下 Fusion 反而有害（Register Spilling）？
 - **Q22.** CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？
+- **Q_M.** 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？
 
 ---
 
@@ -57,6 +61,19 @@
 - **Q27.** MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？
 - **Q28.** MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？
 - **Q29.** Sparse Attention（如 Sliding Window、BigBird）的适用场景？
+
+### 3.3 MLA 矩阵吸收与位置编码
+- Q30. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
+- Q31. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
+
+### 3.4 Decode 阶段 Attention 优化
+- Q32. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
+- Q33. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
+
+### 3.5 长序列与分布式 Attention
+- Q34. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
+- Q35. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理
+- 
 
 ---
 
