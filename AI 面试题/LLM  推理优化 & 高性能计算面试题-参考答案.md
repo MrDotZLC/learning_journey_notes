@@ -1372,7 +1372,7 @@ $$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 5
 
 #### Q35. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理
 
-**5.1 MHA 的标准 TP 切分（Megatron-LM 方案）**
+**1. MHA 的标准 TP 切分（Megatron-LM 方案）**
 
 MHA 中 Q/K/V 投影和输出投影的切分遵循 **Column Parallel → Row Parallel** 的经典模式。
 
@@ -1400,7 +1400,7 @@ $$o = \sum_{i=1}^P o_i$$
 
 **通信分析：** 仅需**一次 All-Reduce**（输出投影后），通信量 $= 2 \times B \times N \times d \times \text{sizeof}$（All-Reduce = Reduce-Scatter + All-Gather）。
 
-**5.2 GQA 下 TP 的约束**
+**2. GQA 下 TP 的约束**
 
 GQA 中 $H_{\text{KV}} = H / G$（KV Head 数），若 $P > H_{\text{KV}}$，则每个 KV Head 无法整除分配到所有卡——出现**TP > KV Head 数**的问题。
 
@@ -1416,7 +1416,7 @@ GQA 中 $H_{\text{KV}} = H / G$（KV Head 数），若 $P > H_{\text{KV}}$，则
 
 TensorRT-LLM 和 vLLM 均采用方案 1，在 $P > H_{\text{KV}}$ 时自动触发 KV 复制。
 
-**5.3 KV Cache 在 TP 下的分布**
+**3. KV Cache 在 TP 下的分布**
 
 KV Cache 按 KV Head 切分存放在各卡本地，Decode 时各卡直接读取本地 KV Cache，无需跨卡通信（这是 TP 切分 Attention 的主要优势之一）。
 
