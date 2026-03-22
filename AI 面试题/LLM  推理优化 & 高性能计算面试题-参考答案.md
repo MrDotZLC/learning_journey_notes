@@ -1035,6 +1035,146 @@ DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额�
 - 需要全局语义整合（如问答、摘要）：BigBird 的全局 Token 机制更优。
 - 生成任务（Decoder-only）：Sliding Window 结合 Attention Sink（StreamingLLM）实现无限流式生成（见 Q37）。
 
+---
+
+### 3.3 MLA 矩阵吸收与位置编码
+
+---
+
+#### Q30. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
+
+**背景回顾**
+
+MLA 的推理流程为：
+
+$$c^{KV} = X W^{DKV}, \quad K = c^{KV} W^{UK}, \quad V = c^{KV} W^{UV}$$
+
+朴素实现在每个 Decode 步中需将缓存的 $c^{KV}$ 展开为完整 $K, V$，再执行 Attention。对长序列，这引入了 $O(S \cdot d_c \cdot H d)$ 的额外计算。矩阵吸收（Absorption）技巧通过重新结合矩阵乘法顺序，将 Up-projection 融入 Q 侧权重，使 KV Cache 中永远只需存 $c^{KV}$，且无需在推理时展开。
+
+**推导（忽略 RoPE，先处理纯线性情形）**
+
+标准 Attention 的 Query-Key 内积：
+
+$$s = q^\top k = (x W^Q)(c^{KV} W^{UK})^\top$$
+
+其中 $q \in \mathbb{R}^{1 \times H d}$，$k \in \mathbb{R}^{S \times H d}$，$c^{KV} \in \mathbb{R}^{S \times d_c}$。
+
+展开：
+
+$$s = x W^Q (W^{UK})^\top (c^{KV})^\top$$
+
+由于 $W^Q \in \mathbb{R}^{d_{\text{model}} \times H d}$ 和 $W^{UK} \in \mathbb{R}^{d_c \times H d}$ 均为**固定权重**，可预先合并为：
+
+$$\tilde{W}^Q = W^Q (W^{UK})^\top \in \mathbb{R}^{d_{\text{model}} \times d_c}$$
+
+则：
+
+$$s = x \tilde{W}^Q (c^{KV})^\top$$
+
+**结论：** Q 的投影矩阵从 $W^Q$（输出 $H d$ 维）替换为 $\tilde{W}^Q$（输出 $d_c$ 维），直接与 $c^{KV}$ 做内积，绕过了 $W^{UK}$ 的展开。
+
+类似地，对 V 侧输出：
+
+$$o = \text{Softmax}(s) \cdot V = \text{Softmax}(s) \cdot c^{KV} W^{UV}$$
+
+输出投影 $W^O \in \mathbb{R}^{H d \times d_{\text{model}}}$：
+
+$$\text{out} = o W^O = \text{Softmax}(s) \cdot c^{KV} \cdot W^{UV} W^O$$
+
+同样预先合并：
+
+$$\tilde{W}^O = W^{UV} W^O \in \mathbb{R}^{d_c \times d_{\text{model}}}$$
+
+则：
+
+$$\text{out} = \text{Softmax}(s) \cdot c^{KV} \cdot \tilde{W}^O$$
+
+**推理时的完整计算流程（Absorption 版本）**
+
+1. **Prefill/Decode 均执行：** 计算并缓存 $c^{KV} = X W^{DKV} \in \mathbb{R}^{S \times d_c}$
+2. **当前步 Query：** $\tilde{q} = x \tilde{W}^Q \in \mathbb{R}^{d_c}$（维度已降至 $d_c$）
+3. **Attention Score：** $s = \tilde{q} (c^{KV})^\top \in \mathbb{R}^{S}$
+4. **输出：** $\text{out} = \text{Softmax}(s) \cdot c^{KV} \cdot \tilde{W}^O \in \mathbb{R}^{d_{\text{model}}}$
+
+**KV Cache 中仅存 $c^{KV}$，$W^{UK}$，$W^{UV}$ 在推理时从不参与逐步计算。**
+
+**显存对比（以 DeepSeek-V2 参数为例）**
+
+|方案|KV Cache 每 Token 每层|说明|
+|---|---|---|
+|MHA|$2 \times H \times d_h = 2 \times 128 \times 128 = 32768$ 元素|完整 K, V|
+|MLA（朴素展开）|同 MHA|存 K, V|
+|MLA（Absorption）|$d_c = 512$ 元素|仅存 $c^{KV}$|
+|压缩比|$32768 / 512 = 64\times$|—|
+
+**RoPE 的破坏与 Decoupled RoPE**
+
+RoPE 对 K 的作用：$k_{\text{rope}} = \text{RoPE}(pos,\ k)$，由于 RoPE 依赖位置 $pos$ 且是非线性操作，无法在 $c^{KV}$ 压缩之前提前融合。
+
+DeepSeek-V2 的解法：额外引入一组**解耦的 RoPE Key**：
+
+$$k^R = x W^{KR} \in \mathbb{R}^{d_R^h}, \quad \tilde{k}^R = \text{RoPE}(pos,\ k^R)$$
+
+Attention Score 计算时拼接：
+
+$$s = q^C (c^{KV})^\top + q^R (\tilde{k}^R)^\top$$
+
+其中 $q^C$ 对应 Absorption 后的内容部分，$q^R = x W^{QR}$ 对应 RoPE 部分。
+
+**额外 KV Cache 代价：** 每 Token 每层额外缓存 $\tilde{k}^R \in \mathbb{R}^{H \times d_R^h}$（DeepSeek-V2 中 $d_R^h = 64$，$H = 128$，即 8192 元素），约为 $c^{KV}$ 的 $8192/512 = 16$，但仍远小于 MHA 的 $32768$ 元素。
+
+---
+
+#### Q31. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
+
+**1.1 位置编码的本质问题**
+
+Transformer 的 Attention 是置换不变的（permutation-invariant），必须显式注入位置信息。主流方案分为**绝对位置编码**和**相对位置编码**两类。
+
+**1.2 RoPE（Rotary Position Embedding）**
+
+核心思想：通过旋转矩阵将位置信息编码为 Q/K 向量的**相位**，使得内积天然体现相对位置关系。
+
+对第 $m$ 个位置的向量 $x \in \mathbb{R}^d$，将其按维度两两分组（$d/2$ 对），第 $k$ 对的旋转定义为：
+
+$$\begin{pmatrix} \tilde{x}_{2k} \\ \tilde{x}_{2k+1} \end{pmatrix} = \begin{pmatrix} \cos(m\theta_k) & -\sin(m\theta_k) \\ \sin(m\theta_k) & \cos(m\theta_k) \end{pmatrix} \begin{pmatrix} x_{2k} \\ x_{2k+1} \end{pmatrix}$$
+
+其中频率 $\theta_k = 10000^{-2k/d}$，与原始 Sinusoidal 编码相同的频率设计。
+
+内积性质：
+
+$$q_m^\top k_n = \text{Re}\left[\sum_k (q_{m,k} e^{im\theta_k})\overline{(k_{n,k} e^{in\theta_k})}\right] = f(q, k, m-n)$$
+
+即 $q_m^\top k_n$ 只依赖**相对位置** $m - n$，与绝对位置无关。
+
+**1.3 ALiBi（Attention with Linear Biases）**
+
+核心思想：不修改 Q/K，而是在 Attention Score 上直接加一个与**相对距离成线性关系**的偏置：
+
+$$s_{ij} = \frac{q_i^\top k_j}{\sqrt{d}} - \lambda_h \cdot |i - j|$$
+
+其中 $\lambda_h$ 是第 $h$ 个 head 的超参数（固定，不可学习），按等比数列设计：$\lambda_h = 2^{-h \cdot 8/H}$。
+
+**对比总结：**
+
+|特性|RoPE|ALiBi|
+|---|---|---|
+|作用位置|Q/K 旋转变换|Attention Score 加偏置|
+|外推性|原始 RoPE 外推性差；YaRN/LongRoPE 扩展后改善|天然线性外推，无需修改|
+|与 FlashAttention 兼容性|完全兼容|需在 Tile 内加偏置，支持但实现稍复杂|
+|与 KV Cache 复用|依赖绝对位置（K 被旋转），**影响 Prefix Caching**|偏置在 Score 层计算，K 本身不含位置，**天然支持 Prefix Caching**|
+|代表模型|LLaMA、Mistral、Qwen、DeepSeek|MPT、BLOOM|
+
+**1.4 Prefix Caching 与 RoPE 的冲突**
+
+Prefix Caching（也称 Prompt Caching）复用相同 Prefix 的 KV Cache，避免重复计算。其前提是：**相同 Token 序列在相同位置上产生相同的 K/V**。
+
+RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位置 $m$。当 Prefix 后续接不同长度的内容时，若尝试"拼接"不同请求的 KV Cache，因为新 Token 的绝对位置不同，新生成的 K 与缓存的 K 位置基准不统一。
+
+**结论：** RoPE 下的 Prefix Caching 要求前缀的 Token 序列和它们的绝对位置完全一致才可复用，通常只能复用 System Prompt 等固定前缀，不能跨请求灵活复用中间片段。这是 RoPE 相比 ALiBi 在 KV Cache 管理上的主要工程代价。
+
+---
+
 ## 第 4 章·参考答案：KV Cache 管理
 
 ---
