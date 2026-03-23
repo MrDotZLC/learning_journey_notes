@@ -36,7 +36,7 @@ $$ \hat{s}_j = \frac{1}{m} \sum_{t=1}^{m} s_{t,j} $$
 
 ### 3.1 Attention Sink 现象
 
-大量注意力权重聚集在 `<BOS>` 等首部 token，即使其语义内容有限。原因：Softmax 须分配非零权重于所有位置，初始 token 成为"默认倾向目标"。该现象在 Llama、GPT-NeoX、Falcon 等主流模型中普遍存在。
+大量注意力权重聚集在 `<BOS>` 等首部 token，即使其语义内容有限。原因：Softmax 须分配非零权重于所有位置，当模型不需要关注任何特定 Token 时，多余的权重"涌入"最初的 Token 作为"垃圾桶"（Sink Token）。这是 Softmax 归一化的数学特性导致的，与 Token 的语义内容无关。该现象在 Llama、GPT-NeoX、Falcon 等主流模型中普遍存在。
 
 ### 3.2 保留集合
 
