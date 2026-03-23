@@ -40,6 +40,7 @@ $$ \hat{s}_j = \frac{1}{m} \sum_{t=1}^{m} s_{t,j} $$
 
 ### 3.2 保留集合
 
+在 Sliding Window 的基础上，**始终保留前 $k$（默认 4）个 Sink Token 的 KV Cache**，不受窗口限制：
 $$ S_i = \underbrace{{0, 1, \ldots, n_{\text{sink}}-1}}_{\text{Sink Tokens}} \cup \underbrace{{i - w + 1, \ldots, i}}_{\text{Recent Window}} $$
 
 默认 $n_{\text{sink}} = 4$，$w$ 为滑动窗口大小，总预算 $k = n_{\text{sink}} + w$。
