@@ -2260,7 +2260,8 @@ $$\text{MFU} = \frac{3000 \times 1.4 \times 10^{11}}{989 \times 10^{12}} \approx
 |Tokens/s/GPU|端到端吞吐|横向对比不同系统|
 |Tokens/s/$|成本效率|选型决策|
 
-Decode 阶段更应关注 **MBU**，而非 MFU；实际 MBU 可达 **60–85%**（vLLM + H100），这是 Decode 优化的更直观指标。
+Decode 阶段更应关注 **MBU**，而
+非 MFU；实际 MBU 可达 **60–85%**（vLLM + H100），这是 Decode 优化的更直观指标。
 
 ## 第 6 章·参考答案：模型量化
 
