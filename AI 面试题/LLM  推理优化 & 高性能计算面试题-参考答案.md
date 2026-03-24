@@ -2245,11 +2245,11 @@ $$\text{FLOPs/token} \approx 2 \times N_{\text{params}}$$
 
 - $N_{\text{params}} = 70 \times 10^9$，FLOPs/token $\approx 1.4 \times 10^{11}$
 - 若系统吞吐 = 3000 Tokens/s（单卡）
-- $P_{\text{peak}} = 989 \times 10^{12}$ FLOP/s（FP16 Tensor Core，稀疏）
+- $P_{\text{peak}} = 989 \times 10^{12}$ FLOP/s（FP16 Tensor Core，密集）
 
-$$\text{MFU} = \frac{3000 \times 1.4 \times 10^{11}}{989 \times 10^{12}} \approx 4.2\%$$
+$$\text{MFU} = \frac{3000 \times 1.4 \times 10^{11}}{989 \times 10^{12}} \approx 42\%$$
 
-注意：Decode 阶段深度 Memory-bound，MFU 天然偏低（典型 3–10%）；Prefill 阶段 Compute-bound，MFU 可达 **40–60%**。
+	注意：Decode 阶段深度 Memory-bound，MFU 天然偏低（典型 3–10%）；Prefill 阶段 Compute-bound，MFU 可达 **40–60%**。
 
 **MFU 的局限性与补充指标：**
 
