@@ -2369,11 +2369,11 @@ Sarathi-Serve（2024）在 Chunked Prefill 基础上引入 SLO 感知调度，�
 
 **QAT 核心技巧——Straight-Through Estimator（STE）：**
 
-量化操作 $q(x) = \lfloor x / s \rceil \cdot s$ 的梯度几乎处处为 0，无法直接反传。STE 在前向时使用量化值，反向时将梯度**直通**量化操作，近似为：
+量化操作 $q(x) = \lfloor x / s \rceil \cdot s$ 中，$x/s$ 会取舍至整数，导致梯度几乎处处为 0，无法直接反传。STE 在前向时使用量化值，反向时将梯度**直通（无视）**量化操作，近似为：
 
 $$\frac{\partial \mathcal{L}}{\partial x} \approx \frac{\partial \mathcal{L}}{\partial q(x)}$$
 
-这使模型权重在训练中"感知"量化误差并主动补偿。
+这使模型权重在训练中"感知"量化误差并主动补偿（前向传播依旧会补偿量化误差）。
 
 ---
 
