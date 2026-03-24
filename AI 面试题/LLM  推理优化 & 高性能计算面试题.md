@@ -138,15 +138,32 @@ $$M_{\text{KV}} = 2 \times L \times H \times d \times S \times \text{sizeof(dtyp
 
 $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},; q_{\max}\right)$$
 
-- **Q46.** Per-tensor、Per-channel、Per-group 量化粒度的精度-性能 Trade-off？
+- **Q46.** Per-tensor、Per-channel、Per-token、Per-group 量化粒度的精度-性能 Trade-off？
+- **Q46-b.** 动态量化（Dynamic Quantization）与静态量化（Static Quantization）的区别？激活值为何更常用动态量化？其推理时额外开销如何？
 
 ### 6.2 主流量化方法
 
 - **Q47.** GPTQ 的核心思路：基于 OBQ（Optimal Brain Quantization）逐层量化，使用 Hessian 信息补偿误差？
-- **Q48.** AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights？
+- **Q47-b.** GPTQ 的 Lazy Batch Update 与 Cholesky 分解优化：为何朴素 OBQ 对 LLM 不可行（$O(d^3)$ 复杂度），GPTQ 如何将其降至 $O(d_{\text{in}}^2)$？
+- **Q48.** AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights 的机制？
+- **Q48-b.** AWQ 的 Per-channel 缩放因子 $s_i^{*}$ 如何搜索？为什么不能直接用梯度优化，而用 Grid Search？
 - **Q49.** SmoothQuant 的思路：将激活值的量化难度通过 per-channel 缩放迁移到权重侧？
+- **Q49-b.** SmoothQuant 的迁移系数 $\alpha$ 的选择对精度的影响？为何默认取 $\alpha = 0.5$？缩放向量 $s$ 如何在推理时做到零开销（融入 LayerNorm 或前置权重矩阵）？
 - **Q50.** W4A8 / W4A16 / FP8 / INT8 各方案的适用场景与硬件支持（A100 vs H100 vs Blackwell）？
+- **Q50-b.** W4A16 推理的 Dequantization 开销分析：权重量化存储后必须在矩阵乘前解压回 FP16，该操作在 Decode（Memory-bound）与 Prefill（Compute-bound）阶段的性能影响分别是什么？
 - **Q51.** Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？
+- **Q51-b.** NVFP4 的两级缩放方案（Block-level FP8 Scale + Tensor-level FP32 Scale）的存储格式推导：每 16 个 FP4 权重共享 1 个 FP8 Scale，有效位宽约 4.5 bits/weight；与 H100 FP8 相比，B200 的 FP4 Tensor Core 峰值算力提升倍数与实测吞吐收益的差距原因？
+
+### 6.3 旋转/变换类量化方法（新增）
+
+- **Q52-Q.** QuaRot / SpinQuant 的核心思路：通过随机 Hadamard 变换旋转权重矩阵以消除 Outlier，从而使权重、激活和 KV Cache 均可量化至 4-bit；与 SmoothQuant 的本质区别（旋转等价变换 vs. 缩放等价变换）？
+- **Q53-Q.** AutoRound（EMNLP 2024）与 GPTQ 的差异：引入可学习的 Rounding Offset $v$、Clipping Range $[\alpha, \beta]$，用 Signed Gradient Descent 最小化块级输出重建误差；为何在极低比特（W3/W2）下优于 GPTQ？
+
+### 6.4 KV Cache 量化（新增）
+
+- **Q54-Q.** KV Cache 量化（FP8 / INT8）的量化时机与反量化开销：KV 写入时量化、Attention 计算前反量化的完整数据流；H100 上 FP8 KV Cache 硬件原生支持与 Ampere 上软件模拟的性能差异？
+- **Q55-Q.** Per-tensor vs. Per-head vs. Per-token KV Cache 量化粒度的精度对比：Key 和 Value 的分布特性（Key 通道方差大、Value 分布较平）是否要求不同粒度？KIVI（2-bit KV Cache）的思路？
+- **Q56-Q.** KV Cache 量化与 FlashAttention 后端的兼容性问题：为何 FlashAttention-2 不支持 FP8 KV Cache，而 FlashAttention-3（FA3）与 FlashInfer 可以原生支持？
 
 ---
 
