@@ -53,7 +53,7 @@ OBQ 需要每量化一个权重就更新整个 $H^{-1}$ 矩阵。GPTQ 发现可�
 1. 将列分为 128 列一组（Block Size = 128）。
 2. 在 Block 内部，使用公式计算误差，但只更新 Block 内部的权重，暂不更新 Block 外部的大矩阵。
 3. 当一个 Block 处理完后，统一进行一次全局矩阵更新。
-    _这极大地提高了 GPU 的计算密度（Compute Intensity）。_
+    这极大地提高了 GPU 的计算密度（Compute Intensity）。
 ### Step 2: Cholesky 分解 (数值稳定性)
 由于 $H = 2XX^T$ 可能存在奇异性（不可逆），且浮点数计算有误差。GPTQ 不直接求 $H^{-1}$，而是利用 **Cholesky 分解**：
 1. 对 $H$ 加上阻尼项（Damping）：$H' = H + \lambda I$ （保证正定）。

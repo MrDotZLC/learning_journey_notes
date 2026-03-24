@@ -2473,7 +2473,7 @@ $$\min_{\hat{W}} | WX - \hat{W}X |_F^2$$
 
 $$\delta W = -\frac{w_q - \hat{w}_q}{\left[H^{-1}\right]_{qq}} \cdot \left[H^{-1}\right]_{:,q}$$
 
-其中 $H = 2XX^T$ 为 Hessian 矩阵（二阶信息），$\hat{w}_q$ 为 $w_q$ 量化后的值。
+其中 $H = 2XX^T$ 为 Hessian 矩阵（二阶信息），$\hat{w}_q$ 为 $w_q$ 量化后的值。更新公式的直觉：量化误差 $(w_q - \hat{w}_q)$ 经 Hessian 逆矩阵的第 $q$ 列分摊到其余权重，最小化整体二次代理目标。
 
 **GPTQ 的工程简化（使 OBQ 实用化于 LLM）：**
 
