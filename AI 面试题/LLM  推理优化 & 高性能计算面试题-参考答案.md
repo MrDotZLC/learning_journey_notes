@@ -2477,22 +2477,51 @@ $$\delta W = -\frac{w_q - \hat{w}_q}{\left[H^{-1}\right]_{qq}} \cdot \left[H^{-1
 
 **GPTQ 的工程简化（使 OBQ 实用化于 LLM）：**
 
-1. **按列顺序量化**（而非 OBQ 的贪心选择顺序），避免 $O(d^3)$ 的动态规划。
-2. **Cholesky 分解预计算** $H^{-1}$，避免每列量化都重新求逆，总复杂度降至 $O(d^2)$。
-3. **Lazy Batch Update**：将多列的误差补偿合批处理，充分利用 GPU 并行。
+1. **按列顺序量化**（而非 OBQ 的贪心选择顺序），避免 $O(d_{\text{in}}^3)$ 的动态规划重排。
+2. **Cholesky 分解预计算** $H^{-1}$，避免每列量化都重新求逆，总复杂度降至 $O(d_{\text{in}}^2)$。
+3. **Lazy Batch Update**：将多列的误差补偿合批处理（如每 128 列更新一次），充分利用 GPU 矩阵并行，掩盖显存读写延迟。
 
 **流程：**
 
 ```
-输入: 层权重 W ∈ R^(d_out × d_in), 校准数据 X
-1. 计算 H = 2XX^T，Cholesky 分解得 H^{-1}
-2. 按列 j = 0..d_in:
-   a. 量化 W[:, j] → Ŵ[:, j]（round-to-nearest）
-   b. 更新剩余列: W[:, j+1:] -= (W[:, j] - Ŵ[:, j]) ⊗ H^{-1}[j, j+1:] / H^{-1}[j,j]
-3. 输出: 量化权重 Ŵ
+输入: W ∈ R^(d_out × d_in), 校准数据 X
+1. 计算 H = 2XX^T
+2. Cholesky 分解: H^{-1} = Cholesky(H)^{-T} Cholesky(H)^{-1}
+3. 按列 j = 0..d_in:
+   a. 量化 W[:, j] → Ŵ[:, j]（round-to-nearest 或 GPTQ 方言）
+   b. 误差补偿: W[:, j+1:] -= (W[:, j] - Ŵ[:, j]) ⊗ H^{-1}[j, j+1:] / H^{-1}[j, j]
+4. 输出: 量化权重 Ŵ（per-group scale 存储）
 ```
 
-**性能：** GPTQ W4 在 Llama-2 70B 上相比 FP16 精度损失约 0.3–0.5 perplexity（WikiText-2），量化速度约 2–4 GPU 小时（A100）。
+**精度参考：** GPTQ W4 在 Llama-2 70B 上相比 FP16 精度损失约 0.3–0.5 perplexity（WikiText-2），量化速度约 2–4 GPU 小时（A100）。实验表明 GPTQ 在编码类真实任务上往往优于 AWQ，而 AWQ 在 academic benchmarks 上表现相当或略优。
+
+---
+
+**Q47-b. GPTQ 的 Lazy Batch Update 与 Cholesky 优化推导。**
+
+**朴素 OBQ 的不可行性：**
+
+朴素 OBQ 对 $d_{\text{in}}$ 个权重列做贪心最优顺序排列，每次选出"量化代价最小"的列：
+
+- 每列选择需对整个 $H^{-1}$ 做 $O(d_{\text{in}}^2)$ 的 rank-1 更新。
+- 共 $d_{\text{in}}$ 列，总复杂度 $O(d_{\text{in}}^3)$。
+- 对 $d_{\text{in}} = 4096$（LLaMA-7B 的 FFN 内维度）：约 $68 \times 10^9$ 次运算，不可接受。
+
+**GPTQ 的复杂度降低：**
+
+固定按列顺序（列 $0, 1, \ldots, d_{\text{in}}-1$）量化后，$H^{-1}$ 的更新具有结构性：
+
+$$[H^{-1}]^{(j+1)} = \text{Schur\_complement}!\left([H^{-1}]^{(j)},\ j\right)$$
+
+此结构与 Cholesky 分解完全对应：预先对 $H$ 做 Cholesky 分解 $H = LL^T$，则 $H^{-1}$ 的所有子矩阵 Schur 补可在 $O(d_{\text{in}}^2)$ 时间内通过回代（back-substitution）求得，无需每步重新求逆。
+
+**Lazy Batch Update（列分块）：**
+
+GPU 对宽矩阵的列逐一更新效率低（访存模式不规则）。GPTQ 将 $d_{\text{in}}$ 列分为若干大小为 $B$（典型值 128）的块，块内的误差补偿合并为一次矩阵-矩阵乘（GEMM），利用 Tensor Core 加速：
+
+$$W[:, j_{\text{end}}:] \mathrel{-}= \delta W_{\text{block}} \cdot H^{-1}_{\text{block}}$$
+
+每块内的舍入误差**暂不传播**，仅在块边界时批量传播，精度损失可忽略。
 
 ---
 
