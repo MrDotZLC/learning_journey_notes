@@ -1,4 +1,4 @@
-**GPTQ (Generative Pre-trained Transformer Quantization)** 是目前大语言模型（LLM）部署领域最主流的**后训练量化（PTQ）**算法之一。由 Frantar 等人在 2023 年提出（论文：_GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers_）。
+**GPTQ (Generative Pre-trained Transformer Quantization)** 是目前大语言模型（LLM）部署领域最主流的**后训练量化（PTQ）** 算法之一。由 Frantar 等人在 2023 年提出（论文：GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers）。
 
 它的核心突破在于：**利用二阶矩阵信息（Hessian）来补偿量化误差，将复杂的优化问题转化为高效的矩阵运算，使得在几小时内完成千亿参数模型的 INT4 量化成为可能。**
 
