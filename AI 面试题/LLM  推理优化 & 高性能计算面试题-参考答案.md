@@ -2263,6 +2263,79 @@ $$\text{MFU} = \frac{3000 \times 1.4 \times 10^{11}}{989 \times 10^{12}} \approx
 Decode 阶段更应关注 **MBU**，而
 非 MFU；实际 MBU 可达 **60–85%**（vLLM + H100），这是 Decode 优化的更直观指标。
 
+---
+
+**Q44-Sched. 调度器的抢占（Preemption）机制**
+
+**背景**
+
+Continuous Batching 下，KV Cache 显存（Block Pool）是有限资源。若调度器过度接纳新请求，在运行中途可能出现**显存耗尽（OOM）**，此时必须对部分请求执行抢占。
+
+**两种抢占策略**
+
+**1. Swap（换出到 CPU DRAM）**
+
+将被抢占请求的 KV Cache Blocks 从 GPU HBM 换出到 CPU DRAM，待 GPU 显存空闲后再换回继续执行。
+
+```
+GPU HBM: [活跃请求 KV] → [换出被抢占 KV] → 释放 Block
+CPU DRAM:              ← [被换出 KV 存储至此]
+恢复时：CPU DRAM → GPU HBM（PCIe，~32 GB/s），换回延迟可达数十毫秒
+```
+
+适用场景：单请求 KV 体积较小（短序列），换出/换回延迟可接受；PCIe 带宽充足。
+
+代价：PCIe 带宽瓶颈（~32–64 GB/s），换入延迟叠加到 TPOT；CPU DRAM 容量也有上限。
+
+**2. Recompute（丢弃并重算）**
+
+直接丢弃被抢占请求的 KV Cache，等 GPU 显存空闲后，将该请求重新入队，重新 Prefill 生成 KV。
+
+代价：被抢占请求的 Prefill 计算需完整重复，延迟代价 = 重新排队时间 + 重新 Prefill 时间；若频繁抢占，TTFT SLO 将严重恶化。
+
+适用场景：PCIe 带宽极低或请求序列极长（Swap 带宽不够）；但大多数生产场景下 Recompute 代价更高。
+
+**vLLM 的实现选择**
+
+vLLM 默认使用 Swap 策略，Recompute 作为备选（可通过 `preemption_mode` 参数配置）。调度器采用**优先级队列**：被抢占的请求放入等待队列，优先级高于新请求（避免饥饿）。
+
+**避免抢占的前置策略**
+
+优于被动抢占，更好的策略是主动避免：调度器在接纳新请求时，预测其 KV 峰值用量（基于 ISL 估算），若接纳后剩余 Block 不足以维持所有当前活跃请求完成，则拒绝或延迟接纳新请求（Back-pressure 机制）。
+
+---
+
+**Q45-Sched. Goodput 的定义与 SLO 感知调度**
+
+**Goodput 的定义**
+
+Goodput（有效吞吐）指单位时间内**满足 SLO 约束**的已完成请求所产生的 Token 数，区别于原始吞吐量（Throughput）：
+
+$$\text{Goodput} = \frac{\sum_{r \in \mathcal{R}_{\text{SLO}}} S_{\text{out}}^{(r)}}{\Delta T}$$
+
+其中 $\mathcal{R}_{\text{SLO}}$ 为在时间窗口 $\Delta T$ 内满足 TTFT 和 TPOT 双 SLO 的请求集合。
+
+**与原始 Throughput 的区别**
+
+|指标|计算方式|问题|
+|---|---|---|
+|Throughput（Tokens/s）|所有完成 Token 数 / 时间|包含 SLO 违约请求的 Token，高估服务质量|
+|Goodput（Tokens/s）|仅 SLO 达标 Token 数 / 时间|真实反映用户体验质量|
+
+当系统超载时，Throughput 可能仍然很高（因为大量请求在处理），但 Goodput 下降（大量请求 TTFT 或 TPOT 超限）。优化 Throughput 的调度策略（如尽量填满 Batch）与优化 Goodput 的策略存在分歧。
+
+**SLO 感知调度的核心思想**
+
+在 TTFT SLO（如 $\leq 500$ ms）和 TPOT SLO（如 $\leq 50$ ms/token）双约束下，调度器的目标不是最大化原始吞吐，而是：
+
+1. **TTFT 感知接纳控制**：对于等待时间已接近 TTFT SLO 的请求，提升其调度优先级，尽快执行 Prefill。
+2. **TPOT 感知 Batch Size 控制**：动态限制 Batch Size 上限，防止 Decode 步耗时超过 TPOT SLO（即使更大的 Batch Size 能提升 Throughput）。
+3. **请求丢弃策略**：对于已超 TTFT SLO 的请求（用户已超时），直接放弃而非继续占用资源。
+
+**代表性工作**
+
+Sarathi-Serve（2024）在 Chunked Prefill 基础上引入 SLO 感知调度，通过动态调整 Chunk Size 和 Batch 组合，在不违反 TPOT SLO 的前提下最大化 Goodput，相比纯 Throughput 优化策略在实际服务中 Goodput 提升 10–30%。
+
 ## 第 6 章·参考答案：模型量化
 
 ---
