@@ -2461,11 +2461,11 @@ $$\mathcal{E} = \underbrace{x_q \cdot s - x}_{\text{舍入误差，最大} \pm s
 
 **Q47. GPTQ 的核心思路：基于 OBQ 逐层量化，使用 Hessian 信息补偿误差？**
 
-**核心目标：** 对每一层的权重矩阵 $W$，找到量化版本 $\hat{W}$，使输出误差最小：
+**核心目标：** 对每一层的权重矩阵 $W \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$，找到量化版本 $\hat{W}$，使输出误差最小：
 
 $$\min_{\hat{W}} | WX - \hat{W}X |_F^2$$
 
-其中 $X$ 为该层的输入激活（校准数据的统计量）。
+其中 $X \in \mathbb{R}^{d_{\text{in}} \times T}$ 为该层的输入激活（校准数据的统计量）。
 
 **OBQ（Optimal Brain Quantization）理论基础：**
 
