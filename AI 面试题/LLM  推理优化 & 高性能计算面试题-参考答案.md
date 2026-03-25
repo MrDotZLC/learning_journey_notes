@@ -2700,14 +2700,23 @@ $\tilde{W}$ 在量化前离线计算，**推理时 SmoothQuant 的全部代价�
 **选型决策树：**
 
 ```
-目标是降低显存（Decode带宽）？
-├─ 是 → W4A16（GPTQ/AWQ）
-目标是最大化吞吐（Prefill计算）？
-├─ H100/H20 → FP8（W8A8 FP8 GEMM）
-├─ A100 → W8A8 INT8（SmoothQuant）
-├─ Blackwell → W4A8 或 NVFP4
-精度要求极高？
-└─ FP8 > INT8 > W4A16 > W4A8
+模型规模
+├─ 7B/8B
+│   ├─ 在线低延迟  → 消费级,  W4A16
+│   ├─ 离线高吞吐  → A100,    W8A8 INT8
+│   └─ 长上下文    → A100/H100, W4A16 + FP8 KV
+├─ 13B/14B
+│   ├─ 通用        → A100 × 1, W4A16 或 W8A8
+│   └─ 长上下文    → H100 × 1, W4A16 + FP8 KV
+├─ 30B~70B
+│   ├─ 在线        → H100 × 4, FP8 W8A8, TP=4
+│   ├─ 离线        → A100 × 4, W8A8 INT8
+│   ├─ 长上下文    → H100 × 8, FP8 + FP8 KV
+│   └─ P/D 分离    → Prefill: H100 FP8, Decode: A100 W4A16
+└─ 100B+ / MoE
+    ├─ 在线        → H100 × 8, FP8, TP+EP
+    ├─ 极限吞吐    → B200 × 8, NVFP4
+    └─ P/D 分离    → Prefill: B200 NVFP4, Decode: H100 FP8
 ```
 
 ---
