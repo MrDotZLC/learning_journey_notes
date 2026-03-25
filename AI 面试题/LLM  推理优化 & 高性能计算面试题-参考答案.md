@@ -2774,6 +2774,190 @@ $$\hat{w}_{\text{FP4}} = \text{quantize}_{\text{FP4}}\!\left(\frac{w}{s_{\text{F
 
 **精度影响：** NVFP4 相比 FP8 精度损失约 0.5–1.5 perplexity（视任务而定），在 MoE 模型（Expert 权重量化）中损失更小，因为 MoE 的冗余性提供了天然的量化鲁棒性。
 
+---
+
+**Q51-b. NVFP4 两级缩放的存储格式推导与工程实现。**
+
+**存储格式（以 16 个 FP4 权重为 1 Block 为例）：**
+
+```
+原始权重（FP16）:  [w_0, w_1, ..., w_15]       → 16 × 2 B = 32 B
+NVFP4 量化后:
+  FP4 数据:       [q_0, q_1, ..., q_15]        → 16 × 0.5 B = 8 B
+  Block FP8 Scale: s_block                     → 1 × 1 B = 1 B
+  总计:                                          9 B / 16 权重 = 4.5 bits/weight
+```
+
+**计算时反量化（Blackwell 硬件原生支持）：**
+
+```
+FP4 Tensor Core 输入流:
+  → 读取 FP4 权重 + FP8 Block Scale
+  → Tensor Core 内部硬件自动完成 dequant（非 CUDA Core 软件路径）
+  → 与 FP8/BF16 激活执行混合精度 MMA
+  → FP32 累加器输出
+```
+
+Blackwell 区别于 Hopper 的关键：Hopper 的 FP8 Tensor Core 仍需软件 Dequant 将 KV Cache 从 FP8 转回 BF16；Blackwell 的 FP4 Tensor Core 在硬件层面集成了 Block Scale 的反量化乘法，使 Dequant 成本降至接近零（融合在 MMA 指令内）。
+
+---
+
+### 6.3 旋转/变换类量化方法
+
+---
+
+**Q52-Q. QuaRot / SpinQuant：基于 Hadamard 旋转的 Outlier 消除。**
+
+**问题背景：**
+
+SmoothQuant 通过缩放迁移量化难度，但不能从根本上消除 Outlier（缩放后某些通道依然偏大）。KV Cache 的 Key/Value 同样存在 Outlier，SmoothQuant 难以在 KV 层应用。
+
+**QuaRot 核心思路（ICML 2024）：**
+
+利用**旋转等价性**（Rotational Invariance）：对于正交矩阵 $Q$（$QQ^T = I$），
+
+$$Y = XW = (XQ)(Q^T W)$$
+
+输出完全不变。若 $Q$ 为随机化 Hadamard 矩阵（Randomized Hadamard Transform，RHT），则变换后的权重 $Q^T W$ 的各元素趋向于**独立同分布高斯**（Incoherence Processing），Outlier 被打散到所有维度，幅值变均匀，INT4/FP4 量化误差大幅降低。
+
+**QuaRot 对 KV Cache 的扩展：**
+
+在 Attention 中对 $Q, K, V$ 的投影前后各插入一对互逆 RHT，使 KV 向量的分布同样惰性化（Outlier-free），从而支持 KV Cache 也量化至 4 bit：
+
+$$K_{\text{quant}} = Q_{\text{FP4}}!\left(\text{RHT}(X W_K)\right)$$
+
+Attention 计算时先反变换再做 Softmax，精度等价。
+
+**与 SmoothQuant 的本质区别：**
+
+|维度|SmoothQuant|QuaRot / SpinQuant|
+|---|---|---|
+|操作类型|Per-channel 缩放（对角矩阵变换）|随机正交矩阵旋转|
+|等价性|精确等价（乘法分配律）|精确等价（正交变换不改变输出）|
+|Outlier 消除|部分消除（通道间转移）|彻底消除（打散到所有维度）|
+|KV Cache 支持|困难|**原生支持**|
+|推理时开销|零（融入参数）|轻微（在线 RHT，$O(d \log d)$）|
+|典型比特|W8A8（INT8）|**W4A4**，含 4-bit KV Cache|
+
+---
+
+**Q53-Q. AutoRound（EMNLP 2024）：基于优化的 Rounding。**
+
+**与 GPTQ 的核心差异：**
+
+GPTQ 使用 round-to-nearest 作为基础舍入，用 Hessian 误差补偿来纠偏。AutoRound 走完全不同的路径：直接用**梯度优化**学习最优舍入决策。
+
+**AutoRound 可学习参数：**
+
+对每个量化张量引入三个参数：
+
+- $v \in \mathbb{R}^{d_{\text{in}} \times d_{\text{out}}}$：每个权重的 Rounding Offset（决定向上还是向下舍入）。
+- $\alpha, \beta \in \mathbb{R}$：Clipping Range 的学习上下界（控制量化范围，而非固定用 min-max）。
+
+**优化目标（块级输出重建误差）：**
+
+$$\min_{v, \alpha, \beta} | XW - X \cdot Q(W, v, \alpha, \beta) |_F^2$$
+
+其中 $Q(W, v, \alpha, \beta)$ 为以 $[\alpha, \beta]$ 为范围、以 $v$ 调整舍入的量化函数。优化通过 **Signed Gradient Descent**（符号梯度下降）进行，STE 处理量化不可微问题。
+
+**为何在极低比特（W2/W3）下优于 GPTQ：**
+
+GPTQ 的 Hessian 补偿是二阶近似，在极低比特（量化误差远超二阶假设范围）下近似失效。AutoRound 直接优化端到端块级误差，无近似假设，信号更准确，因此在 2–3 bit 量化下相比 GPTQ 精度更高。代价是需要更多校准时间（通常数百步梯度更新，约数十分钟至数小时）。
+
+---
+
+### 6.4 KV Cache 量化
+
+---
+
+**Q54-Q. KV Cache 量化的数据流与硬件支持差异。**
+
+**完整数据流（以 FP8 KV Cache + BF16 Attention 为例）：**
+
+```
+1. Attention 投影（BF16）:
+   K = X_BF16 @ W_K_BF16  →  K_BF16 ∈ R^(T × d_k)
+
+2. KV 写入（量化）:
+   K_FP8 = quant_FP8(K_BF16, scale_k)  ← CUDA Core 执行
+   写入 KV Block（HBM）
+
+3. Attention 计算（读取 KV）:
+   K_BF16 = dequant_FP8(K_FP8, scale_k)  ← 此处为"软件反量化"
+   score = Q_BF16 @ K_BF16^T / sqrt(d_k)
+   out   = softmax(score) @ V_BF16
+
+4. 写入输出（BF16）
+```
+
+**H100 的"硬件原生 FP8 支持"的正确理解：**
+
+原文档 Q36-b 称"H100 无需软件反量化 Kernel"，此表述**需要澄清**：
+
+- H100 的 FP8 Tensor Core 原生支持 **FP8 × FP8 矩阵乘**（权重量化），这确实无需软件 Dequant。
+- 但 **FP8 KV Cache 的 Attention 计算**（KV 存为 FP8，Attention 用 FP8 计算）需要 FA3 或 FlashInfer 等支持 FP8 Attention 的后端。FlashAttention-2 **不支持** FP8 KV Cache 的 FP8 精度 Attention，仍需先 Dequant 至 BF16。
+- 使用 FA3（H100 Hopper 专用）+ FP8 KV Cache 时，Q/K/V 均量化为 FP8，Attention 操作在 FP8 域进行，**无需中间 Dequant**，但此模式需 vLLM >= 0.6.x 且 FA3 后端。
+- Ampere（A100）上 FP8 KV Cache **完全不受硬件支持**，所有操作均为软件模拟，性能损失 10–20%。
+
+**各方案的工程实际：**
+
+|方案|Attention 计算精度|KV 存储|反量化时机|框架支持|
+|---|---|---|---|---|
+|BF16 KV|BF16|BF16|无|所有框架|
+|FP8 KV + FA2 后端|BF16（dequant 前）|FP8|读取时软件 Dequant|vLLM（XFormers/FA2 后端，吞吐无显著提升）|
+|FP8 KV + FlashInfer|BF16 或 FP8|FP8|内核融合 Dequant|vLLM + FlashInfer，H100/L40S|
+|FP8 KV + FA3（H100）|**FP8 原生**|FP8|无（FP8 Attention）|vLLM >= 0.6.x，仅 Hopper|
+
+---
+
+**Q55-Q. Per-tensor vs. Per-head vs. Per-token KV Cache 量化粒度。**
+
+**Key 与 Value 的分布特性：**
+
+- **Key**：存在显著的 per-head、per-channel 分布差异；不同 Attention Head 的 Key 幅值方差较大；Outlier 通道的存在使 Per-tensor 量化容易截断正常值。
+- **Value**：分布相对 Key 更均匀，Per-tensor 量化效果优于 Key；但仍存在 per-head 幅值差异。
+
+因此，**Key 更需要细粒度量化**（Per-head 或 Per-channel），**Value 可容忍较粗粒度**。
+
+**量化粒度对比：**
+
+|粒度|Scale 数量（KV）|精度|适用|
+|---|---|---|---|
+|Per-tensor|2（1 for K, 1 for V）|最低|吞吐优先，精度不敏感|
+|Per-head|$2 H_{\text{KV}}$|中|平衡精度与开销（vLLM 默认 FP8 KV 支持）|
+|Per-token|$2T$（动态增长）|高|精度敏感，静态量化困难|
+|Per-channel|$2 H_{\text{KV}} d_k$|最高|极高精度，Scale 开销大|
+
+**KIVI（2-bit KV Cache，2024）：**
+
+KIVI 发现 Key 的 per-channel 分布极为稳定（统计量可离线计算），提出：
+
+- Per-channel（Key）+ Per-token（Value）的 **2-bit** 量化方案。
+- 保留少量"Residual"精度补偿（高精度存储极少数 Outlier Token）。
+- 在 Llama-2 70B 上 2-bit KV Cache 精度损失约 0.3–0.5 perplexity。
+
+---
+
+**Q56-Q. KV Cache 量化与 FlashAttention 后端兼容性。**
+
+**FA2 不支持 FP8 KV Cache 的原因：**
+
+FlashAttention-2 的 Kernel 在 CUDA 层面硬编码了 BF16/FP16 的内存读取路径，其 Tiling 策略基于 16-byte 对齐的 BF16 数据布局。FP8 KV 的存储格式（8-byte per element）破坏了此对齐假设，且 FA2 的 WMMA 指令选择不支持 FP8 输入，因此 vLLM 在使用 FA2 后端时，FP8 KV Cache 需要在读取前执行软件 Dequant，性能收益有限（有时甚至轻微下降）。
+
+**FA3 原生支持 FP8 KV Cache 的机制：**
+
+FlashAttention-3 针对 Hopper 架构重新设计：
+
+- 使用 WGMMA 指令（Hopper 原生，支持 FP8 输入格式 E4M3/E5M2）。
+- 将 KV 的 FP8 Scale 融入 WGMMA 前的在线 Dequant，通过 Warp Specialization 的 Producer Warp 完成，与 Consumer Warp（执行 WGMMA）形成流水，Dequant 代价被完全隐藏。
+- 结果：FP8 KV Cache + FA3 可实现与 BF16 KV Cache + FA3 几乎相同的 Kernel 效率，同时节省 ~2× KV 显存。
+
+**FlashInfer 的支持：**
+
+FlashInfer 实现了 FP8 KV Cache 的融合 Attention Kernel，兼容 Ada Lovelace（L40S、RTX 4090）和 Hopper（H100），是目前 vLLM 中使用 FP8 KV Cache 的**推荐后端**（性能优于 FA2 + XFormers 路径）。
+
+---
+
 ## 第 7 章·参考答案：解码加速算法
 
 ---
