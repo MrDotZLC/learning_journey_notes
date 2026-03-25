@@ -289,8 +289,8 @@ $$m = \max(m_1, m_2), \quad d = d_1 \cdot e^{m_1 - m} + d_2 \cdot e^{m_2 - m}$$
 
 $$O \leftarrow O \cdot e^{m_{\text{old}} - m_{\text{new}}}$$
 
-$$m^{\text{new}} = \max(m^{\text{old}}, m\_{\text{tile}})$$
-$$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m\_{\text{tile}} - m^{\text{new}}} \cdot \tilde{O}\_{\text{tile}}$$
+$$m^{\text{new}} = \max(m^{\text{old}}, m_{\text{tile}})$$
+$$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m_{\text{tile}} - m^{\text{new}}} \cdot \tilde{O}_{\text{tile}}$$
 
 此技巧使 Attention 的 Softmax 可以在单次遍历 KV Tile 时完成，无需将整个序列载入 SRAM，是 FlashAttention 实现 $O(N)$ 显存复杂度的关键（见 Q23）。
 
@@ -2635,7 +2635,7 @@ $$s_j = \frac{\max(|X_j|)^\alpha}{\max(|W_j|)^{1-\alpha}}, \quad \alpha \in [0, 
 
 **量化流程：**
 
-$$\hat{w}_{\text{FP4}} = \text{quantize\_fp4}!\left(\frac{w}{s_{\text{FP8}}}\right), \quad s_{\text{FP8}} = \frac{\max(|w_{\text{block}}|)}{6}$$
+$$\hat{w}_{\text{FP4}} = \text{quantize}_{\text{FP4}}!\left(\frac{w}{s_{\text{FP8}}}\right), \quad s_{\text{FP8}} = \frac{\max(|w_{\text{block}}|)}{6}$$
 
 **计算流程（推理时）：**
 
@@ -2868,7 +2868,7 @@ def top_k_sampling(logits, k, temperature=1.0):
 
 按概率从高到低排序，取累积概率刚超过 $p$ 的最小 Token 集合 $\mathcal{V}_p$，从中采样：
 
-$$\mathcal{V}\_p = \min\left\{V' \subseteq V : \sum_{x \in V'} p(x) \geq p\right\}$$
+$$\mathcal{V}_p = \min\left\{V' \subseteq V : \sum_{x \in V'} p(x) \geq p\right\}$$
 
 ```python
 def top_p_sampling(logits, p, temperature=1.0):
