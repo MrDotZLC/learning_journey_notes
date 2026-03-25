@@ -133,7 +133,7 @@ $$I = \frac{\text{FLOPs}}{\text{Bytes Accessed (HBM)}} \quad \left[\text{FLOP/By
 
 性能上界由"屋顶"决定：
 
-$$\text{Performance} = \min!\left(I \times BW_{\text{mem}},P_{\text{peak}}\right)$$
+$$\text{Performance} = \min\!\left(I \times BW_{\text{mem}},P_{\text{peak}}\right)$$
 
 其中 $BW_{\text{mem}}$ 为 HBM 带宽，$P_{\text{peak}}$ 为峰值算力。
 
@@ -609,7 +609,7 @@ $$D = \alpha \cdot (A \times B) + \beta \cdot C$$
 
 融合扩展后：
 
-$$D = \text{Activation}!\left(\alpha \cdot (A \times B) + \text{bias}\right)$$
+$$D = \text{Activation}\!\left(\alpha \cdot (A \times B) + \text{bias}\right)$$
 
 **CUTLASS EVT（Epilogue Visitor Tree，Hopper 3.x API）：**
 
@@ -2387,7 +2387,7 @@ $$\frac{\partial \mathcal{L}}{\partial x} \approx \frac{\partial \mathcal{L}}{\p
 
 $$s = \frac{\max(|\alpha|, |\beta|)}{q_{\max}}, \quad z = 0$$
 
-$$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil,\ q_{\min},\ q_{\max}\right)$$
+$$x_q = \text{clip}\!\left(\left\lfloor \frac{x}{s} \right\rceil,\ q_{\min},\ q_{\max}\right)$$
 
 反量化：$\hat{x} = x_q \cdot s$
 
@@ -2395,9 +2395,9 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil,\ q_{\min},\ q_{
 
 浮点范围 $[\alpha, \beta]$ 不要求对称，Zero-point $z \neq 0$：
 
-$$s = \frac{\beta - \alpha}{q_{\max} - q_{\min}}, \quad z = \text{clip}!\left(\left\lfloor -\frac{\alpha}{s} \right\rceil + q_{\min},\ q_{\min},\ q_{\max}\right)$$
+$$s = \frac{\beta - \alpha}{q_{\max} - q_{\min}}, \quad z = \text{clip}\!\left(\left\lfloor -\frac{\alpha}{s} \right\rceil + q_{\min},\ q_{\min},\ q_{\max}\right)$$
 
-$$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,\ q_{\min},\ q_{\max}\right)$$
+$$x_q = \text{clip}\!\left(\left\lfloor \frac{x}{s} \right\rceil + z,\ q_{\min},\ q_{\max}\right)$$
 
 反量化：$\hat{x} = (x_q - z) \cdot s$
 
@@ -2511,7 +2511,7 @@ $$\delta W = -\frac{w_q - \hat{w}_q}{\left[H^{-1}\right]_{qq}} \cdot \left[H^{-1
 
 固定按列顺序（列 $0, 1, \ldots, d_{\text{in}}-1$）量化后，$H^{-1}$ 的更新具有结构性：
 
-$$[H^{-1}]^{(j+1)} = \text{Schur\_complement}!\left([H^{-1}]^{(j)},\ j\right)$$
+$$[H^{-1}]^{(j+1)} = \text{Schur\_complement}\!\left([H^{-1}]^{(j)},\ j\right)$$
 
 此结构与 Cholesky 分解完全对应：预先对 $H$ 做 Cholesky 分解 $H = LL^T$，则 $H^{-1}$ 的所有子矩阵 Schur 补可在 $O(d_{\text{in}}^2)$ 时间内通过回代（back-substitution）求得，无需每步重新求逆。
 
@@ -2531,22 +2531,24 @@ $$W[:, j_{\text{end}}:] \mathrel{-}= \delta W_{\text{block}} \cdot H^{-1}_{\text
 
 **AWQ 核心观察：**
 
-激活值 $X$ 存在少量幅值极大的通道（Outlier），这些通道对应的权重列对最终输出贡献最大。保护这些 Salient 权重列（不量化或高精度量化）可显著改善精度。
+激活值 $X$ 存在少量幅值极大的通道（Outlier），这些通道对应的权重列对最终输出贡献最大。保护这些 Salient 权重列可显著改善精度。
 
 **AWQ 方案：Per-channel 缩放平衡量化难度**
 
-对权重 $W$ 的每个输入通道 $i$，引入缩放因子 $s_i$：
+对权重 $W$ 的每个输入通道 $i$，引入缩放因子 $s_i > 0$：
 
-$$\hat{Y} = (W \cdot \text{diag}(s)^{-1}) \cdot (\text{diag}(s) \cdot X) = \hat{W} \cdot \hat{X}$$
+$$\hat{Y} = (W \cdot \text{diag}(s)^{-1}) \cdot (\text{diag}(s) \cdot X) = \tilde{W} \cdot \tilde{X}$$
 
-- 对 Salient 通道：增大 $s_i$，使对应权重 $W_{:,i} / s_i$ 幅值缩小，**量化误差减小**。
-- 对应激活 $X_{i,:} \cdot s_i$ 幅值增大，但激活通常不量化（W4A16），无精度损失。
+- 对 Salient 通道：增大 $s_i$，使 $\tilde{W}_{:,i} = W_{:,i} / s_i$ 幅值缩小，**量化误差减小**。
+- 对应激活 $\tilde{X}_{i,:} = X_{i,:} \cdot s_i$ 幅值增大，但 AWQ 的 W4A16 方案中激活不量化，无精度损失。
 
 **最优缩放因子搜索：**
 
 $$s_i^* = \arg\min_{s_i} | W \cdot \text{diag}(s)^{-1} \cdot \hat{X} - \hat{W} \cdot \hat{X} |$$
 
-通过网格搜索（Grid Search）在少量校准数据上求解，无需梯度，速度极快（分钟级）。
+通过 Grid Search 在少量校准数据上求解，无需梯度，速度极快（分钟级）。实践中 $s_i$ 从激活幅度的分位数中选取：
+
+$$s_i = \text{mean}(|X_i|)^{\alpha}, \quad \alpha \in [0, 1]$$
 
 **AWQ vs GPTQ 对比：**
 
@@ -2554,9 +2556,68 @@ $$s_i^* = \arg\min_{s_i} | W \cdot \text{diag}(s)^{-1} \cdot \hat{X} - \hat{W} \
 |---|---|---|
 |原理|Hessian 误差补偿|激活感知缩放|
 |校准速度|较慢（小时级）|**更快**（分钟级）|
-|W4 精度|好|相当或更好|
-|硬件部署|需解压缩（dequant）|同上，但更易与激活量化结合|
+|W4 精度（academic benchmarks）|相当|相当或略优|
+|W4 精度（coding/real-world tasks）|**更优**（近期研究）|略逊|
 |与 A8 结合|困难|**自然兼容** W4A8|
+
+---
+
+**Q48-b. AWQ 缩放因子为何用 Grid Search 而非梯度优化？**
+
+**AWQ 的优化目标：**
+
+$$\mathcal{L}(s) = \left| W \cdot \text{diag}(s)^{-1} \cdot \hat{X} - Q\!\left(W \cdot \text{diag}(s)^{-1}\right) \cdot \hat{X} \right|_F^2$$
+
+优化变量为 per-channel 缩放向量 $s$，$Q(\cdot)$ 为量化操作（round-to-nearest）。若使用梯度优化，需对 $Q(\cdot)$ 应用 STE：
+
+$$\frac{\partial Q(x)}{\partial x} \approx 1$$
+
+STE 在 QAT 中误差可忽略，但在此场景下失效，原因来自三个维度。
+
+**原因一：优化变量通过量化步长间接作用，梯度链路断裂**
+
+在 QAT 中，权重 $\theta$ 仅出现在 $Q(\theta)$ 的输入，STE 直接将 $\partial Q / \partial \theta \approx 1$，近似质量尚可。在 AWQ 中，$s_i$ 同时影响两处：
+
+- 量化输入值：$W_{:,i} / s_i$（连续，梯度存在）
+- 量化步长：$\Delta(s_i) = \max_j|W_{j,i} / s_i| / q_{\max}$（随 $s_i$ 连续缩放）
+
+步长 $\Delta(s_i)$ 的变化导致所有格点位置同步移动，大量权重 $w_j / s_i$ 跨越格点边界，$\mathcal{L}(s_i)$ 在 $s_i$ 方向上呈**高频锯齿状**。STE 将这些密集跳变全部近似为平滑，梯度方向经常与真实下降方向相反。
+
+对比两种景观：
+
+```
+QAT: L(θ)，单个权重
+  光滑碗状 + 微小阶梯（幅度 ≈ s/2）
+  STE"磨平"微小阶梯，方向基本正确
+
+AWQ: L(s_i)，缩放因子
+  高频锯齿叠加在碗状函数上（格点随 s_i 整体移动）
+  STE"磨平"大幅跳变，方向经常错误
+```
+
+**原因二：迭代步数极少，STE 误差无法均摊**
+
+QAT 经 $T \approx 10^4$–$10^5$ 步迭代，STE 引入的误差 $\epsilon_t$ 在不同 batch、不同权重位置近似零均值，累积效应趋于抵消——信号以 $O(T)$ 增长，噪声以 $O(\sqrt{T})$ 增长，信噪比随迭代提升。
+
+AWQ 为保持分钟级校准速度，即使使用梯度优化也只能做 $O(10^2)$ 步。此时信噪比约为 $\sqrt{T} \approx 10$，STE 误差与信号量级相当，优化不稳定。
+
+**原因三：Grid Search 在此景观上更可靠**
+
+$s_i$ 的有效搜索范围由激活幅值决定，实践中从以下候选集枚举：
+
+$$s_i \in \left\{ \text{mean}(|X_i|)^\alpha \;\middle|\; \alpha \in {0, 0.05, 0.1, \ldots, 1.0} \right\}$$
+
+约 20 个候选点，每个候选点仅需一次前向计算（无反向传播），全部候选穷举的总代价远低于数百步梯度更新。由于 $\mathcal{L}(s_i)$ 的锯齿景观使梯度方向不可信，穷举离散候选集反而是更稳健的全局搜索策略。
+
+**结构性对比：**
+
+| 维度                        | QAT                 | AWQ（若用梯度）            |
+| ------------------------- | ------------------- | -------------------- |
+| $s$ 对 $\mathcal{L}$ 的作用路径 | 直接输入 $Q(\theta)$    | 同时控制输入值与量化步长         |
+| $\mathcal{L}$ 的景观         | 光滑碗状 + 微小阶梯         | 高频锯齿叠加碗状             |
+| 迭代步数                      | $10^4$–$10^5$，误差可均摊 | $O(10^2)$，误差无法均摊     |
+| STE 误差性质                  | 近似零均值随机噪声           | 系统性方向偏差              |
+| 结论                        | STE 有效，梯度优化可用       | 梯度不可信，Grid Search 更优 |
 
 ---
 
@@ -2635,7 +2696,7 @@ $$s_j = \frac{\max(|X_j|)^\alpha}{\max(|W_j|)^{1-\alpha}}, \quad \alpha \in [0, 
 
 **量化流程：**
 
-$$\hat{w}_{\text{FP4}} = \text{quantize}_{\text{FP4}}!\left(\frac{w}{s_{\text{FP8}}}\right), \quad s_{\text{FP8}} = \frac{\max(|w_{\text{block}}|)}{6}$$
+$$\hat{w}_{\text{FP4}} = \text{quantize}_{\text{FP4}}\!\left(\frac{w}{s_{\text{FP8}}}\right), \quad s_{\text{FP8}} = \frac{\max(|w_{\text{block}}|)}{6}$$
 
 **计算流程（推理时）：**
 
@@ -2692,7 +2753,7 @@ Step 3 - Accept/Reject（逐 Token 验证）：
 
 单个候选 Token $x̃$ 的接受概率为：
 
-$$\alpha = \mathbb{E}!\left[\min!\left(1,\ \frac{p(x̃)}{q(x̃)}\right)\right]$$
+$$\alpha = \mathbb{E}\!\left[\min\!\left(1,\ \frac{p(x̃)}{q(x̃)}\right)\right]$$
 
 其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha$ 越大（Draft 与 Target 分布越接近），加速比越高。
 
@@ -2752,7 +2813,7 @@ $$\gamma^* = \left\lfloor \frac{\ln(c(1-\alpha)/\alpha)}{\ln \alpha} \right\rflo
 
 Token $x$ 从 Draft 分布 $q$ 采样后被接受，对输出的贡献概率：
 
-$$q(x) \cdot \min!\left(1,\ \frac{p(x)}{q(x)}\right) = \min(q(x),\ p(x))$$
+$$q(x) \cdot \min\!\left(1,\ \frac{p(x)}{q(x)}\right) = \min(q(x),\ p(x))$$
 
 **情形 2：Token $x$ 从修正分布中采样（当某候选被拒绝时）：**
 
@@ -4937,7 +4998,7 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\thet
 
 利用旋转矩阵的正交性：$R(m\theta)^T R(n\theta) = R((n-m)\theta)$，展开得：
 
-$$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}!\left[\left(\mathbf{W}_q \mathbf{x}_m\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{i(n-m)\theta}\right)\right]$$
+$$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{i(n-m)\theta}\right)\right]$$
 
 结果**只含 $(n-m)$**，与绝对位置 $m, n$ 无关，仅取决于相对位置差 $m - n$。✅
 
@@ -5566,7 +5627,7 @@ $$\mathcal{L}_{\text{total}} = \alpha \cdot \mathcal{L}_{\text{task}} + (1-\alph
 
 Student 的输出 Logit 分布对齐 Teacher 的输出 Logit 分布，使用 KL 散度作为损失：
 
-$$\mathcal{L}_{\text{KD}} = \text{KL}!\left(p_T(y|x; \tau) ,|, p_S(y|x; \tau)\right) = \sum_y p_T \log \frac{p_T}{p_S}$$
+$$\mathcal{L}_{\text{KD}} = \text{KL}\!\left(p_T(y|x; \tau) ,|, p_S(y|x; \tau)\right) = \sum_y p_T \log \frac{p_T}{p_S}$$
 
 其中 $\tau$ 为温度参数（Temperature），用于软化分布：
 
@@ -5589,13 +5650,13 @@ $$p_T(y_i|x; \tau) = \frac{\exp(z_i^T / \tau)}{\sum_j \exp(z_j^T / \tau)}$$
 
 对齐 Teacher 和 Student 的中间层特征（隐状态、Attention 图、FFN 输出等）：
 
-$$\mathcal{L}_{\text{feat}} = \sum_{l \in \mathcal{L}} \left| f_S^l(x) - \phi!\left(f_T^l(x)\right) \right|_2^2$$
+$$\mathcal{L}_{\text{feat}} = \sum_{l \in \mathcal{L}} \left| f_S^l(x) - \phi\!\left(f_T^l(x)\right) \right|_2^2$$
 
 其中 $\phi$ 为适配器（线性投影），处理 Teacher/Student 维度不一致的情况。
 
 **Attention 图蒸馏（TinyBERT 等）：**
 
-$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}!\left(A_S^h,\ A_T^h\right)$$
+$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h,\ A_T^h\right)$$
 
 对齐每个 Attention 头的注意力权重矩阵。
 
