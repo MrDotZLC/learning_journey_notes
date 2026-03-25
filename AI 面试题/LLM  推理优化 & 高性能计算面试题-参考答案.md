@@ -2649,6 +2649,35 @@ $$s_j = \frac{\max(|X_j|)^\alpha}{\max(|W_j|)^{1-\alpha}}, \quad \alpha \in [0, 
 
 ---
 
+**Q49-b. SmoothQuant 的 $\alpha$ 选择与零开销融合推导。**
+
+**$\alpha$ 的影响分析：**
+
+设激活通道 $j$ 的幅值 $a_j = \max(|X_j|)$，权重通道 $j$ 的幅值 $w_j = \max(|W_j|)$。
+
+量化后各通道的有效量化步长（量化误差正比于 $s$ 的大小）为：
+
+$$s^{\text{act}}_j = \frac{a_j / s_j}{q_{\max}} = \frac{a_j^{1-\alpha} \cdot w_j^{\alpha}}{q_{\max}}, \quad s^{\text{weight}}_j = \frac{w_j \cdot s_j}{q_{\max}} = \frac{w_j^{1-\alpha} \cdot a_j^{\alpha}}{q_{\max}}$$
+
+$\alpha = 0.5$ 时，激活与权重的有效步长各自等于 $\sqrt{a_j \cdot w_j} / q_{\max}$，实现最优的均衡分配。
+
+**LayerNorm 融合推导（以 Pre-LayerNorm 结构为例）：**
+
+原始前向：$\tilde{x} = \text{LayerNorm}(x) = \gamma \odot \hat{x} + \beta \to y = \tilde{x} W$
+
+SmoothQuant 变换后：
+
+$$y = \underbrace{(\tilde{x} \cdot \text{diag}(s)^{-1})}_{\text{平滑激活}} \cdot \underbrace{(\text{diag}(s) \cdot W)}_{\tilde{W}}$$
+
+将 $\text{diag}(s)^{-1}$ 融入 LayerNorm：
+
+$$\gamma' = \gamma / s, \quad \beta' = \beta / s \quad \Rightarrow \quad \tilde{x} / s = \gamma' \odot \hat{x} + \beta'$$
+
+$\tilde{W}$ 在量化前离线计算，**推理时 SmoothQuant 的全部代价仅为存储 $\gamma', \beta'$（替换原始参数）**，无额外计算。
+
+---
+
+
 **Q50. W4A8 / W4A16 / FP8 / INT8 各方案的适用场景与硬件支持？**
 
 |方案|权重精度|激活精度|计算精度|显存节省|速度收益|适用场景|
