@@ -2721,6 +2721,28 @@ $\tilde{W}$ 在量化前离线计算，**推理时 SmoothQuant 的全部代价�
 
 ---
 
+**Q50-b. W4A16 推理的 Dequantization 开销分析。**
+
+W4A16 方案的矩阵乘流程：
+
+```
+存储: W_int4 ∈ Z^(d_out × d_in/2)（两个 INT4 打包为 INT8）
+计算流程:
+  1. 从 HBM 读取 W_int4（带宽需求是 FP16 的 1/4）
+  2. Dequant: W_fp16 = (W_int4 - z) * scale（CUDA Core 完成，非 Tensor Core）
+  3. GEMM: Y = X_fp16 @ W_fp16（FP16 Tensor Core）
+```
+
+**Decode 阶段（Memory-bound）：**
+
+矩阵乘为 GEMV（Batch=1），瓶颈在 HBM 带宽。W4 将权重读取量从 FP16 压缩 4×，Dequant 代价相对 GEMV 计算量微小，**带宽节省 $\approx 4\times$ 直接转化为速度提升**（实测约 2–3×，因 KV Cache 仍为 FP16）。
+
+**Prefill 阶段（Compute-bound）：**
+
+矩阵乘为 GEMM，瓶颈在 Tensor Core 算力。Dequant 操作（CUDA Core）无法被 Tensor Core 隐藏，成为额外开销，导致 W4A16 在 Prefill 阶段**无速度收益，甚至略慢于 FP16**（因多了 Dequant 步骤）。这是 W4A16 仅适合 Decode 阶段、而 Prefill 场景应优先选 FP8/INT8 的根本原因。
+
+---
+
 **Q51. Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？**
 
 **NVFP4 格式定义：**
