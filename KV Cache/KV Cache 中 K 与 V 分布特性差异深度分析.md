@@ -222,6 +222,7 @@ $$ K = \underbrace{K_{:,\mathcal{C}_{\text{out}}}}_{\text{FP16}} \oplus \underbr
 
 #### 6.1.3 旋转变换平滑（Rotation-based Smoothing）
 
+[基于 Hadamard 旋转的 Outlier 消除技术全解析](基于%20Hadamard%20旋转的%20Outlier%20消除技术全解析.md)
 使用随机正交矩阵 $R \in \mathbb{R}^{d_k \times d_k}$ 对 $K$、$Q$ 施加旋转：
 
 $$ \tilde{K} = K R,\quad \tilde{Q} = Q R $$

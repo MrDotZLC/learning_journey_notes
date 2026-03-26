@@ -2808,6 +2808,8 @@ Blackwell 区别于 Hopper 的关键：Hopper 的 FP8 Tensor Core 仍需软件 D
 
 **Q52-Q. QuaRot / SpinQuant：基于 Hadamard 旋转的 Outlier 消除。**
 
+[基于 Hadamard 旋转的 Outlier 消除技术全解析](../KV%20Cache/基于%20Hadamard%20旋转的%20Outlier%20消除技术全解析.md)
+
 **问题背景：**
 
 SmoothQuant 通过缩放迁移量化难度，但不能从根本上消除 Outlier（缩放后某些通道依然偏大）。KV Cache 的 Key/Value 同样存在 Outlier，SmoothQuant 难以在 KV 层应用。
