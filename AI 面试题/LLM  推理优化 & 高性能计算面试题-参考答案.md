@@ -1856,8 +1856,12 @@ KV 中的 **Value（V）** 数值分布相对平滑，量化误差小；**Key（
 **工程实践：**
 
 - H100 原生支持 FP8 Tensor Core，FP8 KV Cache 无需软件反量化，推理时直接参与计算。
+- **FP8 KV Cache 的 Attention 计算**（KV 存为 FP8，Attention 用 FP8 计算）需要 FA3 或 FlashInfer 等支持 FP8 Attention 的后端。
+- FlashAttention-2 **不支持** FP8 KV Cache 的 FP8 精度 Attention，仍需先 Dequant 至 BF16。
 - INT8 KV Cache 需在 Attention 计算前反量化为 FP16，引入额外计算，但带宽节省仍超过反量化开销。
 - TensorRT-LLM、vLLM 均支持 FP8 KV Cache，典型精度损失（MMLU 等基准）< **0.5%**。
+- 使用 FA3（H100 Hopper 专用）+ FP8 KV Cache 时，Q/K/V 均量化为 FP8，Attention 操作在 FP8 域进行，**无需中间 Dequant**，但此模式需 vLLM >= 0.6.x 且 FA3 后端。
+- Ampere（A100）上 FP8 KV Cache **完全不受硬件支持**，所有操作均为软件模拟，性能损失 10–20%。
 
 ---
 
@@ -2893,8 +2897,6 @@ GPTQ 的 Hessian 补偿是二阶近似，在极低比特（量化误差远超二
 ```
 
 **H100 的"硬件原生 FP8 支持"的正确理解：**
-
-原文档 Q36-b 称"H100 无需软件反量化 Kernel"，此表述**需要澄清**：
 
 - H100 的 FP8 Tensor Core 原生支持 **FP8 × FP8 矩阵乘**（权重量化），这确实无需软件 Dequant。
 - 但 **FP8 KV Cache 的 Attention 计算**（KV 存为 FP8，Attention 用 FP8 计算）需要 FA3 或 FlashInfer 等支持 FP8 Attention 的后端。FlashAttention-2 **不支持** FP8 KV Cache 的 FP8 精度 Attention，仍需先 Dequant 至 BF16。
