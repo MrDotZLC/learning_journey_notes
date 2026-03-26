@@ -2824,7 +2824,7 @@ $$Y = XW = (XQ)(Q^T W)$$
 
 在 Attention 中对 $Q, K, V$ 的投影前后各插入一对互逆 RHT，使 KV 向量的分布同样惰性化（Outlier-free），从而支持 KV Cache 也量化至 4 bit：
 
-$$K_{\text{quant}} = Q_{\text{FP4}}!\left(\text{RHT}(X W_K)\right)$$
+$$K_{\text{quant}} = Q_{\text{FP4}}\!\left(\text{RHT}(X W_K)\right)$$
 
 Attention 计算时先反变换再做 Softmax，精度等价。
 
