@@ -172,19 +172,18 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 ### 7.1 Speculative Decoding
 
 - **Q52.** Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？
-- **Q53.** 接受率 $\alpha$ 与加速比的关系推导：若 $\gamma$ 为 Draft 步数，则期望加速比约为：
+- **Q53.** 接受率 $\alpha$ 与加速比的关系推导：若 $\gamma$ 为 Draft 步数，则期望每轮接受 Token 数与加速比公式推导？
+- **Q54.** 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性证明）？
+- **Q55.** Ngram-based Draft、Medusa、EAGLE（含 EAGLE-2/3）各方案的核心思路与对比？
+- **Q55-b.** Tree-based Speculative Decoding（SpecInfer、EAGLE 树形验证）相比链式 Draft 的优势：候选树如何构建？Tree Attention 的 Mask 形式？期望接受 Token 数如何提升？
+- **Q55-c.** Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路：用目标模型自身的早退出层作为 Draft，无需额外模型的工程代价与精度损失分析？
+- **Q55-d.** Speculative Decoding 在高 Batch Size 下性能退化的根本原因：随 Batch 增大系统从 Memory-bound 转为 Compute-bound，Draft 与 Verify 的计算代价比 $c$ 如何变化？何时 Speculative Decoding 反而降低吞吐？
 
-$$\text{Speedup} \approx \frac{1 - \alpha^{\gamma+1}}{(1 - \alpha) \cdot c}$$
+### 7.2 其他解码算法
 
-其中 $c$ 为 Draft/Target 计算代价比。
-
-- **Q54.** 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性）？
-- **Q55.** Ngram-based Draft、EAGLE、Medusa 各方案的对比？
-
-### 7.2 其他算法
-
-- **Q56.** Beam Search 与 Greedy Search 的显存和计算差异？
-- **Q57.** Top-k / Top-p Sampling 的实现细节？
+- **Q56.** Beam Search 与 Greedy Search 的显存和计算差异？LLM 推理中 Beam Search 为何不常用？
+- **Q57.** Top-k / Top-p Sampling 的实现细节与 GPU 优化？Temperature 的作用？
+- **Q57-b.** Repetition Penalty 与 Min-p Sampling 的实现原理？Min-p 相比 Top-p 的自适应优势？
 
 ---
 

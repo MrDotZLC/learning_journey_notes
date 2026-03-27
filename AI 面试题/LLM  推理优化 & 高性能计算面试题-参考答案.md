@@ -2974,26 +2974,37 @@ FlashInfer 实现了 FP8 KV Cache 的融合 Attention Kernel，兼容 Ada Lovela
 
 **核心动机：**
 
-标准自回归解码每步只生成 1 个 Token，Target Model（大模型）的算力在 Decode 阶段严重浪费（Memory-bound，见 Q8）。Speculative Decoding 利用小 Draft Model 快速"猜测"多个候选 Token，再由 Target Model **并行验证**，在不改变输出分布的前提下实现加速。
+标准自回归解码每步只生成 1 个 Token，Target Model（大模型）的 Decode 阶段严重受限于显存带宽（Memory-bound，GEMV 问题）。
+GPU 的计算核心大量闲置，HBM 带宽成为瓶颈。Speculative Decoding 的核心洞察：**在 Memory-bound 场景下，单次前向处理 $\gamma+1$ 个 Token 与处理 1 个 Token 的延迟几乎相同**（带宽利用率相近），因此可以用小 Draft Model 快速猜测多个候选 Token，再由 Target Model 以 Prefill 方式**并行验证**，在不改变输出分布的前提下实现加速。
 
 **基本流程：**
 
 ```
-Step 1 - Draft 阶段（小模型顺序生成）：
-  Draft Model 自回归生成 γ 个候选 Token：
-  x̃₁, x̃₂, ..., x̃ᵧ（每步约 2–10ms，成本极低）
+设上下文序列为 x_{1:n}，Draft Model 概率分布为 q(·)，Target Model 为 p(·)
 
-Step 2 - Verify 阶段（大模型并行验证）：
-  Target Model 以 [context, x̃₁, ..., x̃ᵧ] 为输入，
-  一次前向传播（1 个 Prefill 步）得到 γ+1 个位置的概率分布：
-  p(·|context), p(·|context, x̃₁), ..., p(·|context, x̃₁,...,x̃ᵧ)
+Step 1 — Draft 阶段（小模型顺序自回归生成）：
+  Draft Model 依次生成 γ 个候选 Token：
+    x̃₁ ~ q(·| x_{1:n})
+    x̃₂ ~ q(·| x_{1:n}, x̃₁)
+    ...
+    x̃ᵧ ~ q(·| x_{1:n}, x̃₁,...,x̃ᵧ₋₁)
 
-Step 3 - Accept/Reject（逐 Token 验证）：
-  对 i = 1..γ，以概率 min(1, p(x̃ᵢ)/q(x̃ᵢ)) 接受 x̃ᵢ
-  若 x̃ᵢ 被拒绝，从修正分布中采样新 Token，停止验证
-  若全部接受，从 p(·|context, x̃₁,...,x̃ᵧ) 额外采样 1 个 Token
+Step 2 — Verify 阶段（大模型一次并行前向）：
+  Target Model 以 [x_{1:n}, x̃₁,...,x̃ᵧ] 为输入，
+  单次前向（等价于长度 γ+1 的 Prefill）获得 γ+1 个位置的概率分布：
+    p₁(·) = p(·| x_{1:n})
+    p₂(·) = p(·| x_{1:n}, x̃₁)
+    ...
+    pᵧ₊₁(·) = p(·| x_{1:n}, x̃₁,...,x̃ᵧ)
 
-其中 q(·) 为 Draft Model 的概率分布，p(·) 为 Target Model 的概率分布。
+Step 3 — Accept/Reject（逐位置顺序判断）：
+  对 i = 1,...,γ：
+    采样 r ~ Uniform[0,1]
+    若 r ≤ pᵢ(x̃ᵢ) / q(x̃ᵢ)：接受 x̃ᵢ，继续验证下一位置
+    否则：从修正分布 norm(max(0, pᵢ(·) - q(·))) 采样新 Token，终止本轮
+  若 γ 个 Token 全部接受：从 pᵧ₊₁(·) 额外采样 1 个 Token（bonus token）
+
+每轮最少输出 1 个 Token（最坏情况：第 1 个被拒绝，从修正分布采样）
 ```
 
 **Token 接受率 $\alpha$ 的定义：**
@@ -3002,7 +3013,7 @@ Step 3 - Accept/Reject（逐 Token 验证）：
 
 $$\alpha = \mathbb{E}\!\left[\min\!\left(1,\ \frac{p(x̃)}{q(x̃)}\right)\right]$$
 
-其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha$ 越大（Draft 与 Target 分布越接近），加速比越高。
+其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha \in [0,1]$，$\alpha$ 越大（Draft 与 Target 分布越接近），加速比越高，当 $p = q$（Draft 与 Target 分布完全一致）时 $\alpha = 1$，每轮 $\gamma$ 个候选全部接受，加速比最大。
 
 **关键性质：** 每轮 Verify 无论接受几个 Token，**至少产出 1 个 Token**（最坏情况：全部拒绝，从修正分布采样 1 个），因此不会慢于标准解码。
 
