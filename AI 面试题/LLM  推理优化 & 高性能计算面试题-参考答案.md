@@ -2967,6 +2967,7 @@ FlashInfer 实现了 FP8 KV Cache 的融合 Attention Kernel，兼容 Ada Lovela
 ---
 
 ### 7.1 Speculative Decoding
+[投机解码 (Speculative Decoding) 核心原理与推导](../AI%20Infra/投机解码%20(Speculative%20Decoding)%20核心原理与推导.md)
 
 ---
 
