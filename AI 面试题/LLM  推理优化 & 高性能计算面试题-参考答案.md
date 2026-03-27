@@ -2967,7 +2967,6 @@ FlashInfer 实现了 FP8 KV Cache 的融合 Attention Kernel，兼容 Ada Lovela
 ---
 
 ### 7.1 Speculative Decoding
-[投机解码 (Speculative Decoding) 核心原理与推导](../AI%20Infra/投机解码%20(Speculative%20Decoding)%20核心原理与推导.md)
 
 ---
 
@@ -3010,11 +3009,11 @@ Step 3 — Accept/Reject（逐位置顺序判断）：
 
 **Token 接受率 $\alpha$ 的定义：**
 
-单个候选 Token $x̃$ 的接受概率为：
+对单个候选位置，Token $\tilde{x}$ 被接受的概率为：
 
-$$\alpha = \mathbb{E}\!\left[\min\!\left(1,\ \frac{p(x̃)}{q(x̃)}\right)\right]$$
+$$\alpha = \mathbb{E}_{\tilde{x} \sim q}!\left[\min!\left(1,\ \frac{p(\tilde{x})}{q(\tilde{x})}\right)\right]$$
 
-其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha \in [0,1]$，$\alpha$ 越大（Draft 与 Target 分布越接近），加速比越高，当 $p = q$（Draft 与 Target 分布完全一致）时 $\alpha = 1$，每轮 $\gamma$ 个候选全部接受，加速比最大。
+其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha \in [0,1]$，当 $p = q$（Draft 与 Target 分布完全一致）时 $\alpha = 1$，每轮 $\gamma$ 个候选全部接受，加速比最大。
 
 **关键性质：** 每轮 Verify 无论接受几个 Token，**至少产出 1 个 Token**（最坏情况：全部拒绝，从修正分布采样 1 个），因此不会慢于标准解码。
 
@@ -3024,111 +3023,268 @@ $$\alpha = \mathbb{E}\!\left[\min\!\left(1,\ \frac{p(x̃)}{q(x̃)}\right)\right]
 
 **每轮期望接受 Token 数：**
 
-设每轮 Draft 生成 $\gamma$ 个候选，每个独立地以概率 $\alpha$ 被接受（简化假设）。
+设独立同分布简化假设：每个候选位置以概率 $\alpha$ 被接受（各位置独立）。第 $k$ 个 Token 被接受，当且仅当前 $k-1$ 个均被接受。
 
-第 $k$ 个 Token 被接受当且仅当前 $k-1$ 个均被接受，概率为 $\alpha^{k-1}$：
+令 $N$ 为本轮实际接受的 Token 数（含修正采样的 1 个 bonus token），分情况：
 
-$$\mathbb{E}[\text{接受 Token 数}] = \sum_{k=1}^{\gamma} \alpha^{k-1} \cdot \alpha + \alpha^\gamma \cdot 1 = \sum_{k=1}^{\gamma} \alpha^k + \alpha^\gamma$$
+- 前 $k-1$ 个接受、第 $k$ 个被拒绝（$k = 1,\ldots,\gamma$），此时本轮输出 $k$ 个 Token（已接受的 $k-1$ 个 + 修正采样 1 个），概率为 $\alpha^{k-1}(1-\alpha)$
+- 全部 $\gamma$ 个接受，额外从 $p_{\gamma+1}$ 采样 bonus token，输出 $\gamma+1$ 个 Token，概率为 $\alpha^\gamma$
 
-化简（等比数列）：
+期望接受数：
 
-$$= \frac{\alpha(1 - \alpha^\gamma)}{1 - \alpha} + \alpha^\gamma = \frac{\alpha - \alpha^{\gamma+1}}{1-\alpha} + \alpha^\gamma = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$
+$$\mathbb{E}[N] = \sum_{k=1}^{\gamma} k \cdot \alpha^{k-1}(1-\alpha) + (\gamma+1) \cdot \alpha^\gamma$$
+
+利用等比级数求和公式化简：
+
+$$\mathbb{E}[N] = \sum_{k=1}^{\gamma} k\alpha^{k-1}(1-\alpha) + (\gamma+1)\alpha^\gamma$$
+
+令 $S = \sum_{k=1}^{\gamma} k\alpha^{k-1}(1-\alpha)$，展开：
+
+$$\mathbb{E}[N] = (1-\alpha)\cdot\frac{d}{d\alpha}!\left[\sum_{k=1}^{\gamma}\alpha^k\right] + (\gamma+1)\alpha^\gamma = (1-\alpha)\cdot\frac{\alpha - (\gamma+1)\alpha^{\gamma+1} + \gamma\alpha^{\gamma+2}}{(1-\alpha)^2} + (\gamma+1)\alpha^\gamma$$
+
+化简后得到简洁形式：
+
+$$\boxed{\mathbb{E}[N] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}}$$
 
 **加速比推导：**
 
-设 Draft Model 运行 $\gamma$ 步的时间代价相对于 Target Model 1 步为 $c$（即 $c = T_{\text{draft}} \times \gamma / T_{\text{target}}$），每轮 Speculative Decoding 的时间为：
+设 Draft Model 生成 $\gamma$ 步的总时间为 $c_d \cdot T$（$T$ 为 Target Model 单步时间），Verify 阶段（长度 $\gamma+1$ 的 Prefill）时间约为 $T$（Memory-bound 假设下与单步时间接近）。
 
-$$T_{\text{spec}} = c \cdot T_{\text{target}} + T_{\text{target}} = (1 + c) \cdot T_{\text{target}}$$
+定义 $c = c_d$（Draft $\gamma$ 步总时间 / Target 单步时间），则每轮 Speculative Decoding 耗时：
 
-（Draft 顺序生成 + Target 并行 Verify，两者串行）
+$$T_{\text{spec-round}} = (1 + c) \cdot T$$
 
-每轮标准解码生成 1 个 Token 耗时 $T_{\text{target}}$，生成等量 Token 需要：
+标准自回归生成同等数量 $\mathbb{E}[N]$ 个 Token 的耗时：
 
-$$T_{\text{std}} = \frac{1 - \alpha^{\gamma+1}}{1-\alpha} \cdot T_{\text{target}}$$
+$$T_{\text{ar}} = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha} \cdot T$$
 
 **加速比：**
 
-$$\boxed{\text{Speedup} = \frac{T_{\text{std}}}{T_{\text{spec}}} = \frac{1 - \alpha^{\gamma+1}}{(1 - \alpha)(1 + c)}}$$
+$$\boxed{\text{Speedup} = \frac{T_{\text{ar}}}{T_{\text{spec-round}}} = \frac{1 - \alpha^{\gamma+1}}{(1 - \alpha)(1 + c)}}$$
 
 **数值示例（$\alpha = 0.8,\ \gamma = 4,\ c = 0.1$）：**
 
 $$\text{Speedup} = \frac{1 - 0.8^5}{(1-0.8)(1+0.1)} = \frac{1 - 0.328}{0.2 \times 1.1} = \frac{0.672}{0.22} \approx 3.05\times$$
 
-**$\gamma$ 的最优选择：** 固定 $\alpha$ 和 $c$，对 $\gamma$ 求导可得最优草稿长度：
+**最优 $\gamma$ 的分析：**
 
-$$\gamma^* = \left\lfloor \frac{\ln(c(1-\alpha)/\alpha)}{\ln \alpha} \right\rfloor$$
+固定 $\alpha$ 和 $c$，加速比关于 $\gamma$（离散变量）单调递增后趋于平坦，边际收益递减。实践中：
 
-当 Draft Model 足够小（$c \ll 1$）且 $\alpha$ 较高时，增大 $\gamma$ 收益显著。
+- $\gamma = 4 \sim 6$ 是常用配置，对应 vLLM 默认的 `num_speculative_tokens=5`
+- $\alpha$ 较低（< 0.6）时增大 $\gamma$ 收益迅速下降（$\alpha^\gamma$ 项使期望接受数接近 $1/(1-\alpha)$）
+- $c$ 越大（Draft 越慢）最优 $\gamma$ 越小
 
----
+**模型与假设的局限性：**
 
-**Q54. 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性）？**
-
-**核心证明思路：**
-
-对第 $i$ 个位置的 Token $x$，其在 Speculative Decoding 下的实际采样分布 $p'(x)$ 需证明等于 Target 分布 $p(x)$。
-
-**情形 1：Token $x$ 被接受（接受概率 $\min(1, p(x)/q(x))$）：**
-
-Token $x$ 从 Draft 分布 $q$ 采样后被接受，对输出的贡献概率：
-
-$$q(x) \cdot \min\!\left(1,\ \frac{p(x)}{q(x)}\right) = \min(q(x),\ p(x))$$
-
-**情形 2：Token $x$ 从修正分布中采样（当某候选被拒绝时）：**
-
-拒绝发生的总概率为 $\sum_x \max(0,\ q(x) - p(x))$，修正分布为：
-
-$$p'_{\text{resample}}(x) = \frac{\max(0,\ p(x) - q(x))}{\sum_{x'}\max(0,\ p(x') - q(x'))}$$
-
-两种情形的总贡献：
-
-$$p'(x) = \min(p(x), q(x)) + \sum_x\max(0, q(x)-p(x)) \cdot p'_{\text{resample}}(x)$$
-
-利用恒等式 $p(x) = \min(p(x), q(x)) + \max(0, p(x) - q(x))$ 及归一化条件，可证明：
-
-$$p'(x) = p(x) \quad \forall x$$
-
-**直观理解：** Accept/Reject + 修正采样的组合，等价于直接从 $p$ 采样，Draft Model 仅起加速作用，不影响输出分布。这是 Speculative Decoding 相比知识蒸馏等方法的关键优势——**无精度损失**。
+上述推导假设各位置接受概率独立同为 $\alpha$，实际中越靠后的位置接受率越低（误差累积），这也是 EAGLE-3 引入 Training-Time Test 的动机。
 
 ---
 
-**Q55. Ngram-based Draft、EAGLE、Medusa 各方案的对比？**
+**Q54. 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性证明）？**
 
-**三种方案的核心思路：**
+**证明框架：**
 
-**① Ngram-based Draft（无额外参数）：**
+设当前位置 $i$ 的 Draft Token 为 $\tilde{x}$（从 $q(\cdot)$ 采样），Target 分布为 $p(\cdot)$，Draft 分布为 $q(\cdot)$。需证明 Speculative Decoding 在该位置的实际采样分布 $p'(\cdot) = p(\cdot)$。
 
-- Draft：从上下文历史中查找匹配当前 $n$ 个 Token 的 Ngram，用其后续 Token 作为候选。
-- 优点：零额外参数，零额外计算，适合重复性高的场景（代码、模板化文本）。
-- 缺点：$\alpha$ 低且不稳定（约 0.5–0.7），对创意生成无效。
-- 代表：vLLM 的 `ngram_prompt_lookup`。
+**实际采样分布 $p'(x)$ 由两条路径贡献：**
 
-**② Medusa（并行解码头）：**
+**路径 1：候选被接受。**
 
-- 在 Target Model 的最后一层隐状态上添加 $K$ 个独立的**解码头**（每个头预测未来第 $k$ 步的 Token）。
-- 一次前向同时产生 $K$ 个候选 Token（树形候选），再由原始 LM Head 验证。
-- 优点：无需单独 Draft Model，推理开销低（仅增加 $K$ 个线性层）。
-- 缺点：需要微调（训练解码头），$\alpha$ 约 0.6–0.75，多头之间相互独立（无自回归依赖）导致接受率不如 EAGLE。
+$\tilde{x} = x$ 从 $q$ 采样，以概率 $\min(1, p(x)/q(x))$ 被接受，对 $p'(x)$ 的贡献为：
 
-**③ EAGLE（自回归 Draft 头）：**
+$$q(x) \cdot \min \!\left(1,\ \frac{p(x)}{q(x)}\right) = \min(p(x),\ q(x))$$
 
-- 在 Target Model 顶部添加 1 个轻量级**自回归 Draft 模型**（单层 Transformer），以 Target Model 的隐状态序列为条件，自回归地预测未来 Token。
-- Draft Model 复用 Target Model 的特征（Feature），而非独立训练，使 Draft 分布更接近 Target 分布。
-- EAGLE-2 进一步引入**动态草稿树**（基于当前上下文动态调整候选树的深度和宽度）。
-- 优点：$\alpha$ 高（0.8–0.9+），加速比最高（通常 2.5–4×）。
-- 缺点：需要在目标模型上微调 Draft 头，且与 Target Model 架构绑定。
+**路径 2：候选被拒绝，从修正分布重采样。**
 
-**综合对比：**
+某个 $\tilde{x} = y$（$y \neq x$ 或 $y = x$ 但被拒绝）被拒绝，发生概率为：
 
-|方案|额外参数|训练需求|典型 $\alpha$|加速比|适用场景|
-|---|---|---|---|---|---|
-|Ngram|无|无|0.5–0.7|1.2–1.8×|重复性文本、代码补全|
-|Medusa|小（$K$ 个线性层）|需微调|0.6–0.75|1.5–2.5×|通用场景，延迟敏感|
-|EAGLE-2|小（单层 Transformer）|需微调|0.8–0.9|**2.5–4×**|通用场景，最优加速|
+$$P(\text{reject}) = \sum_y q(y) \cdot \max \!\left(0,\ 1 - \frac{p(y)}{q(y)}\right) = \sum_y \max(0,\ q(y) - p(y))$$
+
+利用恒等式 $\sum_y (q(y) - p(y)) = 0$，有：
+
+$$P(\text{reject}) = \sum_y \max(0,\ q(y) - p(y)) = \sum_y \max(0,\ p(y) - q(y))$$
+
+修正分布为：
+
+$$p_{\text{res}}(x) = \frac{\max(0,\ p(x) - q(x))}{P(\text{reject})}$$
+
+路径 2 对 $p'(x)$ 的贡献为：
+
+$$P(\text{reject}) \cdot p_{\text{res}}(x) = \max(0,\ p(x) - q(x))$$
+
+**合并两条路径：**
+
+$$p'(x) = \min(p(x), q(x)) + \max(0,\ p(x) - q(x))$$
+
+利用恒等式 $\min(a,b) + \max(0, a-b) = a$（对任意 $a, b \geq 0$ 成立）：
+
+$$\boxed{p'(x) = p(x) \quad \forall x}$$
+
+**结论：** 对每个 Token 位置，Speculative Decoding 的采样结果服从 Target 分布 $p$，Draft Model 仅充当加速器，**不引入任何输出分布偏差**。这是相比知识蒸馏（改变模型本身）的本质优势——**零精度损失**。
 
 ---
 
-### 7.2 其他算法
+**Q55. Ngram-based Draft、Medusa、EAGLE（含 EAGLE-2/3）各方案的核心思路与对比。**
+
+**① Ngram-based / Prompt Lookup Decoding（无额外模型）：**
+
+从当前上下文（Prompt + 已生成文本）中查找与最近 $n$ 个 Token 匹配的子串，取其后续 Token 作为候选，无需任何额外神经网络。
+
+- 接受率 $\alpha$：0.5–0.7，高度依赖输入重复性
+- 加速比：1.2–2.8×（在摘要、代码补全等高重复场景可达上限）
+- vLLM 中为 `ngram_prompt_lookup_decoding`
+
+**② Medusa（多并行解码头）：**
+
+在 Target Model 最后一层隐状态上附加 $K$ 个独立前馈解码头，每个头预测第 $k$ 步后的 Token。一次前向同时产生 $K$ 个独立预测，组合成候选树后由 Target LM Head 验证。
+
+关键约束：各 Medusa 头之间**相互独立**，不捕捉位置间的自回归依赖，导致越靠后的预测越不准确。输出分布保证需要特殊处理（Medusa-2 引入 "typical acceptance" 策略，但严格意义上不再是无损）。
+
+- 接受率 $\alpha$：0.6–0.75
+- 加速比：1.5–2.5×
+- 需微调 $K$ 个解码头（目标模型参数冻结）
+
+**③ EAGLE（自回归 Draft 头，ICML 2024）：**
+
+附加一个**单层轻量级自回归 Transformer** 作为 Draft 头，以 Target Model **倒数第二层**特征（top-layer feature）作为条件输入，自回归地预测后续 Token 的特征序列，再经 Target LM Head 解码为 Token 概率。
+
+EAGLE 的 Token 预测路径：
+
+$$\hat{f}_{t+1} = \text{DraftLayer}(f_t,\ \text{emb}(\tilde{x}_t))$$ $$\tilde{x}_{t+1} \sim \text{LMHead}(\hat{f}_{t+1})$$
+
+其中 $f_t$ 为 Target Model 倒数第二层的特征向量，$\text{DraftLayer}$ 为单层 Transformer（约 0.25B 参数）。
+
+- 接受率 $\alpha$：0.8–0.88
+- 加速比：2.0–3.0×
+
+**④ EAGLE-2（EMNLP 2024）——动态草稿树：**
+
+在 EAGLE 基础上引入**动态候选树**：根据每个位置的预测置信度（Top-1 概率）动态调整树的深度和宽度，而非固定树结构。置信度高的节点深度扩展，置信度低的节点剪枝，在保持总候选数不变的前提下提升期望接受 Token 数。
+
+- 加速比：约为 EAGLE-1 的 1.1–1.2×
+
+**⑤ EAGLE-3（NeurIPS 2025）——Training-Time Test + 多层特征融合：**
+
+EAGLE-1/2 的核心限制：顶层特征 $f_t$ 针对**下一个** Token 预测优化，用于预测 $t+2, t+3, \ldots$ 步时存在分布偏移，且误差随步数累积（feature prediction constraint）。
+
+EAGLE-3 的两个关键改进：
+
+**改进 1 — 直接 Token 预测（Direct Token Prediction）：**
+
+放弃特征级自回归，Draft 头直接预测 Token ID 序列（与 Target LM Head 解耦），消除特征预测的不确定性传递。
+
+**改进 2 — 多层特征融合（Multi-layer Feature Fusion）：**
+
+将 Target Model 的低层、中层、高层特征拼接融合后输入 Draft 头：
+
+$$\hat{x}_{t+k} = \text{DraftHead}!\left(\text{Concat}(f_t^{\text{low}},\ f_t^{\text{mid}},\ f_t^{\text{high}}),\ \tilde{x}_{t:t+k-1}\right)$$
+
+低层特征包含更丰富的语义信息，适合多步前向预测；高层特征仅针对单步预测优化。
+
+**改进 3 — Training-Time Test（TTT）：**
+
+训练阶段模拟推理时的误差累积：用 Draft 头自身的**预测输出**（而非 Ground-Truth Token）作为后续步骤的输入，使模型在训练时就适应自身误差，从而推理时接受率不随预测步数增加而显著下降。
+
+EAGLE-3 由此获得**数据扩展律**：训练数据增加后接受率持续提升（EAGLE-1/2 无此特性）。
+
+性能数据：
+
+- 加速比：最高 **6.5×**（Vicuna-13B，温度 0），是 EAGLE-2 的约 1.4×
+- 在 SGLang 批量推理（Batch Size = 64）中，吞吐提升约 1.38×
+
+**综合对比表：**
+
+|方案|额外参数|训练需求|保证无损|典型 $\alpha$|加速比（单请求）|适用场景|
+|---|---|---|---|---|---|---|
+|Ngram|无|无|✓|0.5–0.7|1.2–2.8×|摘要、代码补全|
+|Medusa|$K$ 个 MLP|需微调|✗（近似）|0.6–0.75|1.5–2.5×|通用，延迟敏感|
+|EAGLE-1|~0.25B Transformer|需微调|✓|0.80–0.88|2.0–3.0×|通用|
+|EAGLE-2|~0.25B Transformer|需微调|✓|0.82–0.90|2.5–3.5×|通用，动态树优化|
+|**EAGLE-3**|~0.25B Transformer|需微调|✓|0.85–0.92|**3.0–6.5×**|通用，当前 SOTA|
+
+**注意：** 上表加速比均为低 Batch Size（≤ 4）场景。随 Batch 增大，系统趋向 Compute-bound，Speculative Decoding 的边际收益下降（见 Q55-d）。
+
+---
+
+**Q55-b. Tree-based Speculative Decoding 相比链式 Draft 的优势。**
+
+**链式 Draft 的局限：**
+
+链式 Draft 每步只预测一个候选 Token，第 $k$ 步依赖第 $k-1$ 步的结果，候选集退化为单条路径 $(\tilde{x}_1, \tilde{x}_2, \ldots, \tilde{x}_\gamma)$。一旦某位置 Token 被拒绝，其后所有位置均作废。
+
+**树形 Draft 的思路：**
+
+在每个位置预测 Top-$K$ 个候选 Token，展开成候选树，Target Model 一次性验证所有树节点，选取**最长接受路径**。
+
+设树有 $M$ 个节点，Target Model 通过 Tree Attention 并行处理（Mask 保证每个节点只 attend 其前缀节点），一次前向代价约等于 $M$ 个 Token 的 Prefill。
+
+**Tree Attention 的 Mask 形式：**
+
+对树中节点 $i$ 和 $j$，注意力掩码为：
+
+$$\text{Mask}[i][j] = \begin{cases} 1, & \text{若 } j \text{ 是 } i \text{ 的祖先节点或 } j = i \\ 0, & \text{否则} \end{cases}$$
+
+**期望接受 Token 数提升：**
+
+设每个位置预测 Top-$K$ 个候选，某位置接受率从 $\alpha$（链式，1个候选）提升为 $\alpha_K$（树形，$K$ 个候选中至少 1 个被接受）：
+
+$$\alpha_K = 1 - (1-\alpha)^K \quad \text{（独立假设下）}$$
+
+$K=3$ 时，$\alpha = 0.8 \Rightarrow \alpha_K \approx 0.992$，接受率显著提升。实际收益受树节点总数 $M$ 增大导致验证代价上升而有所抵消，需根据 $\alpha$ 动态选择树结构（EAGLE-2 的贡献）。
+
+---
+
+**Q55-c. Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路。**
+
+无需额外 Draft Model——利用目标模型自身的**早退出（Early Exit）** 机制，在浅层输出作为 Draft，在全深度输出作为 Verify。
+
+**LayerSkip 的实现：**
+
+- 训练阶段：在每层添加 Early Exit 损失，使模型在任意中间层都能给出合理预测
+- 推理阶段：
+    - Draft：在第 $L_d$ 层（$L_d < L$）早退出，以低计算代价生成 $\gamma$ 个候选 Token
+    - Verify：将 $\gamma$ 个候选 Token 从 $L_d+1$ 层继续前向至第 $L$ 层（**仅计算剩余层**，不重复前 $L_d$ 层），代价为 $\gamma \times (1 - L_d/L)$ 倍全深度推理
+
+**对比外部 Draft Model：**
+
+|维度|外部 Draft Model（EAGLE）|Self-Speculative（LayerSkip）|
+|---|---|---|
+|额外显存|需加载 Draft 模型|无（复用目标模型权重）|
+|接受率|高（0.85+）|中等（0.7–0.82，依赖退出层选择）|
+|部署复杂度|高（需维护两套模型）|低（单模型）|
+|需要微调|是（Draft 头）|是（Early Exit 层）|
+
+---
+
+**Q55-d. Speculative Decoding 在高 Batch Size 下性能退化的根本原因。**
+
+**根本原因：Memory-bound → Compute-bound 转变。**
+
+Speculative Decoding 的加速前提：**Target Model 的 Verify 阶段（$\gamma+1$ 个 Token 的 Prefill）与单 Token Decode 的延迟接近**。
+
+在低 Batch Size 下（$B = 1$ 或小 $B$），Decode 阶段 Memory-bound，每步需将全部模型权重（约 $2P$ bytes，$P$ 为参数量）从 HBM 加载一次。增大 Batch Size 可以摊薄权重加载代价，直到临界 Batch Size $B^*$（脊点，Ridge Point）：
+
+$$B^* \approx \frac{\text{HBM 带宽}}{\text{FLOPS} / \text{参数量}} = \frac{BW}{2 \cdot \text{FLOPS/param}}$$
+
+以 H100 为例（989 GB/s HBM，989 TFLOPS FP16）：$B^* \approx 989 \text{GB/s} / (989 \times 10^{12} / 2) \approx 2 \times 10^{-3} \times 10^{12} = 2000 \text{ tokens/step}$，即 Batch Size 约为 $200 \sim 400$（取决于序列长度）。
+
+**对 Speculative Decoding 的影响：**
+
+当 $B > B^*$ 时，Decode 阶段已趋向 Compute-bound，GPU 算力得到充分利用。此时：
+
+1. Target Model Verify 阶段代价从 $\approx T_{\text{decode}}$ 增长为 $(\gamma+1) \cdot T_{\text{decode}}$（Compute 线性增加）
+2. 但 Draft Model 生成代价也是 Compute-bound，额外消耗算力
+3. 整体：加速比公式分母 $(1+c)$ 中，$c$ 随 Batch 增大而增大，Speedup 下降
+
+**实践指导：**
+
+- Speculative Decoding 在**低 QPS（$B \leq 8$）** 场景收益最显著（延迟优化）
+- 高 QPS 场景应关闭 Speculative Decoding 以最大化吞吐
+- 例外：超长上下文（128k+）场景中，KV Cache 加载成为主要瓶颈，即使大 Batch 也可能保持 Memory-bound，此时 Speculative Decoding 仍有收益（MagicDec 的场景）
+
+---
+
+### 7.2 其他解码算法
 
 ---
 
@@ -3136,99 +3292,121 @@ $$p'(x) = p(x) \quad \forall x$$
 
 **Greedy Search：**
 
-每步选择概率最大的 Token，Beam Width = 1，Batch Size 不增长。
+每步选概率最大 Token（argmax），Batch 大小不增长。
 
-- 显存：仅维护 1 条序列的 KV Cache，$M_{\text{KV}} = O(S)$。
-- 计算：每步 1 次 Target Model 前向，Decode 阶段为标准 GEMV。
+- KV Cache：$M_{\text{KV}} = O(S)$（$S$ 为序列长度）
+- 计算：每步 1 次 Decode 前向（GEMV）
 
 **Beam Search（Beam Width = $B$）：**
 
-维护 $B$ 条候选序列（Beam），每步扩展 $B \times V$（$V$ 为词表大小）个候选，选取得分最高的 $B$ 条保留。
+维护 $B$ 条候选序列，每步从 $B \times V$（$V$ 为词表大小）候选中选 Top-$B$ 条（按累积对数概率）。
 
-- 显存：同时维护 $B$ 条序列的 KV Cache，$M_{\text{KV}} = B \times O(S)$。
-- 计算：每步 $B$ 次前向（等价于 Batch Size = $B$ 的 Decode）。
+- KV Cache：$B \times O(S)$
+- 计算：每步等价于 Batch Size = $B$ 的 Decode
 
-**对比：**
+**为何 LLM 推理中 Beam Search 不常用：**
 
-|维度|Greedy Search|Beam Search（$B=4$）|
+1. KV Cache 和计算代价均为 $B$ 倍，延迟随 $B$ 线性增大
+2. LLM 生成任务中，Beam Search 倾向产生**重复、保守**的输出，质量提升有限
+3. Top-p/Top-k Sampling 在多样性和质量的综合表现优于 Beam Search
+4. 历史上 Beam Search 在 seq2seq（翻译）场景效果显著，在 LLM 对话/生成场景优势不明显
+
+|维度|Greedy|Beam Search（$B=4$）|
 |---|---|---|
-|KV Cache|$1\times$|$B\times$（4×）|
-|计算量/步|$1\times$|$B\times$（4×）|
-|输出质量|较低（局部最优）|更高（全局最优近似）|
-|延迟|低|高（$B$ 倍）|
-|LLM 实践|**常用**（生成任务）|较少（翻译、语音识别）|
-
-**LLM 中 Beam Search 不常用的原因：** 对话/生成任务中 Beam Search 的输出质量提升有限，但显存和计算代价成 $B$ 倍增长，性价比低。采样方法（Top-k/Top-p）在多样性和质量上表现更好。
+|KV Cache|$1\times$|$4\times$|
+|延迟/步|$1\times$|$\approx 4\times$|
+|输出质量|局部最优|近似全局最优|
+|多样性|低|低（倾向保守）|
+|LLM 实践|常用|较少|
 
 ---
 
-**Q57. Top-k / Top-p Sampling 的实现细节？**
+**Q57. Top-k / Top-p Sampling 的实现细节与 GPU 优化？**
 
-**Greedy 与采样的关系：**
-
-Greedy = $\text{argmax}$（确定性），Sampling = 按概率分布随机采样（随机性），Top-k/Top-p 是两者之间的折中。
-
-**Top-k Sampling：**
-
-只从概率最高的 $k$ 个 Token 中采样，截断长尾分布：
-
-```python
-def top_k_sampling(logits, k, temperature=1.0):
-    logits = logits / temperature           # 温度缩放
-    top_k_logits, top_k_indices = torch.topk(logits, k)
-    probs = F.softmax(top_k_logits, dim=-1)
-    sampled_idx = torch.multinomial(probs, 1)
-    return top_k_indices[sampled_idx]
-```
-
-- **优点：** 实现简单，固定候选数量，GPU 效率高。
-- **缺点：** $k$ 固定，无法自适应概率分布的"尖锐程度"。当分布很尖锐（大概率集中于 1–2 个 Token）时，$k = 50$ 仍引入大量低概率噪声。
-
-**Top-p（Nucleus）Sampling：**
-
-按概率从高到低排序，取累积概率刚超过 $p$ 的最小 Token 集合 $\mathcal{V}_p$，从中采样：
-
-$$\mathcal{V}_p = \min\left\{V' \subseteq V : \sum_{x \in V'} p(x) \geq p\right\}$$
-
-```python
-def top_p_sampling(logits, p, temperature=1.0):
-    logits = logits / temperature
-    probs = F.softmax(logits, dim=-1)
-    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-    cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-    # 移除累积概率超过 p 之后的 Token
-    sorted_probs[cumulative_probs > p] = 0.0
-    sorted_probs /= sorted_probs.sum()   # 重新归一化
-    sampled_idx = torch.multinomial(sorted_probs, 1)
-    return sorted_indices[sampled_idx]
-```
-
-- **优点：** 自适应分布形状，分布尖锐时候选少（精确），分布平坦时候选多（多样）。
-- **缺点：** 需要排序（$O(V \log V)$），GPU 实现需注意 `torch.sort` 的并行效率。
-
-**Temperature（温度）的作用：**
+**Temperature 缩放（前置步骤）：**
 
 $$p_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}$$
 
-- $T < 1$：分布变尖锐，输出更确定（倾向高概率 Token）。
-- $T > 1$：分布变平坦，输出更随机（多样性增加）。
-- $T \to 0$：退化为 Greedy Search。
+$T < 1$ 时分布变尖锐（趋 argmax）；$T > 1$ 时分布变平坦（趋均匀分布）；$T \to 0^+$ 等价于 Greedy Search。
 
-**GPU 实现优化：**
+**Top-k Sampling：**
 
-- Top-k 可用 `torch.topk`（内置 GPU Kernel，$O(V)$ 近似堆排序）。
-- 实际推理中词表 $V \sim 32k \sim 128k$，排序开销在 Decode 阶段占比约 1–5%，通常不是瓶颈。
-- vLLM 将 Top-k/Top-p 采样 Fuse 进单个 CUDA Kernel，避免多次 HBM 读写。
-
-**Top-k 与 Top-p 组合使用（推荐实践）：**
-
-先做 Top-k（快速截断极端长尾），再做 Top-p（自适应调整候选集），双重过滤兼顾效率与质量：
+保留概率最高的 $k$ 个 Token，将其余位置置为 $-\infty$（softmax 后概率为 0），再在 $k$ 个候选中按概率采样：
 
 ```python
-# 先 Top-k，再 Top-p
-logits = top_k_filter(logits, k=50)
-token  = top_p_sampling(logits, p=0.9)
+def top_k_filter(logits: torch.Tensor, k: int) -> torch.Tensor:
+    # logits: [vocab_size]
+    values, _ = torch.topk(logits, k)
+    threshold = values[..., -1, None]          # 第 k 大的值
+    return logits.masked_fill(logits < threshold, float('-inf'))
 ```
+
+- `torch.topk` 内部实现：GPU 上使用近似堆排序，时间复杂度 $O(V)$，比全排序 $O(V \log V)$ 快
+- **局限**：$k$ 固定，无法自适应分布尖锐程度
+
+**Top-p（Nucleus）Sampling：**
+
+按概率从高到低排序，取累积概率**刚好超过** $p$ 的最小 Token 集合：
+
+$$\mathcal{V}_p = \min \!\left\{V' \subseteq V : \sum_{x \in V'} p(x) \geq p\right\}$$
+
+正确实现（注意截断边界）：
+
+```python
+def top_p_filter(logits: torch.Tensor, p: float) -> torch.Tensor:
+    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+    sorted_probs = F.softmax(sorted_logits, dim=-1)
+    cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+    # 将累积概率"超过 p 之后"的 token 屏蔽
+    # 注意：shift by 1，保留恰好令累积概率超过 p 的那个 token
+    remove_mask = cumulative_probs - sorted_probs > p
+    sorted_logits = sorted_logits.masked_fill(remove_mask, float('-inf'))
+
+    # 恢复原始顺序
+    logits_filtered = torch.zeros_like(logits).scatter_(0, sorted_indices, sorted_logits)
+    return logits_filtered
+```
+
+**Top-k 与 Top-p 组合（推荐实践）：**
+
+先 Top-k 截断极端长尾，再 Top-p 自适应调整候选集：
+
+```python
+logits = top_k_filter(logits, k=50)
+logits = top_p_filter(logits, p=0.9)
+token  = torch.multinomial(F.softmax(logits / T, dim=-1), num_samples=1)
+```
+
+**vLLM 的 Kernel Fusion 优化：**
+
+vLLM 将 Temperature 缩放、Top-k 过滤、Top-p 过滤、Multinomial 采样 Fuse 进单个 CUDA Kernel，避免 4 次独立的 HBM 读写，在大词表（$V \sim 128\text{k}$）下节省约 3–4 次全 logits 读取，节省显存带宽约 $3 \times 128\text{k} \times 4\text{ bytes} \approx 1.5\text{ MB/请求}$（Decode 阶段可测量的延迟降低约 5–10%）。
+
+---
+
+**Q57-b. Repetition Penalty 与 Min-p Sampling 的实现原理。**
+
+**Repetition Penalty：**
+
+对已生成序列中出现过的 Token 施加惩罚，抑制重复：
+
+$$z_i' = \begin{cases} z_i / r & \text{若 } i \in \text{已生成 Token 集合，且 } z_i > 0 \\ z_i \times r & \text{若 } i \in \text{已生成 Token 集合，且 } z_i < 0 \end{cases}$$
+
+其中 $r > 1$（典型值 1.1–1.3）。实现需维护一个 Token 出现集合（去重），GPU 上用 scatter 操作高效实现。
+
+**Min-p Sampling：**
+
+相比 Top-p 按累积概率截断，Min-p 按**绝对概率阈值**截断：设当前最高概率为 $p_{\max}$，仅保留概率 $\geq p_{\min} \times p_{\max}$ 的 Token：
+
+$$\mathcal{V}_{\text{min-p}} = {x : p(x) \geq p_{\min} \cdot \max_{x'} p(x')}$$
+
+**Min-p 相比 Top-p 的优势：**
+
+- Top-p 在分布极度尖锐时（$p_{\max} \approx 0.99$）仍可能保留很多低概率候选；Min-p 的阈值随 $p_{\max}$ 自适应调整
+- 当模型高度确信时（高 $p_{\max}$），Min-p 的候选集自动收缩（趋 Greedy）；不确定时候选集扩展（多样性增加）
+- 典型参数：$p_{\min} = 0.05 \sim 0.1$
+
+---
 
 ## 第 8 章·参考答案：并行推理与分布式系统
 

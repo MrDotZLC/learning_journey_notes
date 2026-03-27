@@ -192,15 +192,21 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 ### 8.1 并行策略
 
 - **Q58.** Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？
-- **Q59.** Pipeline Parallelism（PP）：层间流水，Micro-batch 如何调度？GPipe vs 1F1B 调度的气泡率对比？
-- **Q60.** Sequence Parallelism（SP）的原理及适用场景（超长序列）？
-- **Q61.** Expert Parallelism（EP）：MoE 模型中 All-to-All 通信的开销分析？
+- **Q58-b.** GQA 与 MQA 下 Tensor Parallelism 的特殊处理：当 KV 头数小于 TP 度时，如何避免 KV 头复制的正确性问题？与 MHA 切分方案的差异？
+- **Q59.** Pipeline Parallelism（PP）：GPipe vs 1F1B 调度的气泡率对比？训练与推理场景下气泡率公式的差异？
+- **Q59-b.** Interleaved 1F1B（虚拟流水段）相比标准 1F1B 的气泡率改进：设 $V$ 为虚拟段数，气泡率如何从 $(P-1)/(M+P-1)$ 降低？代价是什么？
+- **Q60.** Sequence Parallelism（SP）的原理及适用场景（中长序列）？与 TP 联合使用时通信模式如何从 AllReduce 变为 ReduceScatter + AllGather？
+- **Q61.** Expert Parallelism（EP）：MoE 模型中 Two-shot All-to-All 通信的开销分析？Decode 阶段（小 Batch）与 Prefill 阶段通信量的数量级差异？
+- **Q61-b.** EP 与 TP 联合部署（N-D 并行）时的通信层次：All-to-All 与 AllReduce 如何在节点内/跨节点调度？DeepSeek-V3 的 EP=320 实际配置说明了什么？
+- **Q_N.** ZeRO（Zero Redundancy Optimizer）的三个阶段（ZeRO-1/2/3）在推理中是否适用？ZeRO-Inference 与训练 ZeRO 的核心差异？
 
 ### 8.2 通信优化
 
-- **Q62.** AllReduce 的 Ring-AllReduce 实现与带宽分析？
-- **Q63.** GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？
-- **Q64.** NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？
+- **Q62.** AllReduce 的 Ring-AllReduce 实现与带宽分析：$N$ 个节点、每个节点数据量 $M$，总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？在小消息量场景下为何变为 Latency-bound？
+- **Q63.** GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？与 Sequence Parallelism 联合时的 Overlap 方案？
+- **Q64.** NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？GB200 NVL72 的全互联方案如何改变 TP/EP 的规模边界？
+- **Q_O.** 通信拓扑感知调度（Topology-aware AllReduce）：为何 Ring 拓扑在多机环境下次优？Tree AllReduce（如 Recursive Halving-Doubling）与 Ring 的延迟-带宽权衡？NCCL 如何自动选择拓扑？
+- **Q_P.** 推理服务中 Prefill 实例与 Decode 实例之间的 KV Cache Transfer 通信（P/D 分离场景）：GPUDirect RDMA 路径的带宽与 AllReduce 路径的共享竞争如何影响整体吞吐？
 
 ---
 
