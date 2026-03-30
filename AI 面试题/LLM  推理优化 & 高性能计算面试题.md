@@ -217,17 +217,22 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 - **Q65.** vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？
 - **Q66.** SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？
 - **Q67.** TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？
+- **Q67-b.** vLLM / SGLang / TensorRT-LLM 三者在生产部署时的选型框架：如何根据模型规模、QPS 目标、运维能力和硬件约束做出选择？
 
 ### 9.2 Profiling 与性能分析
 
 - **Q68.** 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？
 - **Q69.** 如何判断一个 Kernel 是 Memory-bound：查看 `ncu` 的哪些指标（Memory Throughput、L2 Hit Rate、DRAM BW Utilization）？
 - **Q70.** Occupancy（占用率）低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？
+- **Q70-b.** 给定一个实际的 `ncu` 报告（SM Active 30%、HBM BW 91%、L2 Hit Rate 18%），写出完整的诊断流程与优化路径？
+- **Q70-c.** CUDA Graph 捕获（Capture）的条件与限制：哪些操作无法被 Graph 捕获？LLM 推理中动态 Batch Size 与 Graph Replay 如何共存（cudaGraphExecUpdate / Multi-Graph 方案）？
 
 ### 9.3 Triton
 
 - **Q71.** Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？
 - **Q72.** 何时选择 Triton 而非 CUDA 手写（快速原型验证、跨硬件移植）？
+- **Q72-b.** Triton 编译器的 `num_stages` 与 `num_warps` 超参数对性能的影响机制？`@triton.autotune` 的搜索代价与缓存机制？
+- **Q72-c.** Triton 在 Hopper 架构上的现状：对 TMA / WGMMA 的支持程度（截至 2025 年上半年），以及 FlashAttention-3 为何仍选择 CUDA 而非 Triton 实现？
 
 ---
 
@@ -414,7 +419,8 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}!\left[\left(\mathbf{W}_q \mathbf{x}_m 
 |⭐⭐|NVFP4 / Blackwell 特性|量化 + 硬件岗|
 |⭐⭐|KV Transfer（RDMA / GPUDirect）|分布式推理岗|
 |⭐⭐|Warp Specialization / TMA|Kernel 开发岗|
+|⭐⭐|推理框架选型（vLLM / SGLang / TRT-LLM）|所有推理岗|
+|⭐⭐|nsys / ncu 诊断流程（实战级）|性能分析岗|
 |⭐|Triton 编程模型|Kernel 开发岗|
-|⭐|nsys / ncu Profiling|性能分析岗|
 |⭐|VLM 多模态推理特性|多模态系统岗|
 |⭐|2:4 结构化稀疏|量化 + Kernel 岗|
