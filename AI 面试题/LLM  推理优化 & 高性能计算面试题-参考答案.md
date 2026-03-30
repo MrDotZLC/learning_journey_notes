@@ -3414,273 +3414,447 @@ $$\mathcal{V}_{\text{min-p}} = {x : p(x) \geq p_{\min} \cdot \max_{x'} p(x')}$$
 
 ### 8.1 并行策略
 
----
+***
 
 **Q58. Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？**
 
-**核心思路：** 将单层的权重矩阵沿某一维度切分到 $N$ 张 GPU 上，每卡只持有权重的 $1/N$，各卡并行计算后通过 AllReduce 聚合结果。
+**核心思路：** 将单层权重矩阵沿某一维度切分到 $N$ 张 GPU，每卡只持有权重的 $1/N$，各卡并行计算后通过 AllReduce 聚合结果。
 
 **MLP 层的 TP 切分（列-行切分）：**
 
 标准 MLP：$Y = \text{GeLU}(XW_1)W_2$，其中 $W_1 \in \mathbb{R}^{d \times 4d}$，$W_2 \in \mathbb{R}^{4d \times d}$。
 
 ```
-第一个线性层（W₁）：按列切分（Column Parallel）
-  GPU 0: X × W₁[:, 0:2d]   → Z₀ ∈ R^(B×2d)   （本地 GeLU，无需通信）
-  GPU 1: X × W₁[:, 2d:4d]  → Z₁ ∈ R^(B×2d)
+第一个线性层（W₁）：按列切分（Column Parallel Linear）
+  GPU 0: X × W₁[:, 0:2d]   → Z₀ ∈ ℝ^(B×2d)   （本地 GeLU，无需通信）
+  GPU 1: X × W₁[:, 2d:4d]  → Z₁ ∈ ℝ^(B×2d)
 
-  每卡独立持有完整输入 X（需 AllGather 或初始广播）
-  每卡输出为完整输出的分块，不需要中间通信
+  每卡需持有完整输入 X（初始广播或 AllGather 获得）
+  每卡输出为中间激活的分块，无中间通信
 
-第二个线性层（W₂）：按行切分（Row Parallel）
-  GPU 0: Z₀ × W₂[0:2d, :]  → Y₀ ∈ R^(B×d)   （部分和）
-  GPU 1: Z₁ × W₂[2d:4d, :] → Y₁ ∈ R^(B×d)   （部分和）
+第二个线性层（W₂）：按行切分（Row Parallel Linear）
+  GPU 0: Z₀ × W₂[0:2d, :]  → Y₀ ∈ ℝ^(B×d)   （部分和）
+  GPU 1: Z₁ × W₂[2d:4d, :] → Y₁ ∈ ℝ^(B×d)   （部分和）
 
-  AllReduce: Y = Y₀ + Y₁    ← 唯一的通信点
+  AllReduce: Y = Y₀ + Y₁    ← 唯一通信点
 ```
 
 **Attention 层的 TP 切分：**
 
-Q/K/V 投影按头维度切分（每卡负责 $H/N$ 个头），Output 投影按行切分，同样只需 **1 次 AllReduce**（在 Output 投影后）。
+Q/K/V 投影权重按头维度切分（每卡负责 $H/N$ 个头），Output 投影按行切分，同样只需 **1 次 AllReduce**（Output 投影后）。
 
 **每个 Transformer 层的通信量：**
 
-- 前向：**2 次 AllReduce**（MLP 1 次 + Attention 1 次），每次通信量 $= 2 \times B \times S \times d \times \text{sizeof}$（乘 2 因为 AllReduce = ReduceScatter + AllGather）
-- 反向（训练）：同样 2 次 AllReduce
+- 前向传播：**2 次 AllReduce**（MLP 1 次 + Attention 1 次）。
+
+  每次通信量（以 AllReduce = ReduceScatter + AllGather 分解计）：
+
+  $$\text{通信量} = 2 \times B \times S \times d \times \text{sizeof(dtype)}$$
+
+- 训练反向传播：同样 2 次 AllReduce（梯度聚合方向相反）。
 
 **TP 适用原则：**
 
-- TP 通信在同一节点内（NVLink），带宽高（900 GB/s），延迟低，适合 **TP ≤ 8**（单节点 8 卡）。
-- 跨节点 TP（PCIe/InfiniBand）通信带宽骤降，通常不推荐。
+- TP 通信发生在同节点 NVLink 域内（H100：900 GB/s 双向），延迟 $< 1\ \mu\text{s}$，适合 **TP $\leq 8$**（单节点 8 卡）。
+- 跨节点 TP 须经 PCIe/InfiniBand，带宽骤降至 50 GB/s 量级，通常仅在模型无法单节点容纳时才考虑，且须配合 Overlap 优化。
 
----
+***
+
+**Q58-b. GQA 与 MQA 下 Tensor Parallelism 的特殊处理**
+
+**问题背景：**
+
+MHA 中 KV 头数 $= H$，TP 度 $= N$ 时，每卡持有 $H/N$ 个 KV 头，切分自然均匀。GQA 中 KV 头数 $= G$（$G \ll H$），若 $G < N$，则无法均匀切分。
+
+**正确处理方式：**
+
+1. **约束条件**：GQA/MQA 场景下，TP 度 $N$ 必须满足 $N \leq G$（MQA 时 $G=1$，故 MQA 不兼容 TP $> 1$，除非复制 KV 头）。
+2. **KV 头复制（Head Replication）**：当 $N > G$ 时，将每个 KV 头复制 $N/G$ 份分发到各卡，保证每卡持有完整 KV 分片。代价是 KV Cache 显存不再节省，GQA 的带宽优势部分丧失。
+
+| 方案 | 条件 | KV 显存 | 计算正确性 |
+| --- | --- | --- | --- |
+| 均匀切分 | $N \leq G$ 且 $G \% N = 0$ | 节省 $N$ 倍 | 正确 |
+| KV 复制 | $N > G$ | 无节省 | 正确 |
+| 不切分 KV | $N > G$ | 无节省 | 正确（仅 Q 切分） |
+
+3. **工程实现**：vLLM、TRT-LLM 在 TP 时会自动检测 $G$ 与 $N$ 的关系，选择复制或切分策略。LLaMA-3 70B（$G=8$）在 TP=8 时刚好均匀切分（每卡 1 个 KV 头）。
+
+***
 
 **Q59. Pipeline Parallelism（PP）：GPipe vs 1F1B 调度的气泡率对比？**
 
 **Pipeline Parallelism 基本思路：**
 
-将模型的 $L$ 层按深度切分到 $P$ 台设备上，每台设备持有 $L/P$ 层，形成流水线。
+将模型 $L$ 层按深度切分到 $P$ 台设备，每台持有 $L/P$ 层。将 Mini-batch 切分为 $M$ 个 Micro-batch，形成流水线。
 
-**GPipe 调度：**
+**GPipe 调度（训练）：**
 
-将 Batch 切分为 $M$ 个 Micro-batch，顺序执行所有前向，再顺序执行所有反向。
+顺序执行所有 Micro-batch 的前向，再顺序执行所有反向。
 
 ```
-时间轴（P=4 台设备，M=4 个 Micro-batch）：
-设备0: [F0][F1][F2][F3]                [B3][B2][B1][B0]
-设备1:     [F0][F1][F2][F3]        [B3][B2][B1][B0]
+时间轴（P=4 台设备，M=4 个 Micro-batch，F=前向，B=反向）：
+设备0: [F0][F1][F2][F3]               [B3][B2][B1][B0]
+设备1:     [F0][F1][F2][F3]       [B3][B2][B1][B0]
 设备2:         [F0][F1][F2][F3][B3][B2][B1][B0]
 设备3:             [F0][F1][F2][F3][B3][B2][B1][B0]
-       ←气泡→                              ←气泡→
+       ←── 热身气泡 ──→              ←── 冷却气泡 ──→
 ```
 
-**GPipe 气泡率：**
+**GPipe 气泡率（训练）：**
 
-$$\text{Bubble Rate} = \frac{(P-1)}{M + P - 1}$$
+$$\text{Bubble}_{\text{GPipe}} = \frac{P-1}{M + P - 1}$$
 
-当 $M \gg P$ 时气泡率趋近于 0，但需要大量 Micro-batch 才能摊薄气泡。
+**1F1B（One Forward One Backward）调度（训练）：**
 
-**1F1B（One Forward One Backward）调度：**
+进入稳态后每卡交替执行 1 次前向和 1 次反向，不等待全部前向完成后再反向。
 
-每台设备交替执行 1 次前向和 1 次反向（非流水线满载时），减少峰值激活值显存占用。
-
-```
-时间轴（P=4，M=8）：
-设备0: [F0][F1][F2][F3][B0][F4][B1][F5][B2][F6][B3][F7][B4][B5][B6][B7]
-设备1:     [F0][F1][F2][F3][B0][F4][B1]...（交错执行）
-```
-
-**气泡率（与 GPipe 相同）：**
-
-$$\text{Bubble Rate}_{\text{1F1B}} = \frac{P-1}{M + P - 1}$$
-
-**关键区别：显存占用**
-
-|方案|峰值激活值显存|气泡率|
+| 方案 | 气泡率 | 峰值激活显存 |
 |---|---|---|
-|GPipe|$O(M \times L/P)$（所有前向激活同时驻留）|$(P-1)/(M+P-1)$|
-|1F1B|$O(P \times L/P) = O(L)$（仅 $P$ 个 Micro-batch 同时活跃）|$(P-1)/(M+P-1)$|
+| GPipe | $\dfrac{P-1}{M+P-1}$ | $O(M \times L/P)$（所有前向激活同时驻留） |
+| 1F1B | $\dfrac{P-1}{M+P-1}$ | $O(P \times L/P) = O(L)$（仅 $P$ 个 Micro-batch 同时活跃） |
 
-1F1B 将峰值激活显存从 $O(M)$ 降为 $O(P)$，是生产环境的标准选择。
+气泡率公式相同，**核心差异在于峰值激活显存**：1F1B 将激活显存从 $O(M)$ 降为 $O(P)$，是生产训练环境的标准选择。
 
-**推理中的 PP（无反向传播）：**
+**推理场景（仅前向，无反向）：**
 
-推理时只有前向，1F1B 退化为简单流水：气泡率 $(P-1)/M$，$M$ 为并发请求数。PP 推理适合**跨节点部署超大模型**（模型无法单节点容纳时）。
+推理时无需保留激活用于反向传播，流水线退化为纯前向。设并发请求数（等价 Micro-batch 数）为 $M$：
 
----
+$$\text{Bubble}_{\text{推理}} = \frac{P-1}{M}$$
+
+当 $M \gg P$ 时气泡率趋近于 0。推理 PP 的主要适用场景是**模型无法单节点容纳时的跨节点部署**，而非吞吐优化。
+
+***
+
+**Q59-b. Interleaved 1F1B（虚拟流水段）的气泡率改进**
+
+**动机：** 标准 1F1B 中，$P$ 台设备的气泡时间为 $(P-1)$ 个 Micro-batch 步长，$M$ 增大才能摊薄，但 $M$ 增大会导致 Gradient Accumulation 步数增加，影响超参数敏感性。
+
+**核心思路：** 将每台设备的 $L/P$ 层进一步切分为 $V$ 个虚拟段（Virtual Pipeline Stage），每个设备持有 $V$ 段不连续的层（如设备 0 持有层 0–3 和层 12–15，$L=16, P=4, V=2$）。Micro-batch 在设备间循环 $V$ 次。
+
+**Interleaved 1F1B 气泡率：**
+
+$$\text{Bubble}_{\text{Interleaved}} = \frac{P-1}{M \cdot V}$$
+
+相比标准 1F1B 的 $(P-1)/(M+P-1) \approx (P-1)/M$，气泡率降低为 $1/V$。
+
+**代价：** 每个 Micro-batch 在每台设备上的前向/反向分 $V$ 次执行，**点对点通信（P2P Send/Recv）次数从 $2(P-1)$ 增加到 $2V(P-1)$**，通信量随 $V$ 线性增加。当通信带宽受限时（跨节点 PCIe），$V > 2$ 往往弊大于利。
+
+***
 
 **Q60. Sequence Parallelism（SP）的原理及适用场景？**
 
-**动机：** 在 TP 中，输入序列 $X$ 需要被所有卡持有完整副本（通过 AllGather 广播），Dropout 和 LayerNorm 等算子在每卡上重复计算，既浪费显存又浪费算力。
+**动机：**
 
-**SP 原理（Megatron-LM V3 的 SP）：**
+纯 TP 中，每卡持有完整输入序列 $X$（通过 AllGather 或广播），Dropout 和 LayerNorm 等**非 TP 算子**在每卡重复计算完整序列，浪费激活显存（$O(B \times S \times d)$ 在每卡均复制）。
 
-在 TP 的基础上，对序列维度同样进行切分：每卡只持有序列的 $1/N$ 片段（$S/N$ 个 Token），Attention 和 MLP 之外的算子（LayerNorm、Dropout）也在切分后的序列上执行。
+**SP 原理（Megatron-LM SP）：**
 
-```
-通信模式变化（TP → SP+TP）：
-  TP: AllReduce（= ReduceScatter + AllGather）
-  SP: ReduceScatter（MLP/Attn 结束时聚合并切分）
-    + AllGather（MLP/Attn 开始前展开序列）
+对序列维度同样进行 $N$ 路切分：每卡只持有 $S/N$ 个 Token 的激活。LayerNorm、Dropout 等算子在切分后的短序列上执行，激活显存降为 $O(B \times S/N \times d)$。
 
-通信量与 TP 相同，但激活显存从 O(B×S×d) 降为 O(B×S/N×d)
-```
+**通信模式变化：**
 
-**Context Parallelism（CP，超长序列）：**
+$$\text{TP 原方案：} \quad \text{AllReduce} = \text{ReduceScatter} + \text{AllGather}$$
 
-SP 仅切分非 Attention 算子的序列，CP 进一步将 Attention 的序列维度也切分（见 Q101）。适合 $S > 32k$ 的超长序列场景。
+$$\text{SP 方案：} \quad \underbrace{\text{AllGather}}_{\text{Attn/MLP 前展开序列}} \to \text{计算} \to \underbrace{\text{ReduceScatter}}_{\text{Attn/MLP 后聚合并切分}}$$
 
-**适用场景：**
+通信总量与纯 TP 的 AllReduce 相同，但激活显存降低 $N$ 倍。
 
-|技术|序列长度|显存收益|通信开销|
-|---|---|---|---|
-|TP（无 SP）|任意|无（激活全量复制）|AllReduce|
-|SP（Megatron）|中长（8k–32k）|激活显存 $\div N$|ReduceScatter + AllGather（等量）|
-|CP|超长（32k+）|KV Cache 显存 $\div N$|P2P Ring 通信|
+**与 Context Parallelism（CP）的对比：**
 
----
+| 技术 | 切分对象 | 显存收益 | 通信模式 | 适用序列长度 |
+|---|---|---|---|---|
+| TP（无 SP） | 权重 | 无（激活全量复制） | AllReduce | 任意 |
+| SP（Megatron）| 非 Attn/MLP 算子激活 | 激活显存 $\div N$ | ReduceScatter + AllGather | 8k–32k |
+| CP（Context Parallel） | Attention 序列维度 | KV Cache 显存 $\div N$ | P2P Ring 通信 | 32k+ |
+
+CP 是 SP 的超集：在 SP 基础上，进一步将 Attention 的 Q/K/V 也按序列切分，各卡通过 Ring P2P 轮换交换 KV 块（类似 Ring Attention），从而将 Attention 的显存与计算也均摊到 $N$ 卡。
+
+***
 
 **Q61. Expert Parallelism（EP）：MoE 模型中 All-to-All 通信的开销分析？**
 
 **EP 基本结构：**
 
-MoE 模型有 $E$ 个 Expert，EP 将 $E$ 个 Expert 均匀分配到 $N$ 张 GPU（每卡 $E/N$ 个 Expert）。每个 Token 由路由机制（Router）选择 Top-K 个 Expert 处理。
+MoE 模型有 $E$ 个 Expert，EP 将其均匀分配到 $N$ 张 GPU（每卡 $E/N$ 个 Expert）。每个 Token 由 Router 选择 Top-$K$ 个 Expert 处理。
 
 **Two-shot All-to-All 通信流程：**
 
 ```
-Step 1 - Dispatch（分发）：
-  每卡有 B×S/N 个 Token，根据路由结果
-  将 Token 发送到对应 Expert 所在的 GPU
-  → All-to-All #1（发送激活值）
+① Dispatch（分发）：
+   每卡 B×S/N 个 Token，按路由结果
+   将 Token 激活向量发送至对应 Expert 所在 GPU
+   → All-to-All #1
 
-Step 2 - Expert 计算：
-  每卡对收到的 Token 执行 Expert FFN 计算
+② Expert 计算：
+   每卡对收到的 Token 执行各自 Expert 的 FFN
 
-Step 3 - Combine（汇聚）：
-  将 Expert 输出发送回原始 Token 所在的 GPU
-  → All-to-All #2（接收激活值）
+③ Combine（汇聚）：
+   将 Expert 输出发回原始 Token 所在 GPU
+   → All-to-All #2
 ```
 
-**通信量分析：**
+**单次 All-to-All 通信量：**
 
-每个 Token 激活向量大小 $= d \times \text{sizeof}$（如 $d = 7168$，FP16 = 2 B，则 $14336$ B/token）。
+设总 Token 数为 $T$，Token 激活维度为 $d$，Top-$K = 2$，dtype 为 BF16（2 B）：
 
-设 Batch Token 数为 $T$，Top-K = 2：
+$$\text{单次通信量（单向）} = T \times K \times d \times \text{sizeof} = T \times 2 \times d \times 2 \text{ B}$$
 
-$$\text{All-to-All 单次通信量} = T \times K \times d \times \text{sizeof} = T \times 2 \times 14336 \text{ B}$$
+**重要区分——Prefill vs. Decode：**
 
-以 $T = 4096$，$d = 7168$（DeepSeek-V3 规格）：
+| 阶段 | 典型 $T$（per step） | 单次通信量（$d=7168$） | 通信延迟（NVLink 900 GB/s） |
+|---|---|---|---|
+| Prefill（$B=1$，$S=4096$） | 4096 | $\approx 114$ MB | $\approx 0.25$ ms |
+| Decode（$B=128$，$S=1$） | 128 | $\approx 3.6$ MB | $\approx 0.008$ ms |
 
-$$\text{单次} = 4096 \times 2 \times 14336 \approx 114 \text{ MB（单向）}$$
+Prefill 阶段 All-to-All 通信量大，但 Expert FFN 计算量也大，通信可被计算掩盖。**Decode 阶段**通信量小，但 FFN 计算极短，All-to-All 延迟相对占比高，每层 2 次 All-to-All 约贡献 **10–30%** 端到端延迟（视 EP 规模）。
 
-**延迟分析（H100 NVLink 900 GB/s）：**
+***
 
-$$t_{\text{A2A}} = \frac{114 \text{ MB}}{900 \text{ GB/s} / N} \approx \frac{114 \times 10^6}{900 \times 10^9 / 8} \approx 1 \text{ ms}$$
+**Q61-b. EP 与 TP 联合部署（N-D 并行）时的通信层次**
 
-每层 2 次 All-to-All，Decode 阶段单步总 All-to-All 时间约 **2–5 ms**（视 EP 规模和 Batch Size），占端到端延迟 **10–30%**。
+**基本思路：**
+
+将 $N_{\text{total}}$ 张 GPU 组织为二维并行组：$N_{\text{TP}}$ 卡组成 TP 组（节点内，NVLink），$N_{\text{EP}}$ 卡组成 EP 组（跨节点，InfiniBand）。
+
+**通信层次：**
+
+```
+节点内（NVLink，高带宽）：
+  TP 的 AllReduce（Non-Expert 层）
+
+跨节点（InfiniBand NDR，约 50 GB/s 单向）：
+  EP 的 All-to-All（Expert 层的 Token 分发与汇聚）
+```
+
+两类通信在不同物理链路上并行，互不干扰（条件是 TP 通信在 AllReduce 完成前不触发 All-to-All）。
+
+**DeepSeek-V3 实际配置（公开信息）：**
+
+DeepSeek-V3 采用 EP=320（跨 320 张 H800），All-to-All 通过 InfiniBand + IB 节点间互联实现。EP 规模超过单节点 TP 上限（8 卡），说明在超大 MoE 模型中 EP 是主要并行维度，TP 作为节点内补充。这一配置验证了 All-to-All 在 IB 链路上的可行性，但也带来了显著的通信延迟（每 MoE 层约 2–5 ms）。
+
+***
+
+**Q_N. ZeRO 在推理中的适用性**
+
+**ZeRO 三阶段回顾（训练）：**
+
+| 阶段 | 分片内容 | 显存节省 |
+|---|---|---|
+| ZeRO-1 | Optimizer States | $1/N_{\text{data}}$ |
+| ZeRO-2 | Optimizer States + Gradients | $\approx 2/N_{\text{data}}$ |
+| ZeRO-3 | Optimizer States + Gradients + Parameters | $\approx 4/N_{\text{data}}$ |
+
+**推理中的情况：**
+
+推理无 Optimizer States 和 Gradients，ZeRO-1/2 完全不适用。ZeRO-3 的参数分片逻辑在推理中对应 **ZeRO-Inference**（DeepSpeed 提出）：
+
+- 权重按 TP 方式分片到多 GPU，每 GPU 只持有 $1/N$ 的权重。
+- 前向时通过 AllGather 临时聚合所需权重，计算完成后立即释放，将峰值显存降至 $\approx$ 单卡参数量 $/ N$（不计 AllGather 临时缓冲）。
+
+**与 TP 的本质区别：**
+
+| | TP | ZeRO-Inference |
+|---|---|---|
+| 切分维度 | 矩阵列/行（计算并行） | 参数分片（存储并行） |
+| 前向计算 | 各卡并行计算不同输出分量 | 各卡 AllGather 后执行相同计算 |
+| 通信模式 | AllReduce（2 次/层） | AllGather（1 次/层，通信量更大） |
+| 适用场景 | 常规推理 | 极端显存受限（模型无法以 TP 切分时） |
+
+ZeRO-Inference 的通信量比 TP 高（AllGather 需传输全量参数），仅在模型过大、TP 无法满足显存约束时作为补充方案。
 
 ---
 
 ### 8.2 通信优化
 
----
+***
 
-**Q62. AllReduce 的 Ring-AllReduce 实现与带宽分析？**
+**Q62. AllReduce 的 Ring-AllReduce 实现与带宽分析**
 
-**朴素 AllReduce（中心化）：** 所有节点将数据发送到 1 个 Master，Master 汇总后广播回去。通信瓶颈在 Master，带宽利用率随节点数 $N$ 线性下降。
+**朴素中心化 AllReduce 的瓶颈：**
+
+所有节点将数据发送至 1 个 Master 节点，Master 聚合后广播回去。Master 的出入带宽为瓶颈，有效带宽随节点数 $N$ 线性下降至 $B_{\text{link}}/N$。
 
 **Ring-AllReduce（分散式）：**
 
-将 $N$ 个节点排成一个逻辑环，分两个阶段执行：
+将 $N$ 个节点排成逻辑环，分两个阶段执行：
 
-**阶段 1 - ReduceScatter（$N-1$ 步）：**
+**阶段一：ReduceScatter（$N-1$ 步）**
 
-每步每个节点向右邻发送 $M/N$ 大小的数据块，同时从左邻接收并累加。经过 $N-1$ 步后，每个节点持有全局 Reduce 结果的 $1/N$ 分片。
+每步每个节点向右邻发送 $M/N$ 大小的数据块，同时从左邻接收并执行 Reduce。经过 $N-1$ 步，每个节点持有全局 Reduce 结果的 $1/N$ 分片。
 
-**阶段 2 - AllGather（$N-1$ 步）：**
+**阶段二：AllGather（$N-1$ 步）**
 
-每步每个节点向右邻发送已完成的分片，经过 $N-1$ 步后，每个节点持有完整的 Reduce 结果。
+每步每个节点将已完成的分片向右邻传递，经过 $N-1$ 步，每个节点持有完整结果。
 
 **带宽分析：**
 
-- 总传输量（每个节点发送）：$2 \times M \times (N-1)/N \approx 2M$
-- **与节点数 $N$ 无关**（渐近），带宽利用率接近 100%（所有链路同时满载）。
-- 每步传输时间：$t_{\text{step}} = \frac{M/N}{B_{\text{link}}}$，总时间：$t_{\text{AR}} = 2(N-1) \times \frac{M/N}{B_{\text{link}}} \approx \frac{2M}{B_{\text{link}}}$
+每个节点发送的总数据量：
 
-**Ring-AllReduce 的局限：** 延迟随 $N$ 线性增加（$2(N-1)$ 步），在小消息量场景下 Latency-bound（与 Bandwidth-bound 对立）。
+$$\text{发送量} = 2 \times M \times \frac{N-1}{N} \approx 2M \quad (N \to \infty)$$
 
----
+与节点数 $N$ 无关。总时间：
+
+$$t_{\text{AR}} = 2(N-1) \times \frac{M/N}{B_{\text{link}}} \approx \frac{2M}{B_{\text{link}}}$$
+
+**Latency-bound vs. Bandwidth-bound 的分界：**
+
+Ring-AllReduce 每步有固定延迟 $\alpha$（消息启动开销，典型 NVLink 约 $1\text{–}5\ \mu\text{s}$，InfiniBand 约 $2\text{–}10\ \mu\text{s}$），每步传输 $M/N$ 数据：
+
+$$t_{\text{step}} = \alpha + \frac{M/N}{B_{\text{link}}}$$
+
+当 $M/N \ll \alpha \times B_{\text{link}}$（即消息块很小）时，通信时间由 $\alpha$ 主导，增大 $N$ 使每步块更小，延迟线性增加，进入 **Latency-bound** 模式。
+
+**临界消息大小**（以 NVLink 为例，$\alpha = 2\ \mu\text{s}$，$B = 900 \text{ GB/s}$）：
+
+$$M_{\text{crit}} = N \times \alpha \times B = N \times 2 \times 10^{-6} \times 9 \times 10^{11} \approx N \times 1.8 \text{ MB}$$
+
+Decode 阶段单次 AllReduce 消息量通常约 $1\text{–}4$ MB，处于 Latency-bound 与 Bandwidth-bound 的过渡区，这也是 Overlap 优化收益显著的根本原因。
+
+**实现细节（NCCL）：**
+
+NVLink 环境下，NCCL 实际使用**双向 Ring**（顺时针 + 逆时针同时传输），有效带宽加倍；消息量较小时自动切换为 **Tree AllReduce**（Recursive Halving-Doubling），将步数从 $2(N-1)$ 降至 $O(\log N)$ 以减少延迟。
+
+***
 
 **Q63. GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？**
 
-**传统 TP 的通信-计算串行：**
+**传统 TP 的串行瓶颈：**
 
 ```
-GEMM → [等待] → AllReduce → [等待] → 下一层
-（计算完成后通信，通信期间 GPU 空闲）
+GEMM → [GPU 空闲等待] → AllReduce → [GPU 空闲等待] → 下一层
 ```
 
-**分解 AllReduce 的关键：**
+**分解 AllReduce 的关键等式：**
 
 $$\text{AllReduce} = \text{ReduceScatter} + \text{AllGather}$$
 
-ReduceScatter 和 AllGather 各传输约一半数据，可以将计算穿插其中。
+两个操作各传输约一半数据，将计算穿插其中即可实现 Overlap。
 
-**GEMM-ReduceScatter Overlap（第一个线性层）：**
+**方案一：GEMM-ReduceScatter Overlap（列并行层输出端）**
 
-将输出矩阵沿序列维度切分为 $N$ 个分块，GEMM 每计算完一个分块（Tile），立即对该 Tile 发起 ReduceScatter，与下一个 Tile 的 GEMM 并行。
+将输出矩阵沿序列维度切分为 $N$ 个 Tile，GEMM 每算完一个 Tile，立即对该 Tile 发起 ReduceScatter，与下一个 Tile 的 GEMM 并行：
 
 ```
-时间轴：
-GEMM[Tile 0] → ReduceScatter[Tile 0]
-GEMM[Tile 1]    ↕（重叠）
-GEMM[Tile 2] → ReduceScatter[Tile 2]
-...
-最终合并：GEMM 与通信完全流水
+时间轴（Stream 0：GEMM，Stream 1：通信）：
+Stream 0: [GEMM Tile 0] [GEMM Tile 1] [GEMM Tile 2] ...
+Stream 1:    [RS Tile 0]    [RS Tile 1]    [RS Tile 2] ...
+            ↕ 依赖同步（cudaEvent）
 ```
 
-**AllGather-GEMM Overlap（第二个线性层）：**
+**方案二：AllGather-GEMM Overlap（行并行层输入端）**
 
-先发起 AllGather 获取完整输入，同时对已收到的分块执行 GEMM，两者流水进行。
+先发起 AllGather 获取完整输入分片，对已到达的分片立即执行 GEMM，与剩余分片的 AllGather 并行。
+
+**与 Sequence Parallelism 联合的 Overlap：**
+
+SP 将 AllReduce 天然分解为 ReduceScatter 和 AllGather，两者分别位于 Attention/MLP 的两端：
+
+```
+[AllGather] → [Attention or MLP] → [ReduceScatter]
+              ↑ 与通信 Overlap ↑
+```
+
+Megatron-LM 通过 `--overlap-grad-reduce`（训练）和 SP 联合，在 H100 NVLink 环境下可将 TP 通信开销从端到端延迟中基本消除（$< 2\%$）。
 
 **实现要点：**
 
-- 使用双 CUDA Stream：Stream 0 执行 GEMM，Stream 1 执行通信，通过 CUDA Event 同步依赖关系。
-- NCCL 的非阻塞通信（`ncclGroupStart/End`）配合 `cudaStreamWaitEvent`。
-- Megatron-LM、TRT-LLM 均实现了此优化，在 NVLink 环境下可将 TP 通信开销降低 **50–80%**。
+- 双 CUDA Stream + `cudaEventRecord` / `cudaStreamWaitEvent` 同步依赖。
+- NCCL 非阻塞通信（`ncclGroupStart` / `ncclGroupEnd`）。
+- Tile 粒度需匹配 NCCL 最小消息阈值（通常 $\geq$ 512 KB），过小的 Tile 进入 Latency-bound 区间，Overlap 收益消失。
 
----
+***
 
 **Q64. NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？**
 
-**带宽对比：**
+**带宽对比（H100 / B200 代际）：**
 
-|互联方式|带宽（双向）|延迟|适用规模|
+| 互联方式 | 带宽（双向） | 延迟 | 典型 TP 上限 |
 |---|---|---|---|
-|NVLink 4.0（H100 节点内）|900 GB/s|<1 μs|TP ≤ 8|
-|NVLink Switch（NVL72）|3.6 TB/s（聚合）|<1 μs|TP ≤ 72|
-|PCIe 5.0（跨 CPU）|128 GB/s|~1 μs|TP ≤ 2（不推荐）|
-|InfiniBand NDR（跨节点）|400 Gb/s ≈ 50 GB/s|~1–5 μs|PP/EP|
+| NVLink 4.0（H100 节点内） | 900 GB/s | $< 1\ \mu\text{s}$ | TP $\leq$ 8 |
+| NVLink Switch（GB200 NVL72） | 3.6 TB/s（聚合） | $< 1\ \mu\text{s}$ | TP $\leq$ 72 |
+| PCIe 5.0 x16（跨 CPU Socket） | 128 GB/s（双向） | $\approx 1\ \mu\text{s}$ | 不推荐（通信占比 $> 5\%$） |
+| InfiniBand NDR 400G（跨节点） | $\approx$ 100 GB/s（双向） | 2–10 $\mu\text{s}$ | 仅 PP/EP 使用 |
 
-**TP 上限分析：**
+**TP 通信占比量化（Decode 场景）：**
 
-TP 每层需要 2 次 AllReduce，通信量约 $2 \times B \times S \times d \times \text{sizeof}$。
+以 $B=32$，$S=1$，$d=8192$，BF16 为例，单次 AllReduce 通信量：
 
-以 $B=32, S=1, d=8192, \text{FP16}$ 为例（Decode 阶段）： $$\text{通信量} = 2 \times 32 \times 1 \times 8192 \times 2 = 1048576 \text{ B} \approx 1 \text{ MB}$$
+$$\text{通信量} = 2 \times 32 \times 1 \times 8192 \times 2 \text{ B} = 1 \text{ MB}$$
 
-|互联|通信时间（1 MB）|单步 Decode 计算时间（估算）|通信占比|
+| 互联 | 通信时间（1 MB） | 单步 Decode 计算（估算） | 通信占比 |
 |---|---|---|---|
-|NVLink（900 GB/s）|~1.1 μs|~500 μs|**0.2%**|
-|PCIe（128 GB/s）|~7.8 μs|~500 μs|**1.6%**|
-|InfiniBand（50 GB/s）|~20 μs|~500 μs|**4%**|
+| NVLink 4.0（900 GB/s） | $\approx 1.1\ \mu\text{s}$ | $\approx 500\ \mu\text{s}$ | $\approx 0.2\%$ |
+| PCIe 5.0（128 GB/s） | $\approx 7.8\ \mu\text{s}$ | $\approx 500\ \mu\text{s}$ | $\approx 1.6\%$ |
+| InfiniBand NDR（100 GB/s） | $\approx 10\ \mu\text{s}$ | $\approx 500\ \mu\text{s}$ | $\approx 2\%$（叠加 $\alpha$） |
 
 **结论：**
 
-- **TP 必须在 NVLink 域内**（同一节点 8 卡），带宽充足，通信开销可忽略。
-- 超过单节点 8 卡时，TP 应切换为 **PP + EP**（跨节点使用延迟更低的 Pipeline 通信而非 AllReduce）。
-- GB200 NVL72 通过 NVLink Switch 将 72 卡全互联，将 NVLink 域扩展至 72 卡，允许更大规模 TP/EP，是 2025 年超大模型推理的关键硬件方案。
+- **TP 必须在 NVLink 域内**，超出 NVLink 域的 TP 通信代价快速放大。
+- **GB200 NVL72** 通过 NVLink Switch 将 72 卡全互联为一个 NVLink 域，NVLink 聚合带宽达 3.6 TB/s，允许 TP 规模扩展至 72 卡，为超大模型（1T+ 参数）提供节点内全互联方案。
+- 超出单节点时，应优先采用 **PP（跨节点，仅点对点 Activation 传输）+ EP（跨节点 All-to-All）** 代替跨节点 TP。
 
+***
+
+**Q_O. 通信拓扑感知调度：Ring vs. Tree AllReduce**
+
+**Ring AllReduce 的局限：**
+
+Ring AllReduce 的步数为 $2(N-1)$，每步有固定延迟 $\alpha$：
+
+$$t_{\text{Ring}} = 2(N-1) \cdot \alpha + \frac{2(N-1)M}{NB}$$
+
+当 $N$ 增大、消息量 $M$ 较小时，$2(N-1)\alpha$ 项主导，**延迟随 $N$ 线性增加**，Ring 在大规模小消息场景下性能差。
+
+**Tree AllReduce（Recursive Halving-Doubling）：**
+
+步数为 $O(\log N)$，延迟项为 $2\log_2 N \cdot \alpha$：
+
+$$t_{\text{Tree}} = 2\log_2 N \cdot \alpha + \frac{2(N-1)M}{NB} \approx 2\log_2 N \cdot \alpha + \frac{2M}{B}$$
+
+带宽项与 Ring 相同（渐近），但延迟项从 $O(N)$ 降为 $O(\log N)$。**小消息量（$< 1$ MB）场景下 Tree 远优于 Ring**。
+
+**NCCL 的自动拓扑选择：**
+
+NCCL 在初始化时探测物理拓扑（NVLink 连接图、PCIe Switch 层次、IB 网络），并根据消息大小在运行时自动选择：
+
+| 消息大小 | 优选算法 | 理由 |
+|---|---|---|
+| $< 256$ KB | Tree（Recursive HD）| Latency-bound，$\log N$ 步 |
+| 256 KB–64 MB | Ring | Bandwidth-bound，Ring 利用率高 |
+| $> 64$ MB | Ring + Chunking | 分块流水减少等待 |
+
+**多机环境下的拓扑感知：**
+
+跨机 AllReduce（IB 互联）时，NCCL 使用 **Intra-node Ring（NVLink）+ Inter-node Tree（IB）** 的两级拓扑，节点内高带宽 Ring 聚合，节点间用 Tree 减少跳数。这是当前 8-GPU 多节点训练的默认路径。
+
+***
+
+**Q_P. P/D 分离中 KV Cache Transfer 与 AllReduce 的带宽竞争**
+
+**问题背景：**
+
+P/D 分离架构中，Prefill 实例完成前向后，需将 KV Cache 传输至 Decode 实例。若 KV Transfer 与 TP 的 AllReduce 共享同一物理链路（如 InfiniBand），则两者存在带宽竞争。
+
+**带宽竞争分析（8 卡 H100 节点为例）：**
+
+KV Cache 单请求传输量（LLaMA-3 70B，$S=4096$，FP16）：
+
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \text{ B} \approx 42 \text{ GB}$$
+
+（注：GQA 8 KV 头，80 层，头维度 128）
+
+通过 GPUDirect RDMA（NVLink/IB）传输 42 GB 的时间：
+
+- NVLink 900 GB/s：$\approx 47$ ms（节点内 P/D）
+- InfiniBand NDR 100 GB/s：$\approx 420$ ms（跨节点 P/D）
+
+跨节点 P/D 分离时，KV Transfer 延迟对 TTFT 的贡献不可忽视（百毫秒量级），且与同期进行的 AllReduce 争抢 IB 带宽会进一步恶化。
+
+**缓解策略：**
+
+1. **优先 GPUDirect RDMA over NVLink**：节点内 P/D 分离（不同 GPU 组）使用 NVLink 传输 KV，避免占用 IB 链路。
+2. **NIXL（NVIDIA Inference Xfer Library）**：针对推理场景的 KV Transfer 专用通信库，支持流量隔离、优先级队列，避免与 NCCL 的 AllReduce 竞争同一 IB 端口。相比 NCCL，NIXL 在小消息高频传输场景下延迟更低（NCCL 针对大消息批量通信优化）。
+3. **KV Cache 量化后传输**：FP8 KV 将传输量压缩至一半，降低带宽压力，是当前 P/D 分离部署的工程默认选项。
 ## 第 9 章·参考答案：推理框架与工具链
 
 ---
