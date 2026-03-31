@@ -3855,6 +3855,9 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \text{ B}
 1. **优先 GPUDirect RDMA over NVLink**：节点内 P/D 分离（不同 GPU 组）使用 NVLink 传输 KV，避免占用 IB 链路。
 2. **NIXL（NVIDIA Inference Xfer Library）**：针对推理场景的 KV Transfer 专用通信库，支持流量隔离、优先级队列，避免与 NCCL 的 AllReduce 竞争同一 IB 端口。相比 NCCL，NIXL 在小消息高频传输场景下延迟更低（NCCL 针对大消息批量通信优化）。
 3. **KV Cache 量化后传输**：FP8 KV 将传输量压缩至一半，降低带宽压力，是当前 P/D 分离部署的工程默认选项。
+
+---
+
 ## 第 9 章·参考答案：推理框架与工具链
 
 ---
