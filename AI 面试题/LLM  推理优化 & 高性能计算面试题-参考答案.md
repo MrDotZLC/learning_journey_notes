@@ -3868,117 +3868,163 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \text{ B}
 
 **Q65. vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？**
 
-**vLLM 的两项核心创新：**
+**1. vLLM 的两项核心创新**
 
-**① PagedAttention（见 Q32）：**
+**1.1 PagedAttention（见 Q32）**
 
-- 将 KV Cache 分页管理，消除显存碎片，GPU 显存利用率从 ~20–40% 提升至 ~90%+。
-- 支持 Prefix Sharing（多请求共享 System Prompt 的 KV Block），进一步节省显存。
+- 将 KV Cache 按固定大小的 Block（典型值 16 tokens/block）分页管理，消除 Internal 与 External Fragmentation，GPU 显存利用率从传统框架的 20–40% 提升至 90% 以上。
+- 支持 Prefix Sharing：多请求共享同一 System Prompt 的 KV Block，引用计数管理，零拷贝复用。
 
-**② Continuous Batching（见 Q38）：**
+**1.2 Continuous Batching（Iteration-level Scheduling）**
 
-- Iteration-level Scheduling，请求完成后立即回收 Slot，新请求立即插入。
-- 相比 Static Batching 吞吐提升 2–8×。
+- 在每个 Decode 迭代步结束后立即检查哪些请求已生成 EOS，回收其 KV Block 并将等待队列中的新请求插入当前 Batch，消除 Static Batching 中因最长序列未完成而导致的 GPU 空等。
+- 相比 Static Batching，吞吐典型提升 2–8×（视序列长度分布而定）。
 
-**vLLM 的架构组成：**
+**1.3 vLLM 架构组成**
 
 ```
-┌────────────────────────────────────────────────────┐
-│                   vLLM Engine                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────┐  │
-│  │  Scheduler   │  │  KV Cache    │  │  Worker  │  │
-│  │ (Continuous  │  │  Manager     │  │  (GPU)   │  │
-│  │  Batching)   │  │ (PagedAttn)  │  │  Model   │  │
-│  └──────────────┘  └──────────────┘  └──────────┘  │
-└────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                     vLLM Engine                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │
+│  │  Scheduler   │  │  KV Cache    │  │  Worker    │  │
+│  │  (Continuous │  │  Manager     │  │  (GPU)     │  │
+│  │  Batching)   │  │  (PagedAttn) │  │  Model     │  │
+│  └──────────────┘  └──────────────┘  └────────────┘  │
+└──────────────────────────────────────────────────────┘
 ```
 
-**vLLM vs TensorRT-LLM 定位对比：**
+**1.4 vLLM vs TensorRT-LLM 定位对比**
 
 |维度|vLLM|TensorRT-LLM|
 |---|---|---|
-|**定位**|通用推理服务框架|NVIDIA 官方高性能推理引擎|
-|**核心优势**|调度灵活（PagedAttn + CB）、生态丰富|Kernel 极致优化、TRT 图优化、硬件利用率最高|
-|**模型支持**|开箱支持 400+ 模型|需手动适配（Plugin 开发）|
-|**Kernel 来源**|CUTLASS / FlashAttention / Triton|NVIDIA 内部手写 Kernel|
-|**部署复杂度**|低（pip install）|高（需编译引擎、Plugin）|
-|**适用场景**|快速部署、研究验证、多模型服务|生产环境极限性能、NVIDIA 硬件深度绑定|
-|**典型吞吐差异**|基准|相同硬件下 TRT-LLM 通常高 10–30%|
+|定位|通用推理服务框架|NVIDIA 官方高性能推理引擎|
+|核心优势|调度灵活、生态丰富、快速部署|Kernel 极致优化、TRT 图优化、硬件利用率最高|
+|模型支持|开箱支持 400+ 模型|需适配 Plugin（开发成本较高）|
+|Kernel 来源|CUTLASS / FlashAttention / Triton|NVIDIA 内部手写 Kernel|
+|部署复杂度|低（`pip install vllm`）|高（需编译引擎、开发 Plugin）|
+|适用场景|快速部署、研究验证、多模型服务|生产环境极限性能、NVIDIA 硬件深度绑定|
+|典型吞吐差异（注）|基准|视工作负载通常高 10–40%|
+
+> **注**：吞吐差异依赖模型规模、序列长度分布、Batch Size 等因素，上述区间为工程实践中常见范围，非严格基准测试结论。
 
 ---
 
 **Q66. SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？**
 
-**SGLang 的核心创新：RadixAttention**
+**1. vLLM Prefix Caching 的局限**
 
-vLLM 的 Prefix Sharing 只支持**静态、预定义的 System Prompt**共享，无法处理动态变化的公共前缀。SGLang 的 RadixAttention 将 KV Cache 组织为**基数树（Radix Tree）**，自动识别并复用任意请求间的公共前缀。
+vLLM 的 Prefix Caching 基于固定前缀的哈希匹配：若多个请求共享完全相同的 Token 序列前缀（如 System Prompt），其 KV Block 可被复用。但该机制要求前缀**完全静态且预先已知**，对多轮对话历史、Tree-of-Thought 等动态场景无法覆盖。
 
-**Radix Tree 结构：**
+**2. RadixAttention 的核心机制**
+
+SGLang 将 KV Cache 组织为**基数树（Radix Tree）**，自动识别并复用任意请求间的**最长公共前缀（Longest Common Prefix，LCP）**。
 
 ```
 根节点（空）
-├── "You are a helpful assistant."（System Prompt A）
-│   ├── "User: What is 2+2?"  → KV Block [3,7,12]
-│   └── "User: Explain AI."   → KV Block [3,7,19]
-└── "You are a coding expert."（System Prompt B）
-    ├── "User: Write Python code." → KV Block [5,9,22]
-    └── "User: Debug this code."   → KV Block [5,9,31]
+├── "You are a helpful assistant."  → Block [1, 2, 3]
+│   ├── "User: What is 2+2?"         → Block [4, 7]
+│   └── "User: Explain AI."          → Block [4, 9]
+└── "You are a coding expert."      → Block [5, 6]
+    ├── "User: Write Python code."   → Block [8, 11]
+    └── "User: Debug this code."     → Block [8, 13]
 ```
 
-**工作机制：**
+**3. 工作流程**
 
-1. 新请求到达 → 在 Radix Tree 中查找**最长公共前缀**（Longest Prefix Match）。
-2. 命中的前缀 KV Block 直接复用（引用计数 +1），无需重新计算。
-3. 新增的 Token 追加到 Tree 中作为新节点，供后续请求复用。
-4. 内存不足时，按 **LRU（Least Recently Used）** 策略驱逐叶节点。
+1. 新请求到达 → 在 Radix Tree 中执行 LCP 匹配，找到最深的公共前缀节点。
+2. 命中节点对应的 KV Block 引用计数加 1，直接复用，跳过对应 Token 的 Prefill 计算。
+3. 未命中部分正常执行 Prefill，计算完成后将新节点追加到 Tree 中。
+4. 显存压力时，按 **LRU（Least Recently Used）** 策略驱逐引用计数为 0 的叶节点。
 
-**相比 vLLM Prefix Caching 的优势：**
+**4. 与 vLLM Prefix Caching 的本质差异**
 
-- vLLM：只支持完全匹配的固定前缀（Hash-based）。
-- SGLang RadixAttention：支持**任意长度、任意内容**的公共前缀自动识别，多轮对话历史可被跨请求复用。
+|维度|vLLM Hash-based Prefix|SGLang RadixAttention|
+|---|---|---|
+|匹配方式|完全哈希匹配|Radix Tree LCP 匹配|
+|前缀类型|静态预定义|动态任意内容|
+|多轮对话|无法复用历史 KV|自动复用公共历史|
+|Tree-of-Thought|不支持|支持分支路径复用|
+|RAG 场景|仅支持固定 Document Prompt|支持跨请求 Document 复用|
 
-**其他 SGLang 改进：**
+**5. SGLang 其他改进**
 
-- **Zero-overhead Batch Scheduler**：调度逻辑与 GPU 计算重叠，减少调度延迟。
-- **Torch.compile + CUDA Graph 结合**：兼顾动态形状与低 Launch 开销。
-- **FP8 KV Cache 原生支持** + **MoE EP 优化**（DeepSeek 系列首选框架）。
+- **Zero-overhead Batch Scheduler**：调度逻辑与 GPU 计算重叠，消除调度空泡。
+- **Torch.compile + CUDA Graph 结合**（v0.3+ 主路径）：兼顾动态形状与低 Launch 开销。
+- **FP8 KV Cache 原生支持** + **MoE Expert Parallelism 优化**：DeepSeek 系列模型的首选开源推理框架。
 
 ---
 
 **Q67. TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？**
 
-**Plugin 机制：**
+**1. Plugin 机制**
 
-TensorRT 本身是通用推理框架，对 LLM 特有算子（FlashAttention、RoPE、RMSNorm、KV Cache 管理）没有内置 Kernel。TRT-LLM 通过 **Plugin（自定义算子）** 机制将这些高度优化的 CUDA Kernel 注册到 TRT 的计算图中。
+TensorRT 本身是通用推理框架，对 LLM 特有算子（FlashAttention、RoPE、RMSNorm、Paged KV Cache 管理）没有内置 Kernel。TRT-LLM 通过 **Plugin（自定义算子）** 机制将高度优化的 CUDA Kernel 注册到 TRT 计算图中。
 
 ```cpp
-// Plugin 注册示例（概念性）
-class GPTAttentionPlugin : public IPluginV2DynamicExt {
-    // 实现 FlashAttention + PagedKV + RoPE 的融合 Kernel
+// Plugin 注册示意（概念性，非完整代码）
+class GPTAttentionPlugin : public nvinfer1::IPluginV2DynamicExt {
+public:
     void enqueue(...) override {
+        // 融合 FlashAttention + Paged KV + RoPE + 多精度支持的单一 Kernel
         flash_attention_with_paged_kv_cache<<<grid, block, smem, stream>>>(
             q, k_cache, v_cache, block_table, output, ...);
     }
 };
 ```
 
-**Plugin 的优势：** 可针对具体模型结构手写极致优化的 Kernel，避免通用框架的抽象开销。TRT-LLM 的 Attention Plugin 集成了 Paged KV Cache、ALiBi/RoPE、多种精度（FP16/BF16/FP8/INT8）于单个 Kernel。
+Plugin 的优势：针对具体模型结构手写极致优化的 Kernel，避免通用框架抽象开销。TRT-LLM 的 Attention Plugin 将 Paged KV Cache、ALiBi/RoPE、多精度（FP16/BF16/FP8/INT8）融合于单个 Kernel。
 
-**In-flight Batching（等价于 Continuous Batching）：**
+**2. In-flight Batching（即 Continuous Batching）**
 
-TRT-LLM 将 Continuous Batching 称为 In-flight Batching，实现上有以下特点：
+TRT-LLM 将 Continuous Batching 称为 **In-flight Batching**，其机制与 vLLM 相同：每轮迭代结束后，完成请求退出，新请求立即插入。
 
 ```
 Iteration N:
-  活跃请求: [Req A: Decode step 50] [Req B: Decode step 12] [Req C: Prefill 1024 tokens]
+  活跃: [Req A: Decode step 50] [Req B: Decode step 12] [Req C: Prefill]
   ↓ Req B 完成（生成 EOS）
 Iteration N+1:
-  活跃请求: [Req A: Decode step 51] [Req D: Prefill 512 tokens（新加入）] [Req C: Decode step 1]
+  活跃: [Req A: Decode step 51] [Req D: Prefill（新插入）] [Req C: Decode step 1]
 ```
 
-**Inflight Fused Chunked Context（IFCC）：**
+**3. Chunked Prefill（TRT-LLM 中的实现）**
 
-TRT-LLM 进一步将 Chunked Prefill 与 In-flight Batching 结合（等价于 vLLM 的 Chunked Prefill），长 Prefill 分 Chunk 与 Decode 请求混合执行。
+TRT-LLM 将 Chunked Prefill 与 In-flight Batching 结合，支持将长 Prefill 请求分 Chunk 与 Decode 请求混合执行。官方文档中该功能直接称为 **Chunked Prefill** 或 **Chunked Context Processing**，并非一个独立的专有缩写。
+
+> **说明**：部分非官方资料中出现"IFCC（Inflight Fused Chunked Context）"的表述，但该缩写并未在 TRT-LLM 官方文档中固定使用，引用时应以官方文档为准。
+
+---
+
+**Q67-b. vLLM / SGLang / TensorRT-LLM 三者在生产部署时的选型框架？**
+
+**1. 三者定位总结**
+
+|维度|vLLM|SGLang|TensorRT-LLM|
+|---|---|---|---|
+|核心优势|生态最广、部署最快|前缀复用最强、结构化生成|单卡/多卡峰值性能最高|
+|模型适配成本|低（开箱即用）|低（同样开箱即用）|高（需适配 Plugin）|
+|Kernel 优化程度|中（依赖社区 Kernel）|中-高（自研 Triton/CUDA Kernel）|最高（NVIDIA 内部 Kernel）|
+|适合工作负载|通用场景|多轮对话、RAG、ToT|高吞吐在线服务、固定模型|
+|P/D 分离支持|vLLM v0.5+ 支持|支持|支持（NVIDIA Dynamo 集成）|
+|MoE 支持|支持|DeepSeek MoE 最优|支持，需 Plugin 适配|
+
+**2. 选型决策链**
+
+```
+需要最快速部署验证？
+  └─ 是 → vLLM（生态最广，文档最完善）
+
+工作负载包含大量相同前缀（System Prompt / RAG Document）？
+  └─ 是 → SGLang（RadixAttention 命中率高，显存利用率更优）
+
+部署 DeepSeek 系列 MoE 模型？
+  └─ 是 → SGLang（社区优化最充分）
+
+生产环境、固定模型、NVIDIA 硬件、需要最高吞吐？
+  └─ 是 → TensorRT-LLM（需接受较高的工程维护成本）
+
+需要 P/D 分离 + 集群编排？
+  └─ NVIDIA Dynamo（基于 TRT-LLM）或 vLLM + SGLang 混合部署
+```
 
 ---
 
@@ -3988,127 +4034,250 @@ TRT-LLM 进一步将 Chunked Prefill 与 In-flight Batching 结合（等价于 v
 
 **Q68. 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？**
 
-**两个工具的定位：**
+**1. 两个工具的定位**
 
 |工具|全称|分析粒度|主要用途|
 |---|---|---|---|
 |`nsys`（Nsight Systems）|系统级 Profiler|整个应用 Timeline|定位**哪个阶段**慢、发现 CPU-GPU 交互问题|
 |`ncu`（Nsight Compute）|Kernel 级 Profiler|单个 CUDA Kernel|分析**为什么**某个 Kernel 慢、硬件指标诊断|
 
-**`nsys` 典型使用流程：**
+**两者配合使用的原则：先 `nsys` 定位瓶颈 Kernel（宏观），再 `ncu` 深入该 Kernel 诊断（微观）。**
+
+**2. `nsys` 典型使用流程**
 
 ```bash
 nsys profile --trace=cuda,nvtx,osrt \
     --output=profile_output \
     python inference.py
 
-# 查看 Timeline（GUI 或命令行）
+# 查看报告（命令行统计）
 nsys stats profile_output.nsys-rep
+
+# 或用 GUI 打开 .nsys-rep 文件查看 Timeline
 ```
 
-**`nsys` 能发现的问题：**
+`nsys` 能发现的典型问题：
 
-- CPU-GPU 之间的 `cudaMemcpy` 占用大量时间（应使用 Pinned Memory 或 Zero-copy）。
-- Kernel 之间存在大量 Gap（CPU 调度开销，应使用 CUDA Graph）。
-- GPU 空闲时间过长（计算与通信未 Overlap）。
-- NCCL 通信占比过高。
+- CPU-GPU 之间存在大量 `cudaMemcpy`（应改用 Pinned Memory 或 Zero-copy）。
+- Kernel 启动之间有明显 Gap（CPU 调度开销，应使用 CUDA Graph）。
+- GPU 空闲时间过长（通信与计算未 Overlap）。
+- NCCL AllReduce 占端到端延迟比例过高。
 
-**`ncu` 典型使用流程：**
+**3. `ncu` 典型使用流程**
 
 ```bash
 ncu --set full \
-    --kernel-name "flash_attention_kernel" \
+    --kernel-name "flash_attention_fwd_kernel" \
     --launch-count 1 \
+    --export report_output \
     python inference.py
+
+# 查看报告
+ncu --import report_output.ncu-rep
 ```
 
-**`ncu` 关键输出指标：**
+**4. `ncu` 关键输出指标**
 
-|指标|含义|诊断方向|
-|---|---|---|
-|`sm__throughput`（SM Active %）|SM 活跃时间比例|低 → Occupancy 不足|
-|`l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum`|Global Memory 读取量|超出理论值 → 非合并访问|
-|`dram__bytes_read.sum`|HBM 实际读取量|与理论值对比|
-|`sm__warps_active.avg.pct_of_peak_sustained_active`|Warp Occupancy|低 → 寄存器/SMEM 不足|
-|`smsp__sass_thread_inst_executed_op_ffma_pred_on.sum`|FMA 指令数|与理论 FLOPs 对比|
+| 指标（语义）            | ncu 字段（参考，版本间可能变化）                                             | 诊断方向                           |
+| ----------------- | -------------------------------------------------------------- | ------------------------------ |
+| SM 算力利用率          | `sm__throughput.avg.pct_of_peak_sustained_elapsed`             | 低 → Occupancy 不足或 Memory-bound |
+| Global Memory 读取量 | `l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum`                 | 超出理论值 → 非合并访问                  |
+| HBM 实际读取量         | `dram__bytes_read.sum`                                         | 与理论值对比判断 Bound                 |
+| Warp Occupancy    | `sm__warps_active.avg.pct_of_peak_sustained_active`            | 低 → 寄存器/SMEM 不足                |
+| FMA 指令数（FP32）     | `smsp__sass_thread_inst_executed_op_ffma_pred_on.sum`          | 与理论 FLOPs 对比                   |
+| L2 命中率            | `lts__t_sector_hit_rate.pct`                                   | 低 → 大量数据必须访问 HBM               |
+| 内存等待 Stall 占比     | `smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct` | 高 → Memory-bound               |
 
-**两者配合使用：** 先用 `nsys` 定位瓶颈 Kernel（宏观），再用 `ncu` 深入该 Kernel 诊断（微观）。
+> **注**：`ncu` 字段名因版本（Nsight Compute 2022–2024）略有差异，使用时应以实际安装版本的文档为准。上表字段名以 2023–2024 版本为参考基准。
 
 ---
 
-**Q69. 如何判断一个 Kernel 是 Memory-bound：查看 `ncu` 的哪些指标？**
+**Q69. 如何判断一个 Kernel 是 Memory-bound？**
 
-**判断流程（Roofline 法）：**
+**1. 判断流程（Roofline 法）**
 
 **Step 1：计算实测算术强度 $I_{\text{actual}}$**
 
-$$I_{\text{actual}} = \frac{\text{sm__sass_thread_inst_executed FMA 数} \times 2}{\text{dram__bytes 实际 HBM 访问量}}$$
+$$I_{\text{actual}} = \frac{\text{实际执行 FLOPs（FMA 指令数} \times 2\text{）}}{\text{实际 HBM 访问字节数}}$$
 
-**Step 2：与脊点 $I^*$ 比较（见 Q7）**
+其中：
 
-H100：$I^* \approx 295$ FLOP/Byte（FP16）
+- 实际 FLOPs 从 `smsp__sass_thread_inst_executed_op_ffma_pred_on.sum`（FP32）或对应 Half-precision counter 读取，每条 FMA 指令贡献 2 FLOP。
+- 实际 HBM 访问字节数从 `dram__bytes_read.sum + dram__bytes_write.sum` 读取。
 
-- $I_{\text{actual}} < I^*$：**Memory-bound**
-- $I_{\text{actual}} > I^*$：**Compute-bound**
+**Step 2：计算 Roofline 脊点 $I^*$**
 
-**`ncu` 关键指标组合诊断：**
+$$I^* = \frac{P_{\text{peak}}}{BW_{\text{HBM}}}$$
 
-|指标|Memory-bound 时的表现|
+以 H100 SXM5 为例（FP16，非稀疏模式）：
+
+$$I^*_{\text{H100}} = \frac{1979\ \text{TFLOPS}}{3.35\ \text{TB/s}} \approx 591\ \text{FLOP/Byte}$$
+
+|GPU 型号|FP16 峰值算力|HBM 带宽|脊点 $I^*$|
+|---|---|---|---|
+|H100 SXM5|1979 TFLOPS|3.35 TB/s|≈ 591 FLOP/Byte|
+|A100 SXM4|312 TFLOPS|2.0 TB/s|≈ 156 FLOP/Byte|
+|H20|296 TFLOPS|4.0 TB/s|≈ 74 FLOP/Byte|
+
+**Step 3：判断 Bound 类型**
+
+$$ \text{Bound} = \begin{cases} \text{Memory-bound} & I_{\text{actual}} < I^* \\ \text{Compute-bound} & I_{\text{actual}} \geq I^* \end{cases} $$
+
+**2. `ncu` 关键指标组合诊断**
+
+|指标|Memory-bound 时的典型表现|
 |---|---|
-|`dram__throughput`（HBM 带宽利用率）|**高**（接近 90%+）|
-|`sm__throughput`（SM 算力利用率）|**低**（< 50%）|
-|`l2_hit_rate`|低（数据无法从 L2 命中，必须访问 HBM）|
-|`stall_long_scoreboard`（等待内存的 Stall）|**高**|
-|`achieved_occupancy`|可能低（但不一定）|
+|HBM 带宽利用率（`dram__throughput`）|**高**（接近峰值的 80–95%）|
+|SM 算力利用率（`sm__throughput`）|**低**（< 50%，算力严重浪费）|
+|L2 命中率（`lts__t_sector_hit_rate.pct`）|低（数据无法从 L2 命中，频繁访问 HBM）|
+|内存等待 Stall（`stalled_long_scoreboard`）|**高**|
 
-**典型 Memory-bound Kernel 的 `ncu` 报告特征：**
+**3. 典型 Memory-bound Kernel 的 `ncu` 报告示例**
 
 ```
-Memory Throughput: 3.1 TB/s  ← 接近 H100 峰值 3.35 TB/s（Memory-bound）
-Compute Throughput: 12%      ← 算力严重浪费
-DRAM Bandwidth Utilization: 92.3%
-L2 Hit Rate: 23.4%           ← L2 命中率低，大量 HBM 访问
+Memory Throughput:    3.05 TB/s   ← 接近 H100 峰值 3.35 TB/s（Memory-bound）
+Compute Throughput:    11.2%      ← 算力严重浪费
+DRAM Bandwidth Util:  91.0%
+L2 Hit Rate:          19.3%       ← L2 命中率低，大量 HBM 访问
+Warp Stall (Memory):  68.4%       ← 超过一半时间等待内存返回
 ```
 
-**常见 Memory-bound Kernel：** Elementwise（Add、Mul、GELU）、LayerNorm/RMSNorm、GEMV（Decode 阶段 Attention 和 Linear）。
+**4. 常见 Memory-bound Kernel**
+
+Elementwise（Add、Mul、GELU）、LayerNorm / RMSNorm、GEMV（Decode 阶段 Attention 和 Linear 层）、KV Cache 读写 Kernel。
 
 ---
 
 **Q70. Occupancy 低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？**
 
-**Occupancy 定义：**
+**1. Occupancy 定义**
 
 $$\text{Occupancy} = \frac{\text{活跃 Warp 数/SM}}{\text{最大 Warp 数/SM}}$$
 
-H100 每 SM 最大 64 个 Warp，Occupancy = 活跃 Warp 数 / 64。
+H100 每 SM 最多支持 64 个并发 Warp，故 Occupancy = 活跃 Warp 数 / 64。
 
-**Occupancy 的作用：**
+Occupancy 的核心作用是**延迟隐藏（Latency Hiding）**：当一个 Warp 因等待 HBM 数据（延迟约 400–600 cycles）阻塞时，SM Scheduler 切换到其他就绪 Warp 继续执行，从而隐藏内存延迟。
 
-高 Occupancy → 更多就绪 Warp → 当一个 Warp 因内存延迟阻塞时，有更多 Warp 可立即调度 → **延迟隐藏**。
+**2. Occupancy 低但性能高的三种情况**
 
-**Occupancy 低但性能高的情况：**
+**2.1 Compute-bound Kernel（如大型 GEMM）**
 
-**① Compute-bound Kernel（如 GEMM）：**
+大型 GEMM Kernel 每线程寄存器用量极高（128–255 个/线程），导致每 SM 活跃 Warp 数受限，Occupancy 可能仅有 12.5%（8/64 Warp）。但 GEMM 本身几乎不产生内存等待 Stall（数据在寄存器中反复复用），SM Scheduler 始终有工作可调度，**延迟隐藏需求极低**。实测将此类 Kernel 的 Occupancy 从 12% 提升至 25% 对吞吐几乎无影响。
 
-大型 GEMM Kernel 每个 Warp 的寄存器用量极大（每线程 ~128–255 个寄存器），导致 Occupancy 低（可能仅 12.5%，即 8/64 Warp）。但 GEMM 是计算密集型，Warp 几乎不阻塞，Scheduler 始终有工作可做，**延迟隐藏需求低**。实测此时 Occupancy 从 12% 提升到 25% 对 GEMM 吞吐几乎没有影响。
+**2.2 Memory-bound Kernel 具有高 L1/L2 命中率**
 
-**② Memory-bound Kernel 使用了 L2/L1 缓存：**
+若工作集集中在 L1/L2 Cache 内（高局部性），访存延迟从 HBM 的 ~500 cycles 降至 L1 的 ~20–30 cycles。所需的 Warp 数量（延迟隐藏所需）随之减少，较低的 Occupancy 已足以充分利用 SM。
 
-若数据集中在 L1/L2 Cache 中（高局部性），访存延迟从 ~600 cycles 降至 ~20–200 cycles，所需的 Warp 数量（延迟隐藏所需）随之减少，低 Occupancy 已足够。
+**2.3 充分利用 Instruction-Level Parallelism（ILP）**
 
-**③ Kernel 受 Instruction-Level Parallelism（ILP）优化：**
+单 Warp 内通过循环展开（`#pragma unroll`）使多条独立指令并行发射，即使 Warp 数量少，指令流水线也能保持饱和。
 
-单 Warp 内通过循环展开（Unroll）使多条指令并行执行，即使 Warp 数量少，指令流也能保持饱和。
+**3. 诊断原则（实践总结）**
 
-**实践结论：**
+| 场景                        | Occupancy 重要性 | 优化重点                   |
+| ------------------------- | ------------- | ---------------------- |
+| Memory-bound + L2 Miss 严重 | **高**         | 提高 Occupancy，隐藏 HBM 延迟 |
+| Compute-bound（GEMM）       | **低**         | 寄存器复用、Tensor Core 利用率  |
+| Memory-bound + 高 L2 命中    | 中             | 优先提升 L2 命中率            |
 
-|场景|Occupancy 重要性|优化重点|
-|---|---|---|
-|Memory-bound（L2 Miss 严重）|**高**（需要足够 Warp 隐藏 HBM 延迟）|提高 Occupancy|
-|Compute-bound（GEMM）|**低**（计算不阻塞，无需隐藏延迟）|减少寄存器用量以外的优化|
-|Memory-bound（高 L2 命中）|中|优先提高 L2 命中率|
+**4. 诊断工具**
 
-**诊断工具：** `ncu` 的 `Latency Breakdown` 报告会显示 Warp Stall 的主要原因，若 `stall_long_scoreboard`（等待内存）占主导，则低 Occupancy 是问题；若 `stall_math_throttle`（等待计算）占主导，则 Compute-bound，Occupancy 无关紧要。
+`ncu` 的 **Warp State Statistics** 模块显示各类 Warp Stall 的占比分布：
+
+- `stall_long_scoreboard`（等待 HBM 数据）占主导 → Memory-bound，低 Occupancy 是问题，需提高 Warp 数量。
+- `stall_math_throttle` / `stall_imc_miss`（计算单元占满）占主导 → Compute-bound，Occupancy 无关紧要。
+
+> **注**：Stall 类型字段名在 ncu 不同版本中有变化（如 `stall_long_scoreboard` 在较新版本中归并为 `smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct`），查阅时以实际版本 Stall Reason 分析界面为准。
+
+---
+
+**Q70-b. 给定一个实际的 `ncu` 报告（SM Active 30%、HBM BW 91%、L2 Hit Rate 18%），写出完整的诊断流程与优化路径？**
+
+**1. 初步判断**
+
+|观测值|含义|
+|---|---|
+|SM Active 30%|SM 仅有 30% 时间在工作，大量时间在等待|
+|HBM BW 91%|HBM 带宽几乎打满，系统受显存带宽限制|
+|L2 Hit Rate 18%|绝大部分数据直接来自 HBM，L2 缓存几乎无效|
+
+**结论：典型 Memory-bound Kernel，且 L2 缓存命中率极低，数据局部性差。**
+
+**2. 分步诊断流程**
+
+**Step 1：确认是否 Memory-bound（Roofline）**
+
+计算实测算术强度 $I_{\text{actual}}$ 并与脊点 $I^*$ 对比（H100 FP16 约 591 FLOP/Byte）。HBM BW 91% 且 SM Active 仅 30% 已基本确认。
+
+**Step 2：排查 L2 命中率低的根源**
+
+L2 命中率仅 18% 的常见原因：
+
+- **访存模式非连续（非 Coalesced）**：检查线程访问 Global Memory 的地址是否连续。若 Thread 0 访问地址 $a$，Thread 1 访问地址 $a+64$ 而非 $a+4$，则无法合并为一次 128B Cache Line 请求。
+- **工作集超出 L2 容量**：H100 的 L2 Cache 为 50 MB。若 Kernel 的工作数据集（如大矩阵）超出 L2 容量，则无论访问模式多规整，L2 命中率都会下降。
+- **频繁访问不同 Warp 的独立数据流（无空间局部性）**。
+
+**Step 3：排查 Occupancy**
+
+SM Active 30% 同时检查 Occupancy。若 Occupancy 本身低（如 < 25%），则可能是寄存器或 Shared Memory 使用量过大导致每 SM 能并发的 Warp 受限，进一步加剧 HBM 延迟无法被隐藏。
+
+**3. 优化路径（按优先级排列）**
+
+1. **修复非合并访问**：确保同一 Warp 内线程访问连续内存地址，合并为 128B Cache Line 请求，减少 HBM 访问次数。
+2. **引入 Shared Memory Tiling**：将热点数据预加载到 Shared Memory，提升数据复用（等价于手动提高 L1/L2 有效命中率）。
+3. **降低寄存器/SMEM 用量提高 Occupancy**：通过 `__launch_bounds__` 或减少循环展开，允许每 SM 并发更多 Warp 隐藏 HBM 延迟。
+4. **考虑 Kernel Fusion**：若该 Kernel 本身是 Elementwise 算子（如单独的 GELU、LayerNorm），应与相邻 Kernel 融合，从根本上减少 HBM Round-trip 次数。
+
+---
+
+**Q70-c. CUDA Graph 捕获的条件与限制？LLM 推理中动态 Batch Size 与 Graph Replay 如何共存？**
+
+**1. CUDA Graph 的核心价值**
+
+LLM Decode 阶段每步仅生成 1 Token，GPU Kernel 执行时间极短（FP16 GEMV 在 H100 上约 5–50 µs），而 CPU 端的 Kernel Launch 开销约 5–10 µs/Kernel。对于一个 32 层 Transformer，每步需要启动约 100+ Kernels，CPU Launch Overhead 累计可占 Decode 延迟的 20–40%。CUDA Graph 将所有 Kernel Launch 一次性捕获为静态图，Replay 时仅需 1 次 CPU 调用。
+
+**2. Graph 捕获的约束条件**
+
+以下操作**无法被 CUDA Graph 捕获**：
+
+| 不可捕获的操作                               | 原因                                                         |
+| ------------------------------------- | ---------------------------------------------------------- |
+| `cudaMalloc` / `cudaFree`（显存分配/释放）    | 改变显存拓扑，Graph 无法静态化                                         |
+| CPU-GPU 数据传输（`cudaMemcpy` 主机端发起的同步版本） | 涉及 CPU 同步，破坏异步执行                                           |
+| 动态控制流（基于 GPU 计算结果的 CPU 分支）            | 图结构在捕获时固定，不支持运行时条件分支                                       |
+| NCCL 集合通信（默认情况）                       | 需要特定版本 NCCL（>= 2.12）且配置 `NCCL_GRAPH_MIXING_SUPPORT=1` 才可捕获 |
+| 随机 Seed 动态更新（部分情况）                    | Seed 写入操作可能包含 CPU 逻辑                                       |
+
+**3. LLM 推理中的动态 Batch Size 问题**
+
+LLM 推理的 Batch Size 在 Continuous Batching 下动态变化，而 CUDA Graph 在捕获时会固定 Tensor Shape，**不同 Batch Size 需要不同的 Graph**。
+
+两种工程方案：
+
+**3.1 多 Graph 池（Multi-Graph Pool）**
+
+预先为常见 Batch Size（如 1, 2, 4, 8, 16, 32, 64）各捕获一个 CUDA Graph，推理时选择**最小的、不小于实际 Batch Size 的 Graph**（以 Padding 补足差额）执行。
+
+```python
+# 伪代码示意
+GRAPH_BATCH_SIZES = [1, 2, 4, 8, 16, 32, 64]
+graph_pool = {bs: capture_graph(bs) for bs in GRAPH_BATCH_SIZES}
+
+def get_graph(actual_batch_size):
+    for bs in GRAPH_BATCH_SIZES:
+        if bs >= actual_batch_size:
+            return graph_pool[bs]  # Padding 到 bs
+```
+
+vLLM 采用此方案：预捕获多个 Graph，Decode 时根据实际 Batch Size 选取最接近的 Graph。
+
+**3.2 `cudaGraphExecUpdate`（动态更新 Graph 节点参数）**
+
+CUDA 10.2+ 支持在不重新捕获的前提下，更新已有 Graph 中特定 Kernel 节点的参数（如指针地址、Grid/Block 尺寸），但**不允许改变 Graph 拓扑结构**（不能增删节点）。适合 Batch Size 固定但数据地址变化的场景。
+
+**4. vLLM 中的具体实践**
+
+vLLM 的 Decode 阶段仅对 Batch Size 固定的情况启用 CUDA Graph（通过 `--enforce-eager False`，默认开启）；Prefill 阶段因序列长度高度动态，通常不使用 CUDA Graph（或配合 Padding 策略使用），转而依赖 `torch.compile` 的部分图捕获。
 
 ---
 
@@ -4118,29 +4287,21 @@ H100 每 SM 最大 64 个 Warp，Occupancy = 活跃 Warp 数 / 64。
 
 **Q71. Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？**
 
-**CUDA 编程模型（Thread-level）：**
+**1. CUDA 编程模型（Thread-level）**
 
-程序员显式管理每个线程的行为：
-
-- 手动计算每个 Thread 的全局索引。
-- 手动管理 Shared Memory 的分配、加载、同步（`__syncthreads()`）。
-- 手动处理 Bank Conflict、Warp Divergence、内存对齐。
+程序员显式管理每个线程的行为：手动计算全局索引、手动分配 Shared Memory 并使用 `__syncthreads()` 同步、手动处理 Bank Conflict 与内存对齐。
 
 ```cuda
 __global__ void add_kernel(float* a, float* b, float* c, int n) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;  // 手动计算索引
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n)
         c[idx] = a[idx] + b[idx];
 }
 ```
 
-**Triton 编程模型（Block-level / Tile-level）：**
+**2. Triton 编程模型（Block/Tile-level）**
 
-程序员以**Block（Tile）为单位**编写逻辑，Triton 编译器自动处理底层细节：
-
-- 每个 Triton 程序实例处理一个 Block 的数据（如 `BLOCK_SIZE = 1024` 个元素）。
-- 通过 `tl.load` / `tl.store` 进行向量化访存，自动处理内存对齐和边界。
-- 自动优化 Shared Memory 布局、Bank Conflict 消除、Warp 调度。
+程序员以 **Block（Tile）** 为单位编写逻辑，每个 Triton 程序实例处理一块数据（如 `BLOCK_SIZE = 1024` 个元素）。Triton 编译器自动处理 Shared Memory 布局、Bank Conflict 消除、Warp 调度与向量化访存。
 
 ```python
 import triton
@@ -4148,81 +4309,159 @@ import triton.language as tl
 
 @triton.jit
 def add_kernel(a_ptr, b_ptr, c_ptr, n, BLOCK_SIZE: tl.constexpr):
-    pid = tl.program_id(0)                          # Block 索引（类比 blockIdx）
+    pid = tl.program_id(0)                               # Block 索引（类比 blockIdx.x）
     offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n
-    a = tl.load(a_ptr + offsets, mask=mask)         # 向量化加载，自动 Coalescing
+    a = tl.load(a_ptr + offsets, mask=mask)              # 向量化加载，自动 Coalescing
     b = tl.load(b_ptr + offsets, mask=mask)
     tl.store(c_ptr + offsets, a + b, mask=mask)
 ```
 
-**核心差异对比：**
+**3. 核心差异对比**
 
-|维度|CUDA|Triton|
-|---|---|---|
-|编程粒度|Thread 级（32 线程/Warp）|Block 级（$N$ 个元素/程序）|
-|Shared Memory|手动分配与同步|自动管理（编译器优化）|
-|Bank Conflict|手动消除|编译器自动处理|
-|内存合并|手动保证连续访问|`tl.load` 自动向量化|
-|自动调优|无|`triton.autotune` 自动搜索超参|
-|跨硬件移植|需大量修改|AMD ROCm、Intel GPU 支持中|
+| 维度            | CUDA                     | Triton                                    |
+| ------------- | ------------------------ | ----------------------------------------- |
+| 编程粒度          | Thread 级（1 线程 = 1 程序实例）  | Block 级（1 程序实例 = $N$ 个元素）                 |
+| Shared Memory | 手动分配、同步（`__syncthreads`） | 编译器自动管理                                   |
+| Bank Conflict | 手动消除（Padding / Swizzle）  | 编译器自动处理                                   |
+| 内存合并访问        | 手动保证地址连续                 | `tl.load` 自动向量化                           |
+| 自动调优          | 无内置机制（需手动 Benchmark）     | `@triton.autotune` 自动搜索超参                 |
+| 跨硬件移植         | 严格绑定 NVIDIA CUDA         | NVIDIA（PTX）、AMD ROCm（已趋稳定）、Intel GPU（实验性） |
+| 调试难度          | 较低（工具链成熟）                | 较高（中间 IR 不直观）                             |
 
 ---
 
 **Q72. 何时选择 Triton 而非 CUDA 手写？**
 
-**选择 Triton 的场景：**
+**1. 选择 Triton 的场景**
 
-**① 快速原型与算法验证：**
+**1.1 快速原型与算法验证**
 
-新 Attention 变体、新量化方案的 Kernel 原型，用 Triton 实现通常只需 CUDA 的 **1/5–1/10 代码量**，开发周期从数天缩短至数小时。FlashAttention 的 Triton 实现（`flash_attn_triton`）即是典型案例。
+新 Attention 变体、新量化方案的 Kernel 原型，用 Triton 实现通常只需 CUDA 的 1/5–1/10 代码量，开发周期从数天缩短至数小时。FlashAttention 的 Triton 参考实现（`flash_attn_triton`）即为典型案例。
 
-**② 跨硬件移植：**
+**1.2 跨硬件移植**
 
-Triton 编译器支持 NVIDIA（PTX）、AMD（HIP/ROCm）及实验性 Intel GPU 后端。同一份 Triton 代码可在不同硬件上运行，而 CUDA 代码严格绑定 NVIDIA。
+Triton 编译器支持 NVIDIA（PTX 后端，稳定）和 AMD ROCm（HIP 后端，v2.1+ 趋于稳定，已在 ROCm 生产环境中使用）。Intel GPU（Level Zero 后端）仍处于实验阶段（截至 2025 年上半年）。
 
-**③ 自动调优（AutoTuning）：**
+**1.3 自动调优（AutoTuning）**
 
-Triton 内置 `@triton.autotune` 装饰器，自动搜索 `BLOCK_SIZE`、`num_stages`、`num_warps` 等超参数的最优组合，无需手动 Benchmark：
+Triton 内置 `@triton.autotune` 装饰器，自动搜索 `BLOCK_SIZE`、`num_stages`、`num_warps` 的最优组合。调优结果缓存到本地（`~/.triton/cache`），首次运行后无额外开销。
 
 ```python
 @triton.autotune(
     configs=[
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64, 'BLOCK_K': 32}, num_stages=4),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64, 'BLOCK_K': 16}, num_stages=2),
+        triton.Config({'BLOCK_M': 64,  'BLOCK_N': 64,  'BLOCK_K': 32}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64,  'BLOCK_K': 16}, num_stages=2, num_warps=8),
+        triton.Config({'BLOCK_M': 64,  'BLOCK_N': 128, 'BLOCK_K': 32}, num_stages=3, num_warps=4),
     ],
     key=['M', 'N', 'K']
 )
 @triton.jit
-def matmul_kernel(...):
+def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, ...):
     ...
 ```
 
-**选择 CUDA 手写的场景：**
+**2. 选择 CUDA 手写的场景**
 
-**① 极限性能需求（生产级 Kernel）：**
+**2.1 极限性能需求（生产级 Kernel）**
 
-FlashAttention-3 使用 WGMMA + TMA + Warp Specialization，需精细控制 Warp 角色、异步 Barrier、Shared Memory Swizzle 等，Triton 目前无法表达这些 Hopper 特有的优化。
+FlashAttention-3 使用 WGMMA + TMA + Warp Specialization，需精细控制 Warp 角色分工、异步 `mbarrier`、Shared Memory Swizzle 模式等 Hopper 原生原语。
 
-**② 特殊硬件特性利用：**
+**2.2 Hopper / Blackwell 特有硬件特性**
 
-TMA、`cp.async`、`mbarrier`、Tensor Memory Descriptor 等 Hopper 原语，Triton 尚未完整支持（截至 2025 年支持仍不完整）。
+TMA（Tensor Memory Accelerator）、`cp.async.bulk`、`mbarrier`、WGMMA 等原语在 Triton 中的支持状态（截至 2025 年上半年）：
 
-**③ 寄存器级精细控制：**
+|原语|Triton 支持状态|
+|---|---|
+|TMA（`tl.experimental_descriptor_load`）|实验性支持，接口不稳定|
+|WGMMA|部分支持，性能不及手写|
+|Warp Specialization|无法直接表达（Triton 以 Block 为粒度）|
+|`mbarrier`（异步 Barrier）|不支持|
 
-需要手动 `#pragma unroll`、PTX 内联汇编、寄存器变量复用等极端优化时，CUDA/PTX 更可控。
+这是 FlashAttention-3 仍选择 CUDA/PTX 手写而非 Triton 的根本原因。
 
-**选型原则（简化）：**
+**2.3 寄存器级精细控制**
+
+需要手动 PTX 内联汇编、`#pragma unroll` 精细控制、寄存器变量复用等极端优化时，CUDA/PTX 表达能力更强。
+
+**3. 选型决策树**
 
 ```
-是否需要跨硬件 / 快速验证 / 自动调优？
+需要跨硬件（AMD/Intel）或快速原型验证？
   └─ 是 → Triton
 
-是否需要 Hopper 特有原语（WGMMA/TMA/Warp Spec）/ 极限性能？
+需要 Hopper/Blackwell 特有原语（WGMMA/TMA/Warp Spec/mbarrier）？
   └─ 是 → CUDA / PTX 手写
 
-其余情况 → Triton 足够，优先选择
+需要自动调优且无平台限制？
+  └─ 是 → Triton（@triton.autotune）
+
+其余生产场景（性能要求较高，NVIDIA 平台）？
+  └─ 优先 Triton，如性能不达标再考虑 CUDA
 ```
+
+---
+
+**Q72-b. Triton 的 `num_stages` 与 `num_warps` 超参数对性能的影响机制？**
+
+**1. `num_warps`：每个 Triton 程序实例使用的 Warp 数量**
+
+- Triton 中一个程序实例（等价于一个 CUDA Block）的线程数 = `num_warps × 32`。
+- `num_warps` 直接影响 Occupancy：`num_warps` 越大，每个 Block 占用的寄存器越多，每 SM 能并发的 Block 数越少。
+- 对于 Memory-bound Kernel，适当增大 `num_warps`（如从 4 → 8）可增加 Occupancy，隐藏 HBM 延迟；对于 Compute-bound Kernel（如 GEMM），过大的 `num_warps` 反而因寄存器竞争降低性能。
+- 典型取值：`num_warps ∈ {1, 2, 4, 8}`；GEMM 类 Kernel 通常取 4 或 8。
+
+**2. `num_stages`：软件流水线的 Stage 数量**
+
+`num_stages` 控制 Triton 编译器生成的**软件 Double/Multi Buffering** 深度，用于在等待异步数据加载时预取下一块数据，隐藏 HBM → Shared Memory 的数据搬运延迟。
+
+以 GEMM 为例（$K$ 维度循环，每次处理 `BLOCK_K` 个元素）：
+
+- `num_stages = 1`：无流水线，等待当前 Block 加载完成后再计算。
+- `num_stages = 2`：Double Buffering，加载第 $i+1$ 块数据的同时计算第 $i$ 块，需 2× Shared Memory。
+- `num_stages = 4`：4 级流水，进一步隐藏 HBM 延迟，需 4× Shared Memory（可能触发 SMEM 溢出）。
+
+$$
+\text{SMEM} =
+\text{num\_stages} \times
+(\text{BLOCK\_M} \times \text{BLOCK\_K} + \text{BLOCK\_K} \times \text{BLOCK\_N})
+\times \text{dtype\_size}
+$$
+
+若所需 SMEM 超出 SM 上限（H100 为 228 KB/SM），编译器会报错或自动降低 Stage 数。
+
+**3. `@triton.autotune` 的搜索代价与缓存机制**
+
+- 每个 `(num_warps, num_stages, BLOCK_SIZE, ...)` 组合在**首次运行时**各实际执行一次 Kernel，测量耗时，选取最优配置。
+- 调优结果按 `key`（如 `['M', 'N', 'K']`）缓存到 `~/.triton/cache`（JSON 文件），相同参数的后续调用直接读取缓存，零额外开销。
+- 搜索代价 = 候选配置数 × 单次 Kernel 执行时间，对于 4–8 个候选配置、Kernel 执行时间约 0.1–1 ms 的场景，首次总开销约 0.5–10 ms，通常可接受。
+
+---
+
+**Q72-c. Triton 在 Hopper 架构上的现状与 FlashAttention-3 为何仍选择 CUDA？**
+
+**1. Triton 对 Hopper 原语的支持现状（截至 2025 年上半年）**
+
+|Hopper 原语|功能|Triton 支持状态|
+|---|---|---|
+|TMA（Tensor Memory Accelerator）|异步批量 Global → Shared 搬运，解放 CUDA Core 地址计算|实验性（`tl.experimental_descriptor_load`），接口可能变动|
+|WGMMA（Warpgroup-level MMA）|以 Warpgroup（4 Warp = 128 线程）为单位执行矩阵乘，峰值算力更高|部分支持，仍有性能 Gap|
+|Warp Specialization|将 Warp 分为 Producer（搬运）和 Consumer（计算），形成软件流水|**无法直接表达**（Triton 以 Block 为粒度，无 Warp 级控制）|
+|`mbarrier`（异步 Barrier）|Producer/Consumer Warp 间的轻量级同步原语|**不支持**|
+
+**2. FlashAttention-3 选择 CUDA 的根本原因**
+
+FlashAttention-3 的核心优化是：
+
+- **Warp Specialization**：将每个 Block 的 Warp 分为 Producer（负责 TMA 加载 Q/K/V tiles）和 Consumer（负责 WGMMA 计算），实现计算与数据搬运的硬件级 Overlap。
+- **WGMMA + TMA 组合**：以 Warpgroup 为单位发射 WGMMA 指令，同时由 TMA 异步预取下一 Tile，最大化 Tensor Core 利用率。
+- **`mbarrier` 同步**：Producer/Consumer Warp 间通过 `mbarrier` 精确同步，避免 `__syncthreads()` 的全 Block 同步开销。
+
+上述三项优化需要 Warp 级的显式控制，而 **Triton 的编程模型以 Block 为粒度，无法表达 Warp 内部的角色分工**。即使 Triton 未来完善 TMA 支持，Warp Specialization 对应的硬件流水仍无法在 Triton 的抽象层次下表达，这是架构层面的根本限制而非短期工程问题。
+
+因此，FlashAttention-3 使用 CUDA/PTX 手写，以换取对 Hopper 硬件流水的完全控制。
+
+---
 
 ## 第 10 章·参考答案：系统设计题
 
