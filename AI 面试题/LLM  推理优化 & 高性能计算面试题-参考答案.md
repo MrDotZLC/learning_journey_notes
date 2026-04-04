@@ -4467,262 +4467,383 @@ FlashAttention-3 的核心优化是：
 
 ---
 
-### 10.1 典型题目
+### 1. 典型题目
 
 ---
 
-**Q73. 设计一个支持 100 QPS、P99 TTFT < 500ms、Batch 动态变化的 LLM 推理服务，说明关键组件与调优策略。**
+#### 1.1 Q73：100 QPS 推理服务设计
 
 **需求澄清（面试中必须先问）：**
 
-|参数|假设值|
-|---|---|
-|模型规模|70B，FP16/W8A8|
-|平均输入长度 ISL|512 tokens|
-|平均输出长度 OSL|256 tokens|
-|硬件|8× H100 SXM（单节点）|
-|SLA|P99 TTFT < 500ms，P99 TPOT < 50ms|
-|QPS|峰值 100，均值 60|
+| 参数         | 假设值                              |
+| ---------- | -------------------------------- |
+| 模型规模       | 70B，W8A8（INT8 权重，FP16/BF16 激活）   |
+| 平均输入长度 ISL | 512 tokens                       |
+| 平均输出长度 OSL | 256 tokens                       |
+| 硬件         | 8 × H100 SXM（单节点，NVLink 互联）      |
+| SLA        | P99 TTFT < 500ms，P99 TPOT < 50ms |
+| QPS        | 峰值 100，均值 60                     |
 
 **系统架构：**
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  负载均衡层（Nginx / L7 LB）                         │
-│  - 请求路由 + 限流（令牌桶，峰值 100 QPS）           │
+│  负载均衡层（Nginx / L7 LB）                          │
+│  - 请求路由 + 令牌桶限流（峰值 100 QPS）               │
 └───────────────────┬─────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────────────┐
 │  调度层（Scheduler）                                 │
 │  - Continuous Batching（Iteration-level）            │
 │  - Chunked Prefill（Chunk Size = 512）               │
-│  - 优先级队列（短 ISL 优先，降低 TTFT）              │
+│  - P/D 分离：Prefill 实例与 Decode 实例分离部署       │
+│  - 优先级队列（短 ISL 优先以降低 TTFT）               │
 └───────────────────┬─────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────────────┐
-│  推理引擎层（vLLM / TRT-LLM）                        │
+│  推理引擎层（vLLM / SGLang）                         │
 │  - TP = 8（单节点 NVLink 全互联）                    │
-│  - PagedAttention（Block Size = 16）                 │
-│  - CUDA Graph（Decode 阶段固定形状）                 │
+│  - PagedAttention（Block Size = 16 tokens）          │
+│  - CUDA Graph（Decode 阶段离散化 Batch Size）         │
 │  - FP8 KV Cache（显存节省 50%）                      │
 └─────────────────────────────────────────────────────┘
 ```
 
 **关键参数调优：**
 
-**① Chunked Prefill Chunk Size 选择：**
+**① KV Cache 显存占用（精确推导）**
 
-- 目标：P99 TTFT < 500ms，单次 Prefill 512 tokens 约 50ms（H100 × 8），留出排队余量。
-- Chunk Size = 512，最坏情况（ISL = 2048）需 4 个 Chunk，TTFT ≤ 4 × 50ms + 调度开销 ≈ 250ms < 500ms。✅
+LLaMA-3 70B 架构参数：层数 $L=80$，GQA KV 头数 $H_{\text{KV}}=8$，头维度 $d=128$。单请求 ISL + OSL = 768 tokens，FP8（1 byte/element）：
 
-**② 最大并发请求数（KV Cache 容量约束）：**
+$$M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times S \times \text{sizeof(FP8)}$$ $$= 2 \times 80 \times 8 \times 128 \times 768 \times 1 = 125{,}829{,}120 \text{ bytes} \approx 126 \text{ MB}$$
 
-70B GQA（$H_{\text{KV}}=8, d=128, L=80$）FP8 KV Cache 单请求（ISL+OSL=768 tokens）：
+8 × H100 共 640 GB 显存，W8A8 模型权重 $70 \times 10^9 \times 1 = 70$ GB，剩余约 570 GB 用于 KV Cache：
 
-$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 768 \times 1 \approx 100 \text{ MB}$$
+$$\text{最大 KV Block 容量} = \frac{570 \text{ GB}}{126 \text{ MB}} \approx 4{,}500 \text{ 请求}$$
 
-8× H100 共 640 GB 显存，模型权重约 70B × 1 Byte = 70 GB，剩余 ~570 GB 用于 KV Cache：
+实际活跃并发控制在 256–512 之间，平衡 TPOT 与吞吐。[计算：实际活跃请求并发数](Learning/AI%20Infra/计算：实际活跃请求并发数.md)
 
-$$\text{最大并发} = \frac{570 \text{ GB}}{100 \text{ MB}} \approx 5700 \text{ 请求}$$
+**② Decode 步骤耗时与吞吐上限（Bandwidth-bound 分析）**
 
-实际受 Batch Size 影响，控制活跃并发在 256–512 之间平衡延迟与吞吐。
+Decode 阶段为 Memory-bound。H100 单卡 HBM 带宽 3.35 TB/s，TP = 8 时每卡持有权重：
 
-**③ CUDA Graph 启用条件：**
+$$W_{\text{per GPU}} = \frac{70 \times 10^9 \times 2 \text{ bytes}}{8} = 17.5 \text{ GB（FP16）}$$
 
-Decode 阶段 Batch Size 在 [1, 256] 内提前编译 CUDA Graph（离散化为 2 的幂次），每步 Launch Overhead 从 ~20μs 降至 ~1μs。
+每步 Decode 的带宽下界（各卡并行读取，不存在串行瓶颈）：
 
-**④ 吞吐上限估算：**
+$$t_{\text{step}}^{\min} = \frac{17.5 \text{ GB}}{3.35 \text{ TB/s}} \approx 5.2 \text{ ms}$$
 
-- 单步 Decode 时间（Batch=256）≈ 50ms（H100 × 8，70B）
-- 吞吐 = 256 tokens/步 ÷ 0.05s = 5120 Tokens/s
-- 平均每请求 256 OSL，吞吐 = 5120 / 256 = **20 QPS（单引擎）**
-- 满足 100 QPS 需 **5 个引擎实例**（或更大 Batch + 更多显存）
+W8A8 权重（1 byte）时约 2.6 ms。考虑 Kernel Launch、AllReduce、调度开销，实际单步约 8–15 ms。
 
-**监控告警：**
+H100 FP16 Roofline 脊点（Arithmetic Intensity 脊点批大小）：
 
-- KV Cache 使用率 > 85% → 触发限流
-- P99 TTFT > 400ms → 减小 Chunk Size 或增加 Prefill 实例
-- GPU MBU < 50% → 排查 Decode Batch Size 是否过小
+$$B_{\text{ridge}} = \frac{\text{Peak FLOPS}}{\text{Peak BW}} = \frac{989 \text{ TFLOPS}}{3.35 \text{ TB/s}} \approx 295$$
+
+Batch = 256 < 295，系统仍处于 Memory-bound 区间。实测吞吐（Batch = 256，W8A8，实际 step ≈ 12 ms）：
+
+$$\text{Tokens/s} = \frac{256}{0.012} \approx 21{,}000 \text{ tokens/s}, \quad \text{QPS} = \frac{21{,}000}{256} \approx 82$$
+
+单台 8 × H100 节点理论上可承载 100 QPS 目标；加入 P/D 分离后 Prefill/Decode 解耦，延迟抖动进一步降低。
+
+**③ Chunked Prefill Chunk Size 选择**
+
+P99 TTFT < 500ms，Chunk Size = 512 tokens 时单 Chunk Prefill 约 15–20 ms（W8A8，50% MFU）。最大 ISL = 2048 tokens 需 4 个 Chunk，TTFT ≤ $4 \times 20 + \text{排队时延} \approx 100\text{–}150 \text{ ms} \ll 500 \text{ ms}$，满足 SLA。
+
+**④ CUDA Graph 启用**
+
+Decode 阶段将 Batch Size 离散化为 2 的幂次（1, 2, 4, …, 256），提前捕获 CUDA Graph，每步 Launch Overhead 从约 20 μs 降至约 1 μs。
+
+**监控告警阈值：**
+
+|指标|告警线|响应动作|
+|---|---|---|
+|KV Cache 使用率|> 85%|触发限流，减少新请求接入|
+|P99 TTFT|> 400 ms|缩小 Chunk Size 或增加 Prefill 实例|
+|GPU MBU|< 50%|Decode Batch Size 过小，排查调度策略|
+|P99 TPOT|> 40 ms|Decode 吞吐不足，检查 KV Cache 碎片|
 
 ---
 
-**Q74. 给定 8 × H100 节点，部署 70B 参数模型，选择 TP/PP 策略并分析通信瓶颈。**
+#### 1.2 Q74：8 × H100 部署 70B 模型的并行策略
 
-**显存需求分析（先确认模型能否放下）：**
+**显存需求分析：**
 
-|组件|显存需求|
-|---|---|
-|模型权重（FP16）|70B × 2 B = **140 GB**|
-|模型权重（W8A8）|70B × 1 B = **70 GB**|
-|KV Cache（FP16，Batch=32，S=2048）|~34 GB|
-|激活值 + 框架开销|~10 GB|
+|组件|FP16|W8A8|
+|---|---|---|
+|模型权重|140 GB|70 GB|
+|KV Cache（Batch=32，S=2048）|~34 GB|~17 GB（FP8 KV）|
+|激活 + 框架开销|~10 GB|~10 GB|
+|合计|~184 GB|~97 GB|
 
-8× H100 共 640 GB，FP16 权重 + KV Cache 总需约 184 GB，单卡 80 GB 无法容纳。
+8 × H100 共 640 GB，FP16 方案单卡需 $184/8 = 23$ GB < 80 GB，可行；W8A8 + FP8 KV 方案更宽松。
 
 **策略选择：**
 
-**方案 A：TP = 8（推荐，单节点）**
+**方案 A：TP = 8（推荐，单节点 NVLink 全互联）**
 
 ```
-权重切分：140 GB / 8 = 17.5 GB/卡（FP16）
-KV Cache：34 GB / 8 ≈ 4.25 GB/卡
-总显存/卡：~22 GB < 80 GB ✅（余量充足）
+权重切分（FP16）：140 GB / 8 = 17.5 GB / 卡
+KV Cache：34 GB / 8 ≈ 4.3 GB / 卡
+总显存 / 卡：~22 GB  ✅
 ```
 
-- 通信：每层 2 次 AllReduce，NVLink 900 GB/s，通信开销 < 1%（见 Q64 计算）。
-- **推荐理由**：单节点内 NVLink 带宽极高，TP 通信几乎免费；无 PP 气泡；实现简单。
+每层 2 次 AllReduce（Attention 投影后 + FFN 后）。
 
-**方案 B：PP = 8（不推荐）**
+**方案 B：PP = 8（不推荐，单节点推理场景）**
 
-```
-每卡负责 80/8 = 10 层，显存 140/8 = 17.5 GB/卡 ✅
-但流水气泡率 = (8-1)/(M+7)，M 需 >> 7 才能接受
-```
+流水气泡率公式（推理，无 Micro-batch 流水，实质退化为串行）：
 
-- 推理中每个请求是独立的 Micro-batch，PP 气泡率高（适合训练大 Batch，不适合低延迟推理）。
-- **不推荐**：Pipeline 气泡在 Batch Size 小时严重影响 TTFT。
+$$\text{Bubble Rate}_{\text{推理}} = \frac{P - 1}{M + P - 1}$$
 
-**方案 C：TP = 4 + PP = 2（混合，跨节点场景）**
+$M$ 为 Micro-batch 数。推理中 $M = 1$ 时气泡率 $= (P-1)/P = 87.5\%$，GPU 利用率极低。此外 PP 增加 Pipeline Fill/Drain 延迟，不适合低 TTFT 场景。
 
-适合多节点部署，本题单节点首选方案 A。
+**方案 C：TP = 4 + PP = 2（适用跨节点场景，本题非最优）**
 
-**通信瓶颈分析（方案 A，TP=8）：**
+单节点内 NVLink 带宽充足，不需要 PP 补偿带宽不足，故方案 A 最优。
 
-Decode 阶段，Batch=32，每层 AllReduce 通信量：
+**通信瓶颈分析（方案 A，TP = 8）：**
 
-$$2 \times 32 \times 1 \times 8192 \times 2 = 1 \text{ MB（单次）}$$
+Decode 阶段（Batch = 32，hidden = 8192，FP16），每次 AllReduce 的消息体积：
 
-NVLink 传输时间 $\approx 1\text{ MB} / (900\text{ GB/s}/8) \approx 8.9\text{ μs}$（每次）
+$$M_{\text{AR}} = \text{batch} \times \text{hidden} \times \text{sizeof(FP16)} = 32 \times 8192 \times 2 = 524{,}288 \text{ bytes} \approx 0.5 \text{ MB}$$
 
-70 层 × 2 次 = 140 次 AllReduce，总通信时间 $\approx 1.25\text{ ms}$，而单步 Decode 总时间约 **50–100ms**，通信占比 **1–2%**，**不是瓶颈**。
+Ring-AllReduce 传输总量 $\approx 2M = 1$ MB，H100 NVLink 每条链路带宽 50 GB/s，环形拓扑有效带宽约 100 GB/s，延迟：
 
-**真正的瓶颈**：HBM 带宽（Decode 阶段读取全部权重 70 GB × 2 次/步 × 2 bytes = 280 GB，以 3.35 TB/s 需 **84ms**，这是延迟下界）。
+$$t_{\text{AR}} \approx \frac{2 \times (N-1)/N \times M_{\text{AR}}}{B_{\text{eff}}} = \frac{2 \times 7/8 \times 0.5 \text{ MB}}{100 \text{ GB/s}} \approx 8.75 \text{ μs}$$
+
+80 层 × 2 次 = 160 次 AllReduce，总通信时间约 $160 \times 8.75 \approx 1.4$ ms。
+
+Decode 实际步耗时约 10–20 ms，**通信占比 7–14%，非主要瓶颈**。
+
+**真正的瓶颈：HBM 带宽。**
+
+TP = 8 时，各卡并行读取自身权重分片 17.5 GB（FP16），带宽下界：
+
+$$t_{\text{BW}}^{\min} = \frac{17.5 \text{ GB}}{3.35 \text{ TB/s}} \approx 5.2 \text{ ms（FP16）}, \quad 2.6 \text{ ms（W8A8）}$$
 
 ---
 
-**Q75. KV Cache 显存告警，但 GPU 利用率只有 40%，根因分析与优化路径。**
+#### 1.3 Q75：KV Cache 满 + GPU 利用率 40% 的根因分析
 
-**现象矛盾分析：**
+**现象矛盾：**
 
-- KV Cache 满 → 请求积压，无法接受新请求 → 按理 GPU 应高负载
-- GPU 利用率仅 40% → 说明 GPU 大量时间在等待，计算未饱和
+KV Cache 满 → 新请求无法进入 → 批次规模萎缩 → GPU 算力空转。
 
 **根因排查树：**
 
 ```
-KV Cache 满 + GPU 利用率低
-├─ 原因 A：请求输出长度极长（OSL >> 预期）
-│   → 少量请求占满 KV Cache，Batch 中活跃请求数少，Decode GEMV 不饱和
-│   → 验证：查看活跃请求的平均 OSL 分布
-│   → 优化：设置 max_tokens 上限；对超长请求启用 KV Cache 压缩（H2O/SnapKV）
+KV Cache 满 & GPU 利用率 40%
 │
-├─ 原因 B：KV Cache 碎片严重（未使用 PagedAttention 或 Block 太大）
-│   → 显存碎片导致"虚假满"，实际可用显存充足但无法分配
-│   → 验证：打印 KV Cache 碎片率（已分配 Block 数 vs 实际使用 Token 数）
-│   → 优化：启用 PagedAttention；调小 Block Size（从 32 → 16）
+├─ [A] 少量超长请求占据 KV Block
+│     单请求 OSL 极长（如 4096+ tokens），耗尽 Block Pool，
+│     活跃 Batch 只剩 1–2 个请求，GEMV 不饱和
+│     验证：统计活跃请求 OSL 分布（P95/P99）
+│     优化：设置 max_output_tokens 上限；启用 H2O/SnapKV Token Eviction
 │
-├─ 原因 C：Prefix Cache 过多（大量 Prompt 前缀被缓存占用显存）
-│   → Prefix KV Block 引用计数 > 0，无法被驱逐
-│   → 验证：查看 Prefix Cache 命中率与显存占用
-│   → 优化：设置 Prefix Cache 最大显存比例上限（如 30%）；LRU 驱逐过期前缀
+├─ [B] KV Cache 碎片（Internal Fragmentation）
+│     PagedAttention Block Size 过大（如 64 tokens），
+│     每个请求的最后一个 Block 平均浪费 (B-1)/2 个 token slot
+│     Block 总数耗尽但实际存储 token 数远少于理论上限
+│     验证：打印 used_blocks 与 allocated_tokens 的比值
+│     优化：调小 Block Size（从 64 → 16）；升级 vLLM 使用 v2 Block Manager
 │
-└─ 原因 D：KV Cache 显存分配过于激进（预分配了未来使用的 Block）
-    → 推理框架对最大序列长度的估计偏高，预留太多 Block
-    → 验证：查看 Block Table 中 reserved（预留）vs used（实际使用）的比例
-    → 优化：调小 max_model_len 参数；使用动态 Block 分配
+├─ [C] Prefix Cache 过度占用
+│     共享 Prompt 前缀的 KV Block 被引用计数锁定，无法驱逐
+│     在多用户共享 System Prompt 场景下尤为严重
+│     验证：查看 prefix_cache_usage_rate 与对应 Block 数
+│     优化：设置 Prefix Cache 最大占比上限（建议 ≤ 30%）；
+│           对低命中率前缀启用 LRU 驱逐
+│
+└─ [D] Block 预分配策略过激
+      框架按 max_model_len 为每个请求预留 Block，
+      而实际输出远短于上限
+      验证：比较 reserved_blocks 与 actually_used_blocks
+      优化：降低 max_model_len；使用 dynamic block allocation
 ```
 
-**优先排查顺序：**
+**排查优先级：A > B > C > D**（从最常见到最罕见）。
 
-1. `ncu` / vLLM 的 `--enable-prefix-caching` 日志 → 查 Prefix Cache 占用
-2. 请求日志 → 查 OSL 分布（P99 OSL 是否异常）
-3. Block Table 统计 → 查碎片率
+**通用缓解措施（立竿见影）：**
 
-**通用优化措施：**
-
-- 启用 **FP8 KV Cache**（显存减半，直接扩大容量）
-- 启用 **KV Cache Eviction**（H2O 或 SnapKV）
-- 调整 `gpu_memory_utilization`（vLLM 参数，控制 KV Cache 可用显存比例，默认 0.9，可调至 0.85）
+- 启用 **FP8 KV Cache**：KV 存储从 FP16 减半，同等显存可容纳 2× 并发。
+- 启用 **KV Cache Eviction**（H2O/SnapKV）：驱逐 Attention Score 低的 Token KV，压缩长请求占用。
+- 调整 `gpu_memory_utilization=0.85`（vLLM 参数，默认 0.90）：主动为突发请求保留缓冲区。
 
 ---
 
-**Q76. 如何在不更换硬件的前提下，将现有服务的吞吐提升 2×？给出逐步排查与优化思路。**
+#### 1.4 Q76：不换硬件将吞吐提升 2×
 
-**分析框架：吞吐瓶颈必在以下三层之一**
+**分析框架：**
 
 ```
-算法层（模型计算效率）→ 系统层（调度/框架效率）→ 硬件层（GPU 利用率）
+吞吐瓶颈 → 三层定位
+算法层（计算效率）→ 系统层（调度效率）→ 硬件利用率
 ```
 
 **Step 1：建立基线，定位当前瓶颈**
 
 ```bash
-# 采集关键指标
-nsys profile --trace=cuda,nvtx vllm_serve ...  # Timeline 分析
-ncu --metrics gpu__time_active.sum,l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum \
-    --target-processes all python serve.py      # Kernel 级指标
+# GPU 利用率与带宽分析
+nsys profile --trace=cuda,nvtx python serve.py
 
-# 核心问题：
-# - GPU MBU（带宽利用率）是多少？（< 60% 说明 Batch 太小）
-# - Prefill/Decode 的时间占比？（Decode >> Prefill 说明输出长）
-# - KV Cache 使用率？（> 90% 说明显存是瓶颈）
+# Kernel 级指标：带宽利用率、L2 命中率、SM 活跃率
+ncu --metrics \
+  sm__throughput.avg.pct_of_peak_sustained_elapsed,\
+  l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum,\
+  gpu__dram_throughput.avg.pct_of_peak_sustained_elapsed \
+  --target-processes all python serve.py
 ```
 
-**Step 2：算法层优化（无需改框架）**
+| 核心问题               | 诊断含义                     |
+| ------------------ | ------------------------ |
+| GPU MBU < 60%      | Decode Batch 太小，带宽未饱和    |
+| Prefill 占总耗时 > 50% | ISL 长或 Prefill 频繁，调度策略问题 |
+| KV Cache 使用率 > 90% | 显存瓶颈，并发受限                |
 
-|优化手段|预期收益|代价|
-|---|---|---|
-|W8A8 量化（FP16 → INT8）|权重读取减半，Decode 吞吐 +50–80%|精度损失 < 1%|
-|FP8 KV Cache|KV 读写减半，可用并发 +2×|精度损失 < 0.5%|
-|GQA（如模型未用）|KV Cache 减少 4–8×，并发大幅提升|需微调模型|
-|Speculative Decoding（EAGLE）|推理速度 2.5–4×|需 Draft 模型|
+**Step 2：算法层（无需改框架）**
 
-**Step 3：系统层优化（框架参数调优）**
+| 优化手段                        | 原理                     | 预期吞吐增益      | 精度代价     |
+| --------------------------- | ---------------------- | ----------- | -------- |
+| FP16 → W8A8 量化              | 权重字节减半，带宽瓶颈缓解          | +50–100%    | < 1%     |
+| FP8 KV Cache                | KV 读写带宽减半，可用并发翻倍       | +30–60%     | < 0.5%   |
+| 开启 Prefix Caching           | 重复前缀 Prefill 计算直接命中 KV | 视场景 +10–80% | 无        |
+| Speculative Decoding（EAGLE） | Decode 加速 2–4×         | +50–150%    | 无（不改变分布） |
+
+**Step 3：系统层（框架参数调优）**
 
 ```python
-# vLLM 关键参数
-engine = LLMEngine(
-    max_num_seqs=512,           # 增大最大并发（默认 256）
-    gpu_memory_utilization=0.90, # KV Cache 可用显存比例
-    enable_chunked_prefill=True, # 开启 Chunked Prefill
-    max_num_batched_tokens=8192, # 增大每步最大 Token 数
-    enable_prefix_caching=True,  # 开启 Prefix KV 复用
-    use_v2_block_manager=True,   # 更高效的 Block 管理
+# vLLM 关键参数（以 vLLM ≥ 0.6 为准，参数名以实际版本为准）
+engine = AsyncLLMEngine.from_engine_args(
+    EngineArgs(
+        max_num_seqs=512,              # 增大最大并发（默认 256）
+        gpu_memory_utilization=0.90,   # KV Cache 可用显存比例
+        enable_chunked_prefill=True,   # 开启 Chunked Prefill
+        max_num_batched_tokens=8192,   # 增大每步最大 Token 数
+        enable_prefix_caching=True,    # 开启 Prefix KV 复用（SGLang 中为 RadixAttention）
+    )
 )
 ```
 
-**Step 4：调度层优化**
+**Step 4：调度层**
 
-- **Continuous Batching** 是否已开启？（静态 Batching → Continuous Batching 可提升 2–4×）
-- **请求优先级调度**：短 OSL 请求优先，减少长请求占用 Batch Slot
-- **Prefill/Decode 分离**：若 Prefill 请求频繁，考虑 P/D 分离部署
+| 调度优化                         | 适用场景                | 预期收益                  |
+| ---------------------------- | ------------------- | --------------------- |
+| Static → Continuous Batching | 当前为静态批处理            | +100–300%             |
+| P/D 分离部署                     | Prefill 频繁拖慢 Decode | Decode TPOT 降低 30–50% |
+| 短 OSL 优先调度                   | 请求 OSL 差异大          | SLO 达标率提升             |
 
-**Step 5：硬件利用率优化**
-
-```
-GPU 利用率分析：
-MBU < 60% → Batch Size 太小 → 增大 max_num_seqs
-MFU < 30% (Prefill) → GEMM 效率低 → 检查 TP 是否合理，Chunk Size 是否过小
-SM 占用率低 → Kernel 未优化 → 升级框架版本（vLLM 新版 Kernel 通常更优）
-```
-
-**预期 2× 吞吐的典型路径：**
+**Step 5：吞吐 2× 的典型推演路径**
 
 ```
-现状：FP16 权重 + Static Batching + 无 Prefix Cache
-      → 吞吐：X Tokens/s
+现状假设：FP16 权重 + Static Batching + 无 Prefix Cache
+基线吞吐：X tokens/s
 
-Step 1: Continuous Batching                → +50–100%（X → 1.5–2X）
-Step 2: W8A8 或 FP8 量化                  → +30–80%（显存节省 → 并发提升）
-Step 3: FP8 KV Cache + Prefix Caching    → +20–40%
-Step 4: Speculative Decoding（可选）      → +50–150%
+Step A: Static → Continuous Batching         → 1.5–3X
+Step B: FP16 → W8A8                          → ×1.5–2（权重带宽减半）
+Step C: FP8 KV Cache + Prefix Caching        → ×1.2–1.5（并发和命中率提升）
+Step D: Speculative Decoding（可选，长 OSL）  → ×1.5–2.5
 
-组合后目标：≥ 2X ✅
+组合 A + B 通常已足够达到 2X 目标 ✅
 ```
+
+> 先做 Profiling 定位瓶颈，再选对应优化手段；切勿跳过诊断步骤直接堆优化。
 
 ---
 
-### 10.2 答题框架回顾
+#### 1.5 Q77-SD：面向超长 CoT 的推理服务设计
+
+**负载特征差异（CoT vs 常规对话）：**
+
+|维度|常规对话（OSL ≈ 256）|超长 CoT（OSL ≈ 4096）|
+|---|---|---|
+|Decode 占比|40–60%|> 90%|
+|KV Cache 峰值 / 请求|~126 MB（70B, FP8）|~1.96 GB（×16）|
+|最大并发（570 GB）|~4,500|~290|
+|带宽压力|中|极高（每步读 17.5 GB 权重）|
+|TTFT / TPOT SLO 优先级|TTFT 重要|**TPOT 优先**（用户等待推理过程）|
+
+**KV Cache 规划调整：**
+
+CoT 请求的 KV Cache 峰值约为常规请求的 16×，需针对性规划：
+
+- 启用 **Token Eviction**（H2O / SnapKV）：CoT 中间步骤 Token 的 Attention Score 随序列增长快速衰减，驱逐低分 Token 可将 KV 占用压缩至 40–60%。
+- 设置 **max_model_len 上限**（如 8192），防止单请求无限增长耗尽显存。
+- **FP8 KV Cache** 在此场景收益尤为显著（节省量与 OSL 成正比）。
+
+**调度策略调整：**
+
+- 调小最大并发 `max_num_seqs`：从常规的 512 降至 ~64，避免 OOM 导致全局抢占。
+- **Preemption 策略选 Recompute 而非 Swap**：CoT 中被抢占请求通常 KV 体积极大，Swap 至 CPU DRAM 的传输时间（PCIe 带宽约 32 GB/s，传输 2 GB 需 ~62 ms）可能超过 Recompute 代价。
+- 启用 **Chunked Decode**（实验性特性）：将超长 Decode 序列分批提交，与短请求交错执行，降低调度不公平性。
+
+**SLO 设计调整：**
+
+常规服务强调 TTFT（P99 < 500ms）；CoT 服务的用户心智是"等待完整推理结果"，SLO 应转向：
+
+$$\text{Total Latency} = \text{TTFT} + \text{OSL} \times \text{TPOT}$$
+
+建议 TPOT SLA 降至 P99 < 30 ms/token（优先保 Decode 流畅），而非牺牲 TPOT 去压缩 TTFT。
+
+---
+
+#### 1.6 Q78-SD：多模型共享 GPU 集群的资源隔离设计
+
+**场景：Dense 70B + MoE 8×7B 同时在线，8 × H100 单节点**
+
+**显存分区策略：**
+
+- **物理隔离（推荐）**：4 × H100 运行 Dense 70B（TP = 4），4 × H100 运行 MoE 8×7B（TP = 4）；两个子集群完全独立，无 KV Cache 竞争。代价是无法跨模型弹性调度。
+- **时分复用（低优先级场景）**：两模型交替占用同一组 GPU，适合一个模型 QPS 低的场景；切换时需清空 KV Cache 或使用 GPU 显存虚拟化（如 MPS）。
+- **KV Cache 显存分区（同 GPU 运行，需框架支持）**：将 HBM 按比例划分 KV Pool，通过 cgroup / CUDA MPS 防止 OOM 雪崩；但 MoE 的 Expert Parallelism 通信与 Dense 的 AllReduce 会竞争 NVLink 带宽。
+
+**MoE 特殊考虑：**
+
+MoE 8×7B（如 Mixtral-8×7B）激活参数约 13B，实际 Decode 带宽需求与 13B Dense 相当，但 All-to-All 路由通信会额外占用 ~10–20% NVLink 带宽，须在容量规划中预留。
+
+**推荐方案：物理隔离 + 独立调度器，统一接入层路由。**
+
+---
+
+#### 1.7 Q79-SD：P/D 分离 xPyD 配比调优
+
+**计算耗时模型（简化）：**
+
+设 Prefill 单请求耗时 $T_P$，Decode 单请求耗时 $T_D$（含所有 OSL 步骤之和）：
+
+$$T_P \propto \text{ISL},\quad T_D \propto \text{OSL}$$
+
+稳态下，Prefill 实例的吞吐率等于 Decode 实例的请求消费速率，最优比值满足：
+
+$$\frac{x}{y} = \frac{T_P}{T_D} = \frac{\text{ISL 计算量}}{\text{OSL 计算量}}$$
+
+**代入 ISL = 2048，OSL = 512，70B 模型（TP = 8 per instance）：**
+
+Prefill FLOPs（单请求）：$\approx 2 \times 70\text{B} \times 2048 = 286$ TFLOP
+
+Decode FLOPs（单请求全程）：$\approx 2 \times 70\text{B} \times 512 = 71.7$ TFLOP
+
+但 Decode 是 Memory-bound，有效吞吐远低于 FLOPs 峰值。引入实际 MFU 修正：
+
+$$\frac{x}{y} \approx \frac{T_P^{\text{wall}}}{T_D^{\text{wall}}} = \frac{2048 / \eta_P}{512 / \eta_D \times \text{OSL}_{steps}}$$
+
+其中 $\eta_P \approx 50\%$（Prefill，Compute-bound），$\eta_D \approx 15\%$（Decode，Memory-bound MBU）。
+
+实测经验比值：ISL/OSL = 4:1 场景下，典型 xPyD ≈ 1:3（1 个 Prefill 实例 : 3 个 Decode 实例）。
+
+**动态扩缩容触发阈值：**
+
+| 指标              | Prefill 侧扩容触发 | Decode 侧扩容触发         |
+| --------------- | ------------- | -------------------- |
+| Prefill 队列深度    | > 50 个待处理请求   | —                    |
+| Decode TPOT P99 | —             | > SLA × 80%          |
+| KV Transfer 延迟  | > 100 ms      | > 100 ms（说明带宽打满，需扩容） |
+| Prefill 实例 MFU  | > 85%（接近瓶颈）   | —                    |
+
+静态配比适用于 ISL/OSL 分布稳定的场景（如代码补全）；在 ISL/OSL 动态变化（如混合任务）时，应部署基于实时队列深度的弹性调度器（Mooncake/NVIDIA Dynamo 均有此能力）。
+
+---
+
+### 2. 答题框架
 
 系统设计题的**通用答题结构**（面试实操）：
 
@@ -4730,15 +4851,18 @@ Step 4: Speculative Decoding（可选）      → +50–150%
 |---|---|---|
 |**需求澄清**|10%|SLA（TTFT/TPOT/吞吐）、模型规格、硬件、并发规模|
 |**瓶颈定位**|20%|Compute-bound / Memory-bound / 调度瓶颈 / 显存瓶颈|
-|**方案设计**|50%|算法层 → 系统层 → 硬件层，逐层展开，每层给出 2–3 个具体方案|
+|**方案设计**|50%|算法层 → 系统层 → 硬件层，每层给出 2–3 个具体方案|
 |**指标量化**|15%|给出关键数值（通信量、显存占用、延迟估算）|
-|**权衡说明**|5%|方案的精度损失、工程复杂度、可维护性，说明选型理由|
+|**权衡说明**|5%|精度损失、工程复杂度、可维护性，说明选型理由|
 
-**高分答题技巧：**
+**高分答题要点：**
 
-- 每个方案都给出**量化收益**（如"FP8 KV Cache 将显存降低 50%，并发从 100 提升至 200"），而非只说"效果好"。
-- 主动暴露方案的**局限性**（如"Speculative Decoding 在输出多样性高时 $\alpha$ 会下降"），体现深度理解。
+- 每个方案给出**量化收益**（如"FP8 KV Cache 将显存降低 50%，并发从 100 提升至 200"），而非只说"效果好"。
+- 主动暴露方案的**局限性**（如"Speculative Decoding 在高温度采样或输出高多样性时接受率 $\alpha$ 会下降至 0.6 以下"）。
 - 优先从**系统瓶颈**出发（先 Profile 再优化），而非直接罗列技术点。
+- 区分**显存瓶颈**与**计算瓶颈**：两者的优化路径完全不同，混淆会严重失分。
+
+---
 
 ## 第 11 章·参考答案：C++ 与系统编程
 
