@@ -262,12 +262,16 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ## 11. C++ 与系统编程
 
-- **Q77.** `std::atomic` 的 Memory Order 模型（`memory_order_relaxed` vs `acquire/release` vs `seq_cst`）？
-- **Q78.** Lock-free Queue 的实现与 ABA 问题？
-- **Q79.** NUMA 架构下内存分配对延迟的影响？如何 Pin 内存到特定 NUMA Node？
-- **Q80.** Zero-copy DMA 传输的实现原理（`cudaHostAlloc` Pinned Memory）？
-- **Q81.** 多线程推理服务中 Thread Pool 的设计与线程亲和性（CPU Affinity）绑定？
-- **Q82.** `mmap` vs `read` 的权衡：大模型权重加载的最优策略？
+- **Q77.** `std::atomic` 的 Memory Order 模型（`memory_order_relaxed` vs `acquire/release` vs `seq_cst`）？各级别在 x86 与 ARM 平台上的实际开销差异？
+- **Q78.** Lock-free Queue 的实现（Michael-Scott Queue）与 ABA 问题？Tagged Pointer 方案的 16-byte CAS 硬件要求？Hazard Pointer 的正确实现范式？
+- **Q79.** NUMA 架构下内存分配对延迟的影响？如何通过 `numactl`、`numa_alloc_onnode`、`mbind` 将内存与线程 Pin 到特定 NUMA Node？`nvidia-smi topo -m` 如何确认 GPU 的 NUMA 亲和性？
+- **Q80.** Zero-copy DMA 传输的实现原理（`cudaHostAlloc` Pinned Memory）？Pageable Memory 的额外拷贝路径与 Pinned Memory 的直接 DMA 路径对比？`cudaHostAllocMapped` 的适用场景与代价？
+- **Q81.** 多线程推理服务中 Thread Pool 的设计与线程亲和性（CPU Affinity）绑定？各功能线程池（IO / Scheduler / CUDA Launch / Sampler）的职责划分与 NUMA 对齐原则？
+- **Q82.** `mmap` vs `read` 的权衡：大模型权重加载的最优策略？`O_DIRECT` 与 `mmap` 的语义冲突问题？SafeTensors 格式如何利用 `mmap` 实现 MoE Expert 权重懒加载？
+- **Q83-CPP.** `std::pmr`（Polymorphic Memory Resource）在推理引擎中的应用：如何用 `std::pmr::monotonic_buffer_resource` 实现请求级零碎片内存分配，请求结束后 $O(1)$ 批量回收？
+- **Q84-CPP.** CUDA Stream 与 Host 线程的同步机制：`cudaStreamSynchronize` vs `cudaEventRecord` + `cudaEventSynchronize` vs `cudaStreamAddCallback` 三种方式的延迟与 CPU 忙等开销对比？推理引擎中如何用 `cudaEvent` 实现 Prefill → Decode KV 传递的无锁同步？
+- **Q85-CPP.** `cudaIpcMemHandle` 跨进程显存共享：P/D 分离架构中，同节点 Prefill 进程与 Decode 进程如何通过 IPC Handle 零拷贝共享 KV Cache Block？与 RDMA 路径的适用场景边界？
+- **Q86-CPP.** C++ 内存序与 GPU Kernel 启动的混合并发模型：推理引擎的调度线程（CPU）向 CUDA Launch 线程提交任务时，如何正确使用 `acquire/release` 配对保证 KV Block 指针的可见性，避免 GPU 读取未初始化 Block？
 
 ---
 
