@@ -282,17 +282,25 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 - **Q83.** Dense 模型与 Sparse MoE 的计算量对比：给定总参数 $N$、激活专家比例 $k/E$，单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？
 - **Q84.** Top-K Routing 的 Gating 函数实现：Softmax-based vs. Sigmoid-based，Expert Load Balancing Loss 的形式？
 - **Q85.** Expert Capacity（专家容量）与 Token Drop 的关系：Capacity Factor 如何取值？
+- **Q83-b.** MoE 模型的显存占用构成分析：总参数 $N_{\text{total}}$ 中 Expert 权重占比极高，但推理时激活参数仅为 $N_{\text{active}}$；以 DeepSeek-V3（671B 总参数、37B 激活参数）为例，说明其显存需求与计算需求的"解耦"特性，以及对硬件选型（高带宽 vs. 高显存）的影响。
+- **Q83-c.** MoE 中 Shared Expert 机制的设计动机：为何 DeepSeek-V2/V3 引入永久激活的 Shared Expert？与 Top-K Routed Expert 的分工如何？对 Load Balancing Loss 的影响？
+- **Q84-b.** Expert 路由崩溃（Routing Collapse）的成因与检测：如何通过 Expert 利用率直方图诊断崩溃？推理阶段的路由分布与训练阶段的分布偏移（Distribution Shift）如何影响性能？
 
 ### 12.2 Expert Parallelism（EP）
 
-- **Q86.** EP 的核心通信模式是 Two-shot All-to-All：第一次按路由结果将 Tokens 分发到对应 Expert 所在 GPU，第二次将计算结果汇回，All-to-All 通信在 Decode 阶段（消息体积 100KB ~ 2MB）可贡献 10-30% 的端到端延迟。
+- **Q86.** EP 的核心通信模式是 Two-shot All-to-All：第一次按路由结果将 Tokens 分发到对应 Expert 所在 GPU，第二次将计算结果汇回，分析完整通信量公式与延迟构成。
 - **Q87.** Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？
 - **Q88.** EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 如何在 N-D 并行中调度？
+- **Q86-b.** EP All-to-All 与 Expert 计算的 Overlap（重叠）实现：将 Token 划分为多个 Micro-batch，使用 CUDA Stream 交错执行 All-to-All 和 FFN 计算；DeepSeek-V3 的 DualPipe 方案如何将通信延迟近乎完全隐藏？overlap 成立的条件（计算时间 ≥ 通信时间）如何量化验证？
+- **Q86-c.** EP 场景下 KV Cache 的布局问题：EP 将 Expert 权重分布到不同 GPU，但 Attention 层（含 KV Cache）通常使用 TP 切分；当 EP 与 TP 共存时，KV Cache 按 TP 域存储还是按 EP 域存储？P/D 分离架构下 Prefill 实例的 EP 配置如何影响 KV Transfer 的目标节点选择？
 
 ### 12.3 MoE 量化与 Kernel 优化
 
 - **Q89.** MoE 层的 GEMM 为什么是"非均匀矩阵乘"（每个 Expert 的 Token 数不同）？如何用 GroupGEMM / Batched GEMM 处理？
 - **Q90.** Structured Sparsity（结构化稀疏，如 2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？
+- **Q89-b.** FP8 量化对 MoE Expert 权重的适用性分析：Expert FFN 权重分布是否均匀（与 Dense 模型相比）？为何部分 Expert 的权重 Outlier 比例更高？Per-Expert 量化粒度与 Per-tensor 量化粒度的精度权衡？
+- **Q89-c.** MoE 推理的 Expert 权重预加载策略：Expert 权重在单卡显存中的驻留策略（全量常驻 vs. 按需换入）；当 EP 度不足以将所有 Expert 分布到不同 GPU 时（每 GPU 持有多个 Expert），如何调度 DRAM 与 HBM 之间的 Expert 权重换入以降低延迟？
+- **Q90-b.** MoE 模型的 Decode 阶段瓶颈分析：小 Batch Decode 时，Expert 计算退化为 GEMV（Memory-bound），All-to-All 通信与 GEMV 的时间占比；与 Dense 模型 Decode 的带宽瓶颈相比，MoE 的额外开销来源是什么？如何估算"MoE Tax"（MoE 相比同激活参数 Dense 模型的吞吐损失）？
 
 ---
 
