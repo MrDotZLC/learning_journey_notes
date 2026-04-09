@@ -415,27 +415,27 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}!\left[\left(\mathbf{W}_q \mathbf{x}_m 
 
 ## 20. 高频考点优先级速查
 
-|优先级|考点|涵盖岗位|
-|---|---|---|
-|⭐⭐⭐|KV Cache + PagedAttention|所有推理岗|
-|⭐⭐⭐|FlashAttention 原理|所有推理岗|
-|⭐⭐⭐|Continuous Batching|所有推理岗|
-|⭐⭐⭐|P/D 分离架构（2025 默认方案）|所有推理岗|
-|⭐⭐⭐|Roofline / Compute vs Memory Bound|性能优化岗|
-|⭐⭐⭐|GEMM Tiling + Shared Memory|Kernel 开发岗|
-|⭐⭐⭐|MoE + Expert Parallelism|分布式推理岗|
-|⭐⭐⭐|Test-Time Compute / 推理模型负载特征|系统 + 调度岗|
-|⭐⭐⭐|RoPE 原理 + 长上下文扩展|算法 + 系统岗|
-|⭐⭐|Speculative Decoding|算法 + 系统岗|
-|⭐⭐|量化（GPTQ / AWQ / FP8）|部署优化岗|
-|⭐⭐|TP / PP 并行策略|分布式推理岗|
-|⭐⭐|Warp Reduce / CUDA 同步原语|Kernel 开发岗|
-|⭐⭐|Ring Attention / Context Parallelism|长上下文岗|
-|⭐⭐|NVFP4 / Blackwell 特性|量化 + 硬件岗|
-|⭐⭐|KV Transfer（RDMA / GPUDirect）|分布式推理岗|
-|⭐⭐|Warp Specialization / TMA|Kernel 开发岗|
-|⭐⭐|推理框架选型（vLLM / SGLang / TRT-LLM）|所有推理岗|
-|⭐⭐|nsys / ncu 诊断流程（实战级）|性能分析岗|
-|⭐|Triton 编程模型|Kernel 开发岗|
-|⭐|VLM 多模态推理特性|多模态系统岗|
-|⭐|2:4 结构化稀疏|量化 + Kernel 岗|
+| 优先级 | 考点                                   | 涵盖岗位          |
+| --- | ------------------------------------ | ------------- |
+| ⭐⭐⭐ | KV Cache + PagedAttention            | 所有推理岗         |
+| ⭐⭐⭐ | FlashAttention 原理                    | 所有推理岗         |
+| ⭐⭐⭐ | Continuous Batching                  | 所有推理岗         |
+| ⭐⭐⭐ | P/D 分离架构（2025 默认方案）                  | 所有推理岗         |
+| ⭐⭐⭐ | Roofline / Compute vs Memory Bound   | 性能优化岗         |
+| ⭐⭐⭐ | GEMM Tiling + Shared Memory          | Kernel 开发岗    |
+| ⭐⭐⭐ | MoE + Expert Parallelism             | 分布式推理岗        |
+| ⭐⭐⭐ | Test-Time Compute / 推理模型负载特征         | 系统 + 调度岗      |
+| ⭐⭐⭐ | RoPE 原理 + 长上下文扩展                     | 算法 + 系统岗      |
+| ⭐⭐  | Speculative Decoding                 | 算法 + 系统岗      |
+| ⭐⭐  | 量化（GPTQ / AWQ / FP8）                 | 部署优化岗         |
+| ⭐⭐  | TP / PP 并行策略                         | 分布式推理岗        |
+| ⭐⭐  | Warp Reduce / CUDA 同步原语              | Kernel 开发岗    |
+| ⭐⭐  | Ring Attention / Context Parallelism | 长上下文岗         |
+| ⭐⭐  | NVFP4 / Blackwell 特性                 | 量化 + 硬件岗      |
+| ⭐⭐  | KV Transfer（RDMA / GPUDirect）        | 分布式推理岗        |
+| ⭐⭐  | Warp Specialization / TMA            | Kernel 开发岗    |
+| ⭐⭐  | 推理框架选型（vLLM / SGLang / TRT-LLM）      | 所有推理岗         |
+| ⭐⭐  | nsys / ncu 诊断流程（实战级）                 | 性能分析岗         |
+| ⭐   | Triton 编程模型                          | Kernel 开发岗    |
+| ⭐   | VLM 多模态推理特性                          | 多模态系统岗        |
+| ⭐   | 2:4 结构化稀疏                            | 量化 + Kernel 岗 |
