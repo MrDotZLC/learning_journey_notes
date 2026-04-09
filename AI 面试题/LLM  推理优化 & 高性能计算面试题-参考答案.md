@@ -4864,26 +4864,32 @@ $$\frac{x}{y} \approx \frac{T_P^{\text{wall}}}{T_D^{\text{wall}}} = \frac{2048 /
 
 ---
 
-## 第 11 章·参考答案：C++ 与系统编程
+## 11. C++ 与系统编程·参考答案
 
 ---
 
-**Q77. `std::atomic` 的 Memory Order 模型（`memory_order_relaxed` vs `acquire/release` vs `seq_cst`）？**
+### 11.1 原子操作与内存序
 
-**背景：** 现代 CPU 和编译器会对指令重排（Reordering）以提升性能。`std::atomic` 的 Memory Order 参数控制原子操作周围的内存可见性保证，是多线程正确性的核心。
+**Q77. `std::atomic` 的 Memory Order 模型**
 
-**六种 Memory Order 及语义：**
+#### 1. 背景
+
+现代 CPU（乱序执行）与编译器（指令重排）均会在不影响单线程语义的前提下重排内存访问顺序。`std::atomic` 的 Memory Order 参数精确控制原子操作周围的重排约束范围，是多线程程序正确性的基础。
+
+#### 1.1 六种 Memory Order 语义
 
 |Memory Order|语义|典型用途|
 |---|---|---|
-|`relaxed`|无顺序保证，仅保证原子性|计数器、统计（不依赖顺序）|
-|`consume`|依赖链上的 Load-Acquire（已废弃，等同 `acquire`）|极少使用|
-|`acquire`|本操作之后的读写不得重排到本操作之前|Lock 的加锁操作（读）|
-|`release`|本操作之前的读写不得重排到本操作之后|Lock 的解锁操作（写）|
-|`acq_rel`|同时具备 acquire 和 release 语义|RMW 操作（fetch_add 等）|
-|`seq_cst`|全局顺序一致，所有线程看到相同的操作顺序|默认值，最强保证，最慢|
+|`relaxed`|仅保证操作自身的原子性，不约束周围操作的重排|无序计数器、统计累加|
+|`consume`|仅对**数据依赖链**施加 Load-Acquire 约束；标准中存在但实现几乎等同 `acquire`，实践中**不推荐使用**|极少使用|
+|`acquire`|本操作之后的所有读写不得重排到本操作之前|加锁（读取锁变量）|
+|`release`|本操作之前的所有读写不得重排到本操作之后|解锁（写入锁变量）|
+|`acq_rel`|同时具备 acquire 与 release 语义|RMW 操作（`fetch_add` 等）|
+|`seq_cst`|全序一致：所有线程观察到相同的操作全局顺序|默认值，最强保证，开销最高|
 
-**Acquire-Release 配对模式（最重要）：**
+> **关于 `consume`**：C++11 标准中 `consume` 仍合法，但主流编译器（GCC、Clang）将其提升为 `acquire` 实现，原因是精确跟踪数据依赖链的编译器实现极其复杂。标准委员会正在修订该语义（P0462）。
+
+#### 1.2 Acquire-Release 配对模式
 
 ```cpp
 // 生产者线程
@@ -4891,43 +4897,46 @@ std::atomic<bool> ready{false};
 int data = 0;
 
 void producer() {
-    data = 42;                              // ① 普通写
-    ready.store(true, std::memory_order_release); // ② Release：①不得重排到②后
+    data = 42;                                            // ① 普通写
+    ready.store(true, std::memory_order_release);         // ② Release 屏障：①不得重排至②之后
 }
 
 // 消费者线程
 void consumer() {
-    while (!ready.load(std::memory_order_acquire)); // ③ Acquire：④不得重排到③前
-    assert(data == 42);                             // ④ 普通读，保证看到①的结果
+    while (!ready.load(std::memory_order_acquire));       // ③ Acquire 屏障：④不得重排至③之前
+    assert(data == 42);                                   // ④ 保证可见 ① 的结果
 }
 ```
 
-**关键保证：** 若消费者的 `acquire` 看到了生产者 `release` 写入的值，则生产者在 `release` 之前的所有写操作对消费者在 `acquire` 之后均可见。
+**核心保证**：若消费者的 `acquire` 读取到生产者 `release` 写入的值，则生产者在 `release` 之前的所有写操作，对消费者在 `acquire` 之后均可见。这一关系称为 **synchronizes-with**。
 
-**性能对比（x86 平台）：**
+#### 1.3 各平台实际开销
 
-```
-relaxed  ≈ 普通 MOV 指令（无 fence）
-acquire  ≈ 普通 MOV（x86 Load 天然具备 acquire 语义）
-release  ≈ 普通 MOV（x86 Store 天然具备 release 语义）
-seq_cst  ≈ MFENCE + MOV（完整内存屏障，代价最高）
-```
+|Memory Order|x86-64|ARM64|
+|---|---|---|
+|`relaxed`|普通 `MOV`（无 fence）|普通 `LDR`/`STR`|
+|`acquire`（Load）|普通 `MOV`（x86 Load 天然具备 acquire 语义）|`LDAR`（Load-Acquire）|
+|`release`（Store）|普通 `MOV`（x86 TSO 模型中 Store 不会越过 Load）|`STLR`（Store-Release）|
+|`seq_cst`（Store）|`LOCK XCHG` 或 `MOV` + `MFENCE`|`STLR` + `DMB ISH`（全系统屏障）|
 
-x86 上 `relaxed/acquire/release` 几乎无额外开销；`seq_cst` 需要插入 MFENCE，开销约 **10–100ns**。ARM 架构上所有级别均需显式 fence，代价更显著。
+**x86 开销量化**：`MFENCE` 本身约 **20–60 cycles**（@ 3 GHz ≈ 7–20 ns），但在多核高竞争下因需刷新 Store Buffer 并等待缓存一致性协议（MESI）完成，可达数十至上百纳秒。ARM64 上所有级别均需显式屏障，`seq_cst` 代价更为显著。
 
-**推理引擎中的实际应用：**
+#### 1.4 推理引擎实际应用
 
-- **请求队列计数器**：`relaxed`（仅统计数量，不依赖顺序）
-- **KV Block 引用计数**（PagedAttention）：`acq_rel`（fetch_add 增减引用计数）
-- **任务完成标志位**：`release`（写）+ `acquire`（读）
+|场景|Memory Order 选择|原因|
+|---|---|---|
+|请求计数器（统计用）|`relaxed`|仅需原子性，不依赖顺序|
+|KV Block 引用计数（PagedAttention）|`acq_rel`（`fetch_add`）|增减引用计数是 RMW，需双向屏障防止 Block 提前释放|
+|任务完成标志位（Scheduler → CUDA Launch 线程）|`release`（写）+ `acquire`（读）|保证 KV Block 指针写入对 CUDA Launch 线程可见|
+|全局停止标志（Shutdown）|`seq_cst`|需保证所有线程看到相同停止状态|
 
 ---
 
-**Q78. Lock-free Queue 的实现与 ABA 问题？**
+**Q78. Lock-free Queue 的实现与 ABA 问题**
 
-**Lock-free Queue 核心思路（Michael-Scott Queue）：**
+#### 1. Michael-Scott Queue 核心思路
 
-使用两个原子指针 `head`（出队端）和 `tail`（入队端），节点通过 CAS（Compare-And-Swap）操作无锁修改。
+使用哨兵节点（Dummy Node）分离 `head`（出队端）与 `tail`（入队端）。入队通过 CAS 将新节点链入 `tail->next`，出队通过 CAS 推进 `head`。
 
 ```cpp
 template<typename T>
@@ -4937,251 +4946,413 @@ struct Node {
 };
 
 template<typename T>
-class LockFreeQueue {
-    std::atomic<Node<T>*> head;
-    std::atomic<Node<T>*> tail;
+class MSQueue {
+    std::atomic<Node<T>*> head_;
+    std::atomic<Node<T>*> tail_;
+
 public:
-    LockFreeQueue() {
-        Node<T>* dummy = new Node<T>{};  // 哨兵节点
-        head.store(dummy);
-        tail.store(dummy);
+    MSQueue() {
+        auto* dummy = new Node<T>{};
+        head_.store(dummy, std::memory_order_relaxed);
+        tail_.store(dummy, std::memory_order_relaxed);
     }
 
     void enqueue(T val) {
-        Node<T>* node = new Node<T>{val};
+        auto* node = new Node<T>{std::move(val)};
         while (true) {
-            Node<T>* t = tail.load(std::memory_order_acquire);
+            Node<T>* t    = tail_.load(std::memory_order_acquire);
             Node<T>* next = t->next.load(std::memory_order_acquire);
-            if (t == tail.load(std::memory_order_relaxed)) {
-                if (next == nullptr) {
-                    // CAS：若 t->next 仍为 nullptr，则将其设为 node
-                    if (t->next.compare_exchange_weak(
-                            next, node,
-                            std::memory_order_release,
-                            std::memory_order_relaxed)) {
-                        // 尝试推进 tail（失败无妨，其他线程会帮助推进）
-                        tail.compare_exchange_weak(t, node,
-                            std::memory_order_release,
-                            std::memory_order_relaxed);
-                        return;
-                    }
-                } else {
-                    // tail 落后，帮助推进
-                    tail.compare_exchange_weak(t, next,
+            // 再次确认 tail 未被其他线程推进
+            if (t != tail_.load(std::memory_order_relaxed)) continue;
+            if (next == nullptr) {
+                // CAS：尝试将 t->next 从 null 设为 node
+                if (t->next.compare_exchange_weak(
+                        next, node,
+                        std::memory_order_release,
+                        std::memory_order_relaxed)) {
+                    // 尝试推进 tail（失败无妨，其他线程会帮助推进）
+                    tail_.compare_exchange_weak(t, node,
                         std::memory_order_release,
                         std::memory_order_relaxed);
+                    return;
                 }
+            } else {
+                // tail 落后实际尾节点，帮助推进
+                tail_.compare_exchange_weak(t, next,
+                    std::memory_order_release,
+                    std::memory_order_relaxed);
             }
         }
     }
 
+    // 注意：此为简化版，delete 操作需配合 Hazard Pointer（见下文）
     bool dequeue(T& val) {
         while (true) {
-            Node<T>* h = head.load(std::memory_order_acquire);
-            Node<T>* t = tail.load(std::memory_order_acquire);
+            Node<T>* h    = head_.load(std::memory_order_acquire);
+            Node<T>* t    = tail_.load(std::memory_order_acquire);
             Node<T>* next = h->next.load(std::memory_order_acquire);
-            if (h == head.load(std::memory_order_relaxed)) {
-                if (h == t) {           // 队列可能为空
-                    if (next == nullptr) return false;  // 确实为空
-                    tail.compare_exchange_weak(t, next,
+            if (h != head_.load(std::memory_order_relaxed)) continue;
+            if (h == t) {
+                if (next == nullptr) return false;   // 队列为空
+                tail_.compare_exchange_weak(t, next,
+                    std::memory_order_release,
+                    std::memory_order_relaxed);
+            } else {
+                val = next->data;
+                if (head_.compare_exchange_weak(h, next,
                         std::memory_order_release,
-                        std::memory_order_relaxed);
-                } else {
-                    val = next->data;
-                    if (head.compare_exchange_weak(h, next,
-                            std::memory_order_release,
-                            std::memory_order_relaxed)) {
-                        delete h;  // 释放旧哨兵（需 Hazard Pointer 保护）
-                        return true;
-                    }
+                        std::memory_order_relaxed)) {
+                    // ⚠️ 此处 delete h 存在 Use-After-Free 风险（见 ABA 分析）
+                    // 正确做法：延迟回收（Hazard Pointer / RCU / 内存池）
+                    retire(h);  // 不直接 delete，交由回收机制处理
+                    return true;
                 }
             }
         }
     }
+private:
+    void retire(Node<T>* p);  // 延迟释放，具体实现见 Hazard Pointer
 };
 ```
 
-**ABA 问题：**
+#### 2. ABA 问题
 
-CAS 检查指针值是否等于预期值。若指针经历 A → B → A 的变化（B 被释放后新节点恰好分配到同一地址），CAS 误以为没有变化而错误执行。
+CAS 仅比较指针的数值，无法感知指针指向内容的语义变化。
 
 ```
-线程1：读取 head = A，准备 CAS(A → C)
-线程2：dequeue A，enqueue 新节点（恰好地址仍为 A）
-线程1：CAS(A → C) 成功，但 A 已是不同节点！→ 数据结构损坏
+时间线：
+T1: 读取 head = A（Node A 含 val=1）
+T1: 被调度器挂起
+T2: dequeue → head 从 A 推进到 B，释放 Node A
+T2: enqueue 新节点，分配器恰好复用地址 A（val=99）
+T1: 恢复，CAS(head: A → A->next) 成功
+    ——但 A 已是内容不同的新节点，逻辑错误
 ```
 
-**ABA 解决方案：**
+#### 3. ABA 解决方案
+
+**方案一：Tagged Pointer（版本号指针）**
 
 ```cpp
-// 方案1：带版本号的原子指针（Tagged Pointer）
-struct TaggedPtr {
+// 将版本号塞入指针的高位（需要 16-byte 对齐 + CMPXCHG16B 支持）
+struct alignas(16) TaggedPtr {
     Node* ptr;
-    uintptr_t tag;  // 每次修改递增
+    uintptr_t tag;  // 每次 CAS 成功后递增
 };
+
+// ⚠️ 要求：std::atomic<TaggedPtr> 需要硬件支持 128-bit CAS
+// x86-64：CMPXCHG16B（自 Core2 起支持，需 -mcx16 编译选项）
+// ARM64：CASP（Compare-And-Swap Pair）
 std::atomic<TaggedPtr> head;
-// CAS 同时比较 ptr 和 tag，版本不同则 CAS 失败
 
-// 方案2：Hazard Pointer（危险指针）
-// 线程使用某指针前先将其注册到 Hazard Pointer 表，
-// 释放节点时检查是否在任意线程的 Hazard 表中，若在则延迟释放
-
-// 方案3：RCU（Read-Copy-Update）
-// 读者无锁，写者等待所有读者完成后再回收内存
-
-// 实践中最简单：使用 std::atomic<std::shared_ptr<T>>（C++20）
-// 或直接用内存池（地址不复用，从根源消除 ABA）
+TaggedPtr old_h = head.load(std::memory_order_acquire);
+TaggedPtr new_h = {old_h.ptr->next, old_h.tag + 1};
+head.compare_exchange_strong(old_h, new_h,
+    std::memory_order_release,
+    std::memory_order_relaxed);
+// 即使地址相同，tag 不同，CAS 失败 → ABA 消除
 ```
 
-**推理引擎中的应用：** 请求调度队列、KV Block 空闲链表均可用 Lock-free Queue 实现，避免 Mutex 导致线程阻塞。
+> **硬件要求说明**：`std::atomic<TaggedPtr>` 需要 16-byte 原子操作。若编译器/硬件不支持，`is_lock_free()` 返回 false，退化为基于 Mutex 的实现，失去 Lock-free 性质。实际使用前必须检查。
+
+**方案二：Hazard Pointer（推荐用于生产环境）**
+
+```cpp
+// 每个线程维护若干 Hazard Pointer（HP）槽位
+// 访问某节点前先发布到 HP 槽：hp[tid] = ptr
+// 释放节点时检查所有线程的 HP 槽，若存在则延迟至无线程持有时回收
+// 保证：节点被 retire 后，仍有线程持有其 HP 的期间不会被释放
+
+thread_local HazardPointer* hp;
+
+bool dequeue(T& val) {
+    // ...
+    Node<T>* next;
+    do {
+        next = h->next.load(std::memory_order_acquire);
+        hp->protect(next);  // 发布 Hazard Pointer
+    } while (next != h->next.load(std::memory_order_acquire)); // 确认未被回收
+
+    val = next->data;
+    if (head_.compare_exchange_weak(h, next, ...)) {
+        hp->clear();
+        hazard_retire(h);  // 延迟回收，而非立即 delete
+        return true;
+    }
+}
+```
+
+**方案三：实践最简策略——内存池（地址不复用）**
+
+```cpp
+// 推理引擎的请求节点数量有界（最大并发请求数），预分配节点池
+// 池中节点地址永不复用 → ABA 从根源消除
+NodePool<RequestNode> pool(MAX_CONCURRENT_REQUESTS);
+```
+
+#### 4. 推理引擎应用场景
+
+- **请求调度队列**：Tokenizer 线程 → Scheduler 线程，使用 MSQueue + 内存池，避免 Mutex 导致调度线程阻塞
+- **KV Block 空闲链表**：PagedAttention 中 Free Block Stack，操作频繁，Lock-free 可显著降低 P99 调度延迟
 
 ---
 
-**Q79. NUMA 架构下内存分配对延迟的影响？如何 Pin 内存到特定 NUMA Node？**
+### 11.2 NUMA 与内存亲和性
 
-**NUMA（Non-Uniform Memory Access）架构：**
+**Q79. NUMA 架构下内存分配对延迟的影响**
 
-多路服务器（如 2× Intel Xeon）中，每个 CPU Socket 直连本地 DRAM（Local Memory），访问另一 Socket 的内存（Remote Memory）需经过 QPI/UPI 互联，延迟约高 **1.5–2×**，带宽约低 **30–50%**。
+NUMA（Non-Uniform Memory Access）
+
+#### 1. NUMA 拓扑结构
 
 ```
-Socket 0 (CPU 0-23)          Socket 1 (CPU 24-47)
-├── Local DRAM (256 GB)       ├── Local DRAM (256 GB)
-└── GPU 0, 1, 2, 3            └── GPU 4, 5, 6, 7
-         ↕ QPI/UPI（跨 NUMA 访问代价高）
+双路服务器（2× Intel Xeon / AMD EPYC）示意：
+
+  Node 0                         Node 1
+  ├── CPU 0–23（本地核心）         ├── CPU 24–47（本地核心）
+  ├── Local DRAM 256 GB           ├── Local DRAM 256 GB
+  │   带宽：~300 GB/s              │   带宽：~300 GB/s
+  └── GPU 0–3（PCIe 直连）         └── GPU 4–7（PCIe 直连）
+              ↕ UPI/QPI 互联（跨 NUMA 访问）
+              带宽：~50–100 GB/s（远低于本地 DRAM）
+              延迟：本地约 80ns，远端约 130–160ns（+1.6–2×）
 ```
 
-**对推理引擎的影响：**
+> **GPU 亲和性查询**：GPU 实际所属 NUMA Node 取决于主板 PCIe 接线，必须通过以下命令实际查询，不可假设：
+> 
+```bash
+nvidia-smi topo -m
+# 输出示例：GPU0 与 CPU 0 同属 NUMA Node 0（PHB 表示同 PCIe Host Bridge）
+```
 
-- 若 GPU 0 的 DMA 引擎从 Socket 1 的内存读取权重（Remote NUMA），PCIe 传输带宽利用率下降 30–50%。
-- CPU 线程（调度器、Tokenizer）若运行在 Remote NUMA 节点上，内存访问延迟增加。
+#### 2. 对推理引擎的具体影响
 
-**Pin 内存到指定 NUMA Node：**
+|场景|Remote NUMA 代价|
+|---|---|
+|GPU DMA 读取 Host Buffer|PCIe 传输带宽下降 **30–50%**（需跨 UPI）|
+|Tokenizer / Sampler 线程运行在 Remote Node|内存访问延迟 +60–80ns/次|
+|KV Block 元数据（Block Table）分配在 Remote Node|Scheduler 每次查询 Page Table 代价翻倍|
+
+#### 3. NUMA 内存绑定方法
 
 ```cpp
 #include <numa.h>
 #include <numaif.h>
 
-// 方案1：numa_alloc_onnode（分配到指定 NUMA Node）
-void* buf = numa_alloc_onnode(size, /*node=*/0);
-// 使用后释放
-numa_free(buf, size);
+// ---- 方法一：分配时指定 Node（最常用）----
+void* buf = numa_alloc_onnode(size_bytes, /*node_id=*/0);
+// 使用完毕后释放（必须配对，不能用 free）
+numa_free(buf, size_bytes);
 
-// 方案2：mbind（对已有内存绑定 NUMA 策略）
-unsigned long nodemask = 1UL << 0;  // Node 0
-mbind(ptr, size,
-      MPOL_BIND,        // 强制绑定到指定节点
-      &nodemask,
-      sizeof(nodemask) * 8,
-      MPOL_MF_MOVE);    // 迁移现有页面
+// ---- 方法二：对已存在内存迁移绑定策略 ----
+unsigned long nodemask = 1UL << 0;   // 绑定到 Node 0
+long ret = mbind(
+    ptr, size_bytes,
+    MPOL_BIND,             // 强制绑定，访问 Remote Node 会触发分配失败或迁移
+    &nodemask,
+    /*maxnode=*/sizeof(nodemask) * 8,
+    MPOL_MF_MOVE           // 迁移已存在的物理页到目标 Node
+);
+if (ret != 0) perror("mbind failed");
 
-// 方案3：numactl 命令行工具（进程级绑定）
+// ---- 方法三：进程级绑定（启动时配置，最简单）----
 // numactl --membind=0 --cpunodebind=0 ./inference_server
 
-// 方案4：CUDA Pinned Memory + NUMA 绑定
-// 先绑定 NUMA，再 cudaHostAlloc（保证 DMA 访问 Local Memory）
-numa_set_preferred(0);
-void* pinned;
-cudaHostAlloc(&pinned, size, cudaHostAllocDefault);
+// ---- 方法四：Pinned Memory + NUMA 对齐（GPU 传输场景）----
+// 必须先设置 NUMA 偏好，再分配 Pinned Memory
+// 确保 DMA 访问 Local DRAM 而非跨 UPI 的 Remote DRAM
+if (numa_available() < 0) {
+    // NUMA 不可用，降级处理
+} else {
+    numa_set_preferred(gpu_numa_node);  // 设置当前线程的内存分配偏好
+    void* pinned = nullptr;
+    cudaHostAlloc(&pinned, size_bytes, cudaHostAllocDefault);
+    // 验证分配结果确实在目标 Node（可选）
+    int actual_node = -1;
+    get_mempolicy(&actual_node, nullptr, 0, pinned, MPOL_F_NODE | MPOL_F_ADDR);
+    assert(actual_node == gpu_numa_node);
+}
 ```
 
-**最佳实践：**
+#### 4. 推理服务最佳实践
 
-- GPU $i$ 属于哪个 NUMA Node，通过 `nvidia-smi topo -m` 查看。
-- 与 GPU 0–3 通信的 CPU 线程和 Host Buffer 绑定到 Socket 0（Local NUMA）。
-- 推理服务进程启动时用 `numactl` 固定 CPU 和内存亲和性。
+```bash
+# 查询 GPU–CPU NUMA 亲和关系
+nvidia-smi topo -m
+
+# 典型输出（GPU0 在 Node 0，GPU4 在 Node 1）：
+#        GPU0  GPU4  CPU Affinity  NUMA Affinity
+# GPU0    X    SYS   0-23          0
+# GPU4   SYS    X    24-47         1
+
+# 按 GPU 所在 NUMA Node 启动独立推理进程
+numactl --membind=0 --cpunodebind=0 ./inference_worker --gpu=0,1,2,3 &
+numactl --membind=1 --cpunodebind=1 ./inference_worker --gpu=4,5,6,7 &
+```
 
 ---
 
-**Q80. Zero-copy DMA 传输的实现原理（`cudaHostAlloc` Pinned Memory）？**
+### 11.3 Zero-copy 传输
 
-**问题背景：**
+**Q80. Zero-copy DMA 传输的实现原理**
 
-标准 `malloc` 分配的内存是**可分页（Pageable）内存**，OS 可能将其换出到磁盘（Swap）。当 GPU DMA 引擎直接读取这块内存时，若页面不在物理内存中会触发 Page Fault，导致 DMA 中断。因此 CUDA 默认的 `cudaMemcpy` 会先将数据**复制一份到内部的 Pinned Buffer**，再由 DMA 传输，产生**额外的一次 CPU 内存拷贝**。
+#### 1. 问题根源：Pageable Memory 的隐式拷贝
 
-**Pinned Memory（页锁定内存）：**
+标准 `malloc` 分配的**可分页内存（Pageable Memory）** 受 OS 虚拟内存管理，页面随时可能被换出（Swap）。GPU DMA 引擎需要稳定的物理地址，因此 CUDA 运行时在执行 `cudaMemcpy` 时会：
 
-`cudaHostAlloc` 分配的内存被 OS **锁定在物理内存**中，不会被换出，DMA 引擎可直接访问，无需中间拷贝。
+1. 在内部维护一个临时的**页锁定（Pinned）中转 Buffer**
+2. 先将数据从用户 Pageable Buffer 拷贝到 Pinned Buffer（CPU 操作）
+3. 再由 DMA 引擎从 Pinned Buffer 传输到 GPU（PCIe DMA）
+
+这导致**两次内存拷贝**，CPU 内存带宽成为瓶颈。
+
+#### 2. Pinned Memory：消除中转拷贝
+
+`cudaHostAlloc` 通过 `mlock` 系统调用将内存**锁定在物理内存**，OS 不得将其换出，DMA 引擎可直接访问。
 
 ```cpp
-// 标准流程（有额外拷贝）：
+// ---- Pageable 路径（有额外拷贝）----
 void* pageable = malloc(size);
+fill_data(pageable);
 cudaMemcpy(d_ptr, pageable, size, cudaMemcpyHostToDevice);
-// 内部：pageable → [CUDA 内部 Pinned Buffer] → GPU（2次拷贝）
+// 数据路径：pageable → [CUDA 内部 Pinned Buffer] → GPU HBM
+// CPU 带宽消耗：2 × size
 
-// Zero-copy 流程（无额外拷贝）：
-void* pinned;
+// ---- Pinned Memory 路径（单次 DMA）----
+void* pinned = nullptr;
 cudaHostAlloc(&pinned, size, cudaHostAllocDefault);
+fill_data(pinned);
 cudaMemcpy(d_ptr, pinned, size, cudaMemcpyHostToDevice);
-// 内部：pinned → GPU（DMA 直接读取，1次传输）
+// 数据路径：pinned → GPU HBM（DMA 直接访问）
+// CPU 带宽消耗：0（DMA 引擎直接读取 DRAM）
+
+// 释放
+cudaFreeHost(pinned);
 ```
 
-**性能对比（H100，PCIe 5.0）：**
+#### 3. 实测带宽对比
 
-|传输方式|带宽|延迟|
+以下数据基于 **PCIe 4.0 x16**（理论带宽约 32 GB/s 单向）：
+
+|传输方式|实测带宽|说明|
 |---|---|---|
-|Pageable → GPU|~10–12 GB/s（受中间拷贝限制）|高|
-|Pinned → GPU（cudaMemcpy）|~25–28 GB/s（接近 PCIe 上限）|中|
-|Pinned → GPU（异步，`cudaMemcpyAsync`）|~25–28 GB/s|低（与 Kernel 重叠）|
+|Pageable → GPU（`cudaMemcpy`）|~10–14 GB/s|受 CPU DRAM 带宽二次消耗限制|
+|Pinned → GPU（`cudaMemcpy`）|~24–28 GB/s|接近 PCIe 4.0 物理上限|
+|Pinned → GPU（`cudaMemcpyAsync`）|~24–28 GB/s|与 Kernel 执行重叠，有效延迟降低|
 
-**`cudaHostAllocMapped`（Zero-copy 访问，无需 `cudaMemcpy`）：**
+> **PCIe 5.0 x16 修正**：PCIe 5.0 x16 理论单向带宽约 **64 GB/s**，H100 SXM5 使用 NVLink + HBM3 路径，GPU-to-GPU 直连带宽远高于 PCIe。若通过 PCIe 连接 CPU，实测 H2D 带宽约 **48–52 GB/s**（PCIe 5.0 x16 实测效率约 75–80%）。
+
+#### 4. 三种 `cudaHostAlloc` Flag 对比
+
+| Flag                         | 行为                                                | 适用场景               |
+| ---------------------------- | ------------------------------------------------- | ------------------ |
+| `cudaHostAllocDefault`       | 标准 Pinned Memory，需显式 `cudaMemcpy`                 | 权重加载、KV Transfer   |
+| `cudaHostAllocMapped`        | 同时映射到 GPU 地址空间，GPU 可直接读写（Zero-copy 访问）            | 低频访问的配置表、查找表       |
+| `cudaHostAllocWriteCombined` | Write-Combining 模式，CPU 写快但 CPU 读极慢，适合 CPU→GPU 单向流 | CPU 写入、GPU 读取的流式数据 |
 
 ```cpp
-void* pinned;
-cudaHostAlloc(&pinned, size, cudaHostAllocMapped);  // 映射到 GPU 地址空间
-void* d_ptr;
-cudaHostGetDevicePointer(&d_ptr, pinned, 0);
-// GPU Kernel 可直接通过 d_ptr 访问 Host 内存（无需显式传输）
-// 代价：每次访问经过 PCIe，适合访问频率低的数据（如查表）
+// cudaHostAllocMapped 使用示例
+void* pinned = nullptr;
+cudaHostAlloc(&pinned, size, cudaHostAllocMapped);
+void* d_ptr = nullptr;
+cudaHostGetDevicePointer(&d_ptr, pinned, 0);  // 获取 GPU 侧地址
+
+// GPU Kernel 直接通过 d_ptr 访问（每次访问经 PCIe，延迟约 1–5 μs）
+// 适合访问频率极低的小型查表，不适合大矩阵计算
 ```
 
-**大模型权重加载的最优策略（结合 Q82）：**
+#### 5. 大模型权重加载最优策略
 
 ```cpp
-// 1. 预分配 Pinned Buffer（服务启动时一次性分配，避免反复分配开销）
-cudaHostAlloc(&pinned_weight_buf, model_size, cudaHostAllocDefault);
+// 服务启动时：预分配 Pinned Buffer，全生命周期复用（避免反复 cudaHostAlloc 开销）
+void* pinned_staging = nullptr;
+cudaHostAlloc(&pinned_staging, SHARD_SIZE, cudaHostAllocDefault);
 
-// 2. mmap 读取权重文件到 Pinned Buffer（OS 页缓存 + Pinned 结合）
-// 3. 异步传输到 GPU，与初始化其他组件重叠
-cudaMemcpyAsync(d_weight, pinned_weight_buf, model_size,
-                cudaMemcpyHostToDevice, load_stream);
+// 权重分片异步加载流水线
+for (int layer = 0; layer < num_layers; ++layer) {
+    // 1. 从磁盘 mmap 读取到 Pinned Staging Buffer
+    memcpy(pinned_staging, weight_mmap_ptr + layer_offset[layer], SHARD_SIZE);
+    // 2. 异步 DMA 到 GPU，与下一层 CPU 读取重叠
+    cudaMemcpyAsync(d_weights[layer], pinned_staging, SHARD_SIZE,
+                    cudaMemcpyHostToDevice, load_stream);
+    cudaStreamSynchronize(load_stream);  // 等待当前层传输完成再复用 Staging Buffer
+}
 ```
 
 ---
 
-**Q81. 多线程推理服务中 Thread Pool 的设计与线程亲和性（CPU Affinity）绑定？**
+### 11.4 线程池与亲和性
 
-**Thread Pool 核心设计：**
+**Q81. 多线程推理服务中 Thread Pool 的设计与线程亲和性绑定**
+
+#### 1. 推理服务线程职责划分
+
+|线程池|职责|线程数建议|CPU 绑定原则|
+|---|---|---|---|
+|IO Pool|接收 gRPC/HTTP 请求、Tokenize、序列化返回|8–16|GPU 对应的 Local Socket|
+|Scheduler Pool|调度请求入队/出队、管理 KV Block、抢占决策|2–4（通常单线程避免竞争）|Local Socket，固定核心|
+|CUDA Launch Pool|构建 Kernel 参数、提交 CUDA 命令到 Stream|1 线程/GPU|GPU 所在 Socket，固定到独占核心|
+|Sampler Pool|Top-k/Top-p CPU 端采样（若不 GPU 化）|4–8|任意，避免与 Scheduler 核心竞争|
+
+#### 2. Thread Pool 实现（C++17）
 
 ```cpp
+#include <numa.h>
+#include <pthread.h>
+#include <sched.h>
+#include <vector>
+#include <queue>
+#include <functional>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <future>
+#include <atomic>
+
 class InferenceThreadPool {
-    std::vector<std::thread>         workers_;
-    std::queue<std::function<void()>> task_queue_;
+    std::vector<std::thread>          workers_;
+    std::queue<std::function<void()>> tasks_;
     std::mutex                        mutex_;
     std::condition_variable           cv_;
     std::atomic<bool>                 stop_{false};
 
 public:
-    explicit InferenceThreadPool(int num_threads, int numa_node = 0) {
+    // numa_node: 绑定到的 NUMA Node（-1 表示不绑定）
+    // cpu_list: 明确指定的物理核心列表（优先级高于 numa_node）
+    explicit InferenceThreadPool(
+            int num_threads,
+            int numa_node = -1,
+            const std::vector<int>& cpu_list = {})
+    {
         for (int i = 0; i < num_threads; ++i) {
-            workers_.emplace_back([this, i, numa_node] {
-                // 绑定 CPU 亲和性
-                bind_to_numa_node(i, numa_node);
+            workers_.emplace_back([this, i, numa_node, &cpu_list] {
+                pin_thread(i, numa_node, cpu_list);
                 worker_loop();
             });
         }
     }
 
-    template<typename F>
-    auto submit(F&& f) -> std::future<decltype(f())> {
-        auto task = std::make_shared<std::packaged_task<decltype(f())()>>(
-            std::forward<F>(f));
-        auto future = task->get_future();
+    ~InferenceThreadPool() {
+        stop_.store(true, std::memory_order_release);
+        cv_.notify_all();
+        for (auto& w : workers_) w.join();
+    }
+
+    template<typename F, typename... Args>
+    auto submit(F&& f, Args&&... args)
+        -> std::future<std::invoke_result_t<F, Args...>>
+    {
+        using Ret = std::invoke_result_t<F, Args...>;
+        auto task = std::make_shared<std::packaged_task<Ret()>>(
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+        auto fut = task->get_future();
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-            task_queue_.emplace([task]{ (*task)(); });
+            std::lock_guard lock(mutex_);
+            if (stop_) throw std::runtime_error("Pool is stopping");
+            tasks_.emplace([task] { (*task)(); });
         }
         cv_.notify_one();
-        return future;
+        return fut;
     }
 
 private:
@@ -5189,108 +5360,493 @@ private:
         while (true) {
             std::function<void()> task;
             {
-                std::unique_lock<std::mutex> lock(mutex_);
-                cv_.wait(lock, [this]{ return stop_ || !task_queue_.empty(); });
-                if (stop_ && task_queue_.empty()) return;
-                task = std::move(task_queue_.front());
-                task_queue_.pop();
+                std::unique_lock lock(mutex_);
+                cv_.wait(lock, [this] {
+                    return stop_.load(std::memory_order_acquire) || !tasks_.empty();
+                });
+                if (stop_ && tasks_.empty()) return;
+                task = std::move(tasks_.front());
+                tasks_.pop();
             }
             task();
         }
     }
 
-    void bind_to_numa_node(int thread_idx, int numa_node) {
-        // 获取 NUMA 节点的 CPU 列表并绑定
+    // 线程亲和性绑定：优先使用显式 cpu_list，其次按 NUMA Node 分配
+    static void pin_thread(int idx, int numa_node, const std::vector<int>& cpu_list) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        // 将线程绑定到 numa_node 对应的物理核心
-        struct bitmask* cpus = numa_allocate_cpumask();
-        numa_node_to_cpus(numa_node, cpus);
-        for (int cpu = 0; cpu < numa_num_configured_cpus(); ++cpu) {
-            if (numa_bitmask_isbitset(cpus, cpu))
-                CPU_SET(cpu, &cpuset);
+
+        if (!cpu_list.empty()) {
+            // 按 Round-Robin 分配到指定核心列表
+            CPU_SET(cpu_list[idx % cpu_list.size()], &cpuset);
+        } else if (numa_node >= 0) {
+            if (numa_available() < 0) return;  // NUMA 不可用，跳过绑定
+            // 获取该 NUMA Node 的全部 CPU 核心
+            struct bitmask* cpus = numa_allocate_cpumask();
+            if (numa_node_to_cpus(numa_node, cpus) != 0) {
+                numa_free_cpumask(cpus);
+                return;
+            }
+            int assigned = 0;
+            for (int cpu = 0; cpu < numa_num_configured_cpus(); ++cpu) {
+                if (numa_bitmask_isbitset(cpus, cpu)) {
+                    if (assigned == idx % numa_num_configured_cpus()) {
+                        CPU_SET(cpu, &cpuset);
+                        break;
+                    }
+                    ++assigned;
+                }
+            }
+            numa_free_cpumask(cpus);
+        } else {
+            return;  // 不绑定
         }
-        pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
-        numa_free_cpumask(cpus);
+
+        int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+        if (rc != 0) {
+            // 绑定失败（可能权限不足）：记录日志但不 abort，继续运行
+        }
     }
 };
 ```
 
-**推理服务中的 Thread Pool 分工：**
+#### 3. CUDA Launch 线程的特殊处理
 
-|Thread Pool|职责|线程数|CPU 绑定|
-|---|---|---|---|
-|IO Pool|接收请求、Tokenize、返回结果|8–16|Socket 0|
-|Scheduler Pool|调度请求、管理 KV Block|2–4|Socket 0|
-|CUDA Launch Pool|提交 Kernel、管理 CUDA Stream|1–2/GPU|对应 GPU 的 Local Socket|
-|Sampler Pool|Top-k/Top-p 采样（CPU 端）|4–8|任意|
+```cpp
+// CUDA Launch 线程：每 GPU 一个，独占物理核心，永不阻塞
+class CUDALaunchThread {
+    std::thread           thread_;
+    std::atomic<bool>     stop_{false};
+    LockFreeQueue<LaunchTask> task_queue_;  // 无锁队列，避免互斥开销
+    cudaStream_t          stream_;
+    int                   gpu_id_;
 
-**关键设计原则：**
-
-- **避免共享 Mutex 热点**：Scheduler 使用 Lock-free Queue（见 Q78）接收请求，减少锁竞争。
-- **CUDA Launch 线程固定**：每个 GPU 对应 1 个专用线程，避免多线程并发提交 CUDA 命令导致序列化。
-- **亲和性与 NUMA 对齐**：GPU 所在 Socket 的 CUDA Launch 线程绑定到同一 Socket 的 CPU 核心，减少 Remote NUMA 访问。
+public:
+    explicit CUDALaunchThread(int gpu_id, int cpu_core)
+        : gpu_id_(gpu_id)
+    {
+        cudaSetDevice(gpu_id);
+        cudaStreamCreateWithPriority(&stream_, cudaStreamNonBlocking, -1);  // 高优先级 Stream
+        thread_ = std::thread([this, cpu_core] {
+            // 绑定到独占核心：CUDA Launch 线程不应被其他任务抢占
+            cpu_set_t cs; CPU_ZERO(&cs); CPU_SET(cpu_core, &cs);
+            pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
+            cudaSetDevice(gpu_id_);  // 线程内再次设置（CUDA 上下文与线程绑定）
+            launch_loop();
+        });
+    }
+    // ...
+};
+```
 
 ---
 
-**Q82. `mmap` vs `read` 的权衡：大模型权重加载的最优策略？**
+### 11.5 文件 I/O 与权重加载
 
-**`read` 系统调用：**
+**Q82. `mmap` vs `read`：大模型权重加载最优策略**
 
-```cpp
-int fd = open("model.bin", O_RDONLY);
-read(fd, buffer, file_size);  // 同步阻塞，数据从内核 Page Cache 拷贝到用户 Buffer
+#### 1. 两种 I/O 路径的数据流对比
+
+```
+── read() 路径 ──────────────────────────────────────────────────
+NVMe SSD → DMA → 内核 Page Cache → CPU memcpy → 用户 Buffer
+                                              ↑ 这次拷贝是额外开销
+
+── mmap() 路径 ──────────────────────────────────────────────────
+NVMe SSD → DMA → 内核 Page Cache ← 用户指针直接映射
+                 （虚拟地址映射，访问时触发 Page Fault 按需加载）
+            若配合 MAP_POPULATE：启动时预加载全部页面
+            若配合 Pinned Memory + DMA：可实现 Page Cache → GPU 直通
 ```
 
-- 数据路径：磁盘 → 内核 Page Cache → 用户 Buffer（**2次拷贝**）
-- 适合：顺序读取、小文件
+#### 2. `O_DIRECT` 与 `mmap` 的语义冲突
 
-**`mmap` 内存映射：**
+> ⚠️ **`O_DIRECT` 与 `mmap` 不可混用。** `O_DIRECT` 的语义是**绕过内核 Page Cache**，而 `mmap` 的实现依赖 Page Cache（`mmap` 将文件的 Page Cache 页面映射到用户地址空间）。在 Linux 上，对同一 `fd` 同时使用 `O_DIRECT` 和 `mmap` 会导致行为未定义（通常表现为 `mmap` 仍走 Page Cache 路径，`O_DIRECT` 写操作使 mmap 区域的内容不一致，或直接返回 `EINVAL`）。正确策略：
+> 
+> - **`mmap` 路径**：使用普通 `open()`，搭配 `madvise(MADV_SEQUENTIAL)` 指导预读
+> - **`O_DIRECT` 路径**：使用 `read()`/`pread()`，搭配用户态对齐 Buffer（512-byte 对齐），绕过 Page Cache 减少内存压力（适用于权重文件远大于 Page Cache 容量的情况）
+
+#### 3. 各方案性能对比
+
+| 方案                        | 拷贝次数（到用户态）                | 随机访问                  | 适用场景           |
+| ------------------------- | ------------------------- | --------------------- | -------------- |
+| `read()`                  | 2（Page Cache → 用户 Buffer） | 需 `lseek`，效率低         | 小文件顺序读取        |
+| `mmap()` + `MAP_POPULATE` | 1（Page Cache 直接访问）        | $O(1)$ 指针访问           | 权重文件完整加载       |
+| `mmap()` + Demand Paging  | 1（按需）                     | $O(1)$，首次有 Page Fault | MoE Expert 懒加载 |
+| `O_DIRECT` + `pread()`    | 1（绕过 Page Cache）          | 需手动管理对齐 Buffer        | 内存受限环境         |
+| `mmap()` + `cudaMemcpy`   | 0（Page Cache → GPU DMA）   | $O(1)$                | **推荐：权重加载主路径** |
+
+#### 4. 推荐实现：`mmap` + 异步 DMA
 
 ```cpp
-int fd = open("model.bin", O_RDONLY);
-void* ptr = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-// ptr 直接指向内核 Page Cache，无需用户态 Buffer（**1次拷贝或零拷贝**）
-// 访问时按需触发 Page Fault 加载（Demand Paging）
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+class WeightLoader {
+    void* mmap_base_ = nullptr;
+    size_t file_size_ = 0;
+    int fd_ = -1;
+
+public:
+    void open(const char* path) {
+        // 注意：普通 open，不加 O_DIRECT
+        fd_ = ::open(path, O_RDONLY);
+        struct stat st;
+        fstat(fd_, &st);
+        file_size_ = st.st_size;
+
+        mmap_base_ = mmap(
+            nullptr, file_size_,
+            PROT_READ,
+            MAP_PRIVATE | MAP_POPULATE,  // MAP_POPULATE：启动时预加载全部页面
+            fd_, 0
+        );
+        if (mmap_base_ == MAP_FAILED) throw std::runtime_error("mmap failed");
+
+        // 提示 OS：顺序访问，触发预读（readahead）
+        madvise(mmap_base_, file_size_, MADV_SEQUENTIAL);
+
+        // 锁定物理内存，防止权重文件页面在推理期间被换出
+        // 注意：需要 CAP_IPC_LOCK 权限或调整 /proc/sys/vm/max_map_count
+        mlock(mmap_base_, file_size_);
+    }
+
+    // 异步加载单个权重张量到 GPU
+    void async_load_tensor(
+            size_t offset, size_t bytes,
+            void* d_dst,
+            cudaStream_t stream,
+            void* pinned_staging,   // 预分配的 Pinned 中转 Buffer
+            size_t staging_size)
+    {
+        assert(bytes <= staging_size);
+        // CPU memcpy（Page Cache → Pinned Buffer，利用 SIMD）
+        memcpy(pinned_staging,
+               static_cast<char*>(mmap_base_) + offset,
+               bytes);
+        // 异步 DMA（Pinned Buffer → GPU HBM）
+        cudaMemcpyAsync(d_dst, pinned_staging, bytes,
+                        cudaMemcpyHostToDevice, stream);
+    }
+
+    ~WeightLoader() {
+        if (mmap_base_) munmap(mmap_base_, file_size_);
+        if (fd_ >= 0) close(fd_);
+    }
+};
 ```
 
-- 数据路径：磁盘 → 内核 Page Cache（可直接 DMA，1次拷贝）
-- 优点：零拷贝、支持随机访问、OS 自动管理 Page Cache
+#### 5. SafeTensors 格式与 MoE Expert 懒加载
 
-**大模型权重加载的最优策略：**
+SafeTensors 文件头部存储每个 Tensor 的名称、dtype、shape 和字节偏移（`data_offsets`）。结合 `mmap` + Demand Paging，可实现：
+
+```python
+# Python 侧（推理框架层）
+import safetensors
+import mmap
+
+with open("model.safetensors", "rb") as f:
+    # mmap 整个文件，但只有实际访问的 Expert 权重才触发 Page Fault 加载
+    mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    tensors = safetensors.safe_open("model.safetensors", framework="pt", device="cpu")
+
+# 仅加载被激活的 Expert（Top-K Routing 决定）
+for expert_id in activated_experts:
+    weight = tensors.get_tensor(f"expert.{expert_id}.weight")  # 按需触发 Page Fault
+    weight_gpu = weight.to("cuda", non_blocking=True)
+```
+
+**MoE 场景收益**：DeepSeek-V3（671B，256 Expert）中每次 Forward 仅激活 8 个 Expert。若将 Expert 权重存于独立 safetensors 文件并 `mmap`，冷启动时无需加载全部权重，显存与加载时间均大幅降低。代价是首次访问某 Expert 时有 **Page Fault 延迟**（NVMe SSD 约 100–200 μs/Page），需配合预热策略（Prefetching）覆盖热门 Expert。
+
+---
+
+### 11.6 推理引擎专项：内存管理
+
+**Q83-CPP. `std::pmr` 在推理引擎中的应用**
+
+#### 1. 问题背景
+
+推理引擎的请求处理路径中存在大量短生命周期的小对象（Token ID 数组、采样中间结果、Beam 路径节点等）。若使用全局 `new`/`delete`：
+
+- **碎片化**：频繁分配/释放导致堆碎片，长期运行后内存利用率下降
+- **性能**：全局 Allocator 需加锁（glibc `ptmalloc` 的 Arena 机制），高并发下产生锁竞争
+- **延迟抖动**：`malloc` 的最坏情况延迟不可预测（可能触发 `sbrk`/`mmap`）
+
+#### 2. `std::pmr` 核心组件
+
+```
+std::pmr::memory_resource（抽象基类）
+├── std::pmr::monotonic_buffer_resource   // 只分配不释放，析构时一次性回收
+├── std::pmr::unsynchronized_pool_resource // 线程不安全的分级池
+├── std::pmr::synchronized_pool_resource  // 线程安全的分级池
+└── 用户自定义（继承 do_allocate / do_deallocate / do_is_equal）
+```
+
+#### 3. 请求级 Arena Allocator
 
 ```cpp
-// Step 1: mmap 权重文件
-int fd = open("model_weights.bin", O_RDONLY | O_DIRECT);
-void* mmap_ptr = mmap(nullptr, model_size, PROT_READ,
-                      MAP_PRIVATE | MAP_POPULATE,  // MAP_POPULATE：预读全部页面
-                      fd, 0);
+#include <memory_resource>
+#include <vector>
+#include <string>
 
-// Step 2: madvise 提示 OS 预读策略
-madvise(mmap_ptr, model_size, MADV_SEQUENTIAL);  // 顺序访问模式，触发预读
+// 每个推理请求绑定一个 Arena，请求结束后整体回收
+class RequestContext {
+    // 请求专属的 Arena：预分配 64KB 栈上缓冲 + 超出时向上游 Allocator 申请
+    alignas(64) std::byte arena_buf_[65536];  // 64 KB 栈上预留
+    std::pmr::monotonic_buffer_resource arena_{
+        arena_buf_, sizeof(arena_buf_),
+        std::pmr::get_default_resource()  // 超出 64KB 时向全局 Allocator 申请
+    };
 
-// Step 3: 固定到物理内存（避免 Page Fault 在推理时触发）
-mlock(mmap_ptr, model_size);  // 锁定，防止换出
+public:
+    // 所有 pmr 容器使用同一 Arena，内存连续、无碎片
+    std::pmr::vector<int32_t>     input_ids{&arena_};
+    std::pmr::vector<int32_t>     output_ids{&arena_};
+    std::pmr::vector<float>       logits_buf{&arena_};
+    std::pmr::string              stop_reason{&arena_};
 
-// Step 4: 异步 DMA 到 GPU（配合 Pinned Buffer）
-cudaMemcpyAsync(d_weight, mmap_ptr, model_size,
-                cudaMemcpyHostToDevice, stream);
+    // 请求结束时：~RequestContext() 自动析构 arena_，
+    // 所有分配的内存 O(1) 批量回收（仅重置 offset 指针，无 free 调用）
+};
+
+// 使用示例
+void handle_request(const BatchInput& input) {
+    RequestContext ctx;
+    ctx.input_ids.assign(input.token_ids.begin(), input.token_ids.end());
+    ctx.logits_buf.resize(vocab_size);
+    // ... 推理逻辑 ...
+}  // 函数返回时 ctx 析构，所有内存 O(1) 回收
 ```
 
-**`mmap` vs `read` 对比：**
+#### 4. 性能对比
 
-|维度|`read`|`mmap`|
-|---|---|---|
-|拷贝次数|2（内核→用户）|1（或 0，取决于 DMA 路径）|
-|随机访问|需要 `lseek`，效率低|直接指针访问，$O(1)$|
-|并发加载|单线程顺序|多线程并行（各自 mmap 不同偏移）|
-|显存换入换出|不支持|支持（权重按需加载，适合显存受限场景）|
-|加载速度（NVMe SSD）|~5–7 GB/s|~6–8 GB/s（MAP_POPULATE + madvise）|
+|Allocator|分配延迟|释放延迟|碎片率|线程安全|
+|---|---|---|---|---|
+|`malloc`（ptmalloc）|~50–200 ns|~50–200 ns|中，长期运行后上升|是（有锁开销）|
+|`monotonic_buffer_resource`|**~2–5 ns**（仅递增指针）|**O(1)**（析构时整体回收）|**0**（线性分配）|否（请求独享）|
+|`unsynchronized_pool_resource`|~10–30 ns|~10–30 ns|低|否|
 
-**SafeTensors 格式（2024 年主流）：**
+> **适用前提**：`monotonic_buffer_resource` 的对象无需单独 `deallocate`（析构时整体回收），适合**请求级短生命周期对象**。若对象有独立生命周期管理需求，改用 `pool_resource`。
 
-HuggingFace SafeTensors 格式天然支持 `mmap` 加载：权重文件头部记录每个 Tensor 的偏移，Python 端通过 `mmap` 零拷贝直接访问，无需将整个文件读入内存，特别适合**按需加载部分权重**（如 MoE 的 Expert 权重懒加载）。
+---
 
+### 11.7 推理引擎专项：CUDA 同步
+
+**Q84-CPP. CUDA Stream 与 Host 线程的同步机制**
+
+#### 1. 三种同步方式对比
+
+| 同步方式                                 | CPU 行为               | 延迟开销                 | 适用场景                     |
+| ------------------------------------ | -------------------- | -------------------- | ------------------------ |
+| `cudaStreamSynchronize`              | 忙等（或 OS 阻塞）          | 低（无调度延迟）             | 简单串行流程、Profiling         |
+| `cudaEvent` + `cudaEventSynchronize` | 忙等/阻塞（可配置）           | 低                    | Prefill → Decode KV 传递同步 |
+| `cudaStreamAddCallback`              | 异步回调，CPU 不阻塞         | 有回调调度开销（约 5–20 μs）   | 非关键路径的结果通知               |
+| `cudaLaunchHostFunc`（推荐）             | 异步回调，在 Stream 队列顺序执行 | 最低（避免 Callback 线程切换） | 推理完成后触发下一请求入队            |
+
+#### 2. `cudaEvent` 实现 Prefill → Decode KV 同步
+
+P/D 分离架构中，Prefill Kernel 写入 KV Cache 后，需通知 Decode 进程可以读取。使用 `cudaEvent` 实现**无需 CPU 中介**的 GPU-to-GPU 同步：
+
+```cpp
+// ---- Prefill 侧（Prefill Worker 进程）----
+cudaEvent_t kv_ready_event;
+// cudaEventInterprocess：允许跨进程共享 Event
+// cudaEventDisableTiming：禁用计时，降低开销（不需要精确时间戳时）
+cudaEventCreateWithFlags(&kv_ready_event,
+    cudaEventDisableTiming | cudaEventInterprocess);
+
+// Prefill Kernel 执行完毕后记录 Event
+launch_prefill_kernel(stream_prefill, ...);  // Kernel 写入 KV Cache
+cudaEventRecord(kv_ready_event, stream_prefill);
+
+// 导出 Event Handle 传递给 Decode 进程（通过 IPC 机制）
+cudaIpcEventHandle_t event_handle;
+cudaIpcGetEventHandle(&event_handle, kv_ready_event);
+send_to_decode_process(event_handle);  // 通过共享内存/Socket 传递
+
+// ---- Decode 侧（Decode Worker 进程）----
+cudaIpcEventHandle_t event_handle = recv_from_prefill_process();
+cudaEvent_t kv_ready_event;
+cudaIpcOpenEventHandle(&kv_ready_event, event_handle);
+
+// GPU 等待 Event（不阻塞 CPU，仅阻塞 Stream 队列）
+cudaStreamWaitEvent(stream_decode, kv_ready_event, 0);
+launch_decode_kernel(stream_decode, ...);  // 保证在 KV 写入完成后执行
+```
+
+**关键优势**：`cudaStreamWaitEvent` 是 **GPU-side wait**，CPU 线程不阻塞。Decode Kernel 在 GPU 内部等待 Event，CPU 可继续处理其他请求的调度逻辑。
+
+#### 3. `cudaLaunchHostFunc` 触发下一批请求
+
+```cpp
+// 回调函数在 CPU 端执行，但在 Stream 队列中有序触发
+struct BatchCompletionCtx {
+    Scheduler* scheduler;
+    BatchId    batch_id;
+};
+
+cudaLaunchHostFunc(stream, [](void* arg) {
+    auto* ctx = static_cast<BatchCompletionCtx*>(arg);
+    // 在回调中：将完成的 Token 推送给等待的 HTTP 响应线程
+    // 并通知调度器释放 KV Block
+    ctx->scheduler->on_batch_complete(ctx->batch_id);
+}, &completion_ctx);
+// CPU 不阻塞，继续准备下一个 Batch
+```
+
+> ⚠️ `cudaStreamAddCallback`（旧 API）的回调在专用 Callback 线程中运行，上下文切换开销约 5–20 μs。`cudaLaunchHostFunc`（CUDA 10.0+）直接在 Stream 的执行上下文中调用，延迟更低，优先使用后者。
+
+---
+
+### 11.8 推理引擎专项：跨进程显存共享
+
+**Q85-CPP. `cudaIpcMemHandle`：跨进程显存共享**
+
+#### 1. 应用场景
+
+P/D 分离架构中，Prefill 进程与 Decode 进程部署在**同一节点**的不同 GPU 上（或同一 GPU 的不同 CUDA Context）。KV Cache 传递路径：
+
+|传输路径|带宽|延迟|适用条件|
+|---|---|---|---|
+|GPU IPC（同一 GPU 不同进程）|~900 GB/s（HBM 带宽）|~1–5 μs|同 GPU，不同进程|
+|NVLink（同节点不同 GPU）|200–600 GB/s（NVLink 4）|~5–20 μs|同节点，NVLink 直连|
+|GPUDirect RDMA（跨节点）|~50–100 GB/s（200G IB）|~5–30 μs|跨节点|
+|TCP/IP（跨节点降级）|~10–25 GB/s|~50–500 μs|无 RDMA 环境|
+
+#### 2. `cudaIpcMemHandle` 零拷贝共享实现
+
+```cpp
+// ---- Prefill 进程（生产者）----
+void* kv_cache_d = nullptr;
+cudaMalloc(&kv_cache_d, KV_CACHE_SIZE);
+
+// 导出 IPC Handle（序列化为 64-byte 结构体，可通过 IPC 传递）
+cudaIpcMemHandle_t mem_handle;
+cudaIpcGetMemHandle(&mem_handle, kv_cache_d);
+
+// 通过 Unix Domain Socket / 共享内存将 mem_handle 发送给 Decode 进程
+ipc_send(&mem_handle, sizeof(mem_handle));
+
+// 写入 KV Cache（Prefill Kernel 执行）
+launch_prefill_kernel(stream, kv_cache_d, ...);
+record_and_send_event(stream);   // 通知 Decode 侧数据就绪（见 Q84-CPP）
+
+// ---- Decode 进程（消费者）----
+cudaIpcMemHandle_t mem_handle;
+ipc_recv(&mem_handle, sizeof(mem_handle));
+
+void* kv_cache_remote = nullptr;
+// 将 Prefill 进程的显存映射到本进程地址空间
+// cudaIpcMemLazyEnablePeerAccess：自动启用 Peer Access（NVLink / NVSwitch）
+cudaIpcOpenMemHandle(&kv_cache_remote, mem_handle,
+                     cudaIpcMemLazyEnablePeerAccess);
+
+wait_for_kv_ready_event();  // 等待 Prefill 写入完成（见 Q84-CPP）
+
+// 直接读取 Prefill 侧 KV Cache，零拷贝
+launch_decode_kernel(stream, kv_cache_remote, ...);
+
+// 使用完毕后关闭映射（不释放 Prefill 侧内存）
+cudaIpcCloseMemHandle(kv_cache_remote);
+```
+
+#### 3. 与 RDMA 路径的边界
+
+|条件|推荐路径|
+|---|---|
+|同节点，GPU 间有 NVLink|`cudaIpcMemHandle` + NVLink P2P（无 CPU 中介）|
+|同节点，仅 PCIe 连接|`cudaIpcMemHandle`（经 PCIe，约 28–64 GB/s）|
+|跨节点，有 InfiniBand + GPUDirect|RDMA（NIXL / NCCL）直接 GPU-to-GPU|
+|跨节点，无 GPUDirect|CPU 中转（cudaMemcpy D→H → TCP → H→D）|
+
+> **限制**：`cudaIpcMemHandle` 仅支持**同 CUDA 设备的两个进程**或**通过 P2P 可访问的设备对**。若 `cudaDeviceCanAccessPeer` 返回 0，则 IPC 映射失败，需降级到 CPU 中转路径。
+
+---
+
+### 11.9 推理引擎专项：内存序与 GPU 调度
+
+**Q86-CPP. CPU 内存序与 GPU Kernel 启动的混合并发正确性**
+
+#### 1. 问题场景
+
+推理引擎的典型线程模型：
+
+```
+[调度线程（CPU）]                [CUDA Launch 线程（CPU）]
+    │                                    │
+    ├─ 分配 KV Block（PagedAttention）    │
+    ├─ 写入 Block Table 指针             │
+    ├─ 将 BatchTask 放入无锁队列 ──────► ├─ 读取 BatchTask
+    │                                    ├─ 读取 Block Table 指针
+    │                                    └─ cudaMemcpyAsync 到 GPU
+    │                                       launch_kernel(stream, block_table_d)
+```
+
+**潜在 Bug**：若调度线程写入 Block Table 指针使用 `relaxed`，CUDA Launch 线程可能读到旧值（NULL 或上一请求的 Block 地址），导致 GPU Kernel 访问错误显存。
+
+#### 2. 正确的内存序配对
+
+```cpp
+// ---- 共享数据结构 ----
+struct BatchTask {
+    KVBlockTable* block_table_ptr;  // 调度线程写入，CUDA Launch 线程读取
+    int           num_tokens;
+    // ...
+};
+
+// ---- 调度线程 ----
+void Scheduler::dispatch_batch(const std::vector<Request*>& reqs) {
+    // Step 1：分配 KV Block 并填写 Block Table（普通写）
+    KVBlockTable* table = block_pool_.allocate();
+    for (auto* req : reqs) {
+        table->assign_blocks(req->kv_block_ids);
+    }
+    // Step 2：构造 BatchTask（普通写）
+    BatchTask task;
+    task.block_table_ptr = table;
+    task.num_tokens = total_tokens;
+
+    // Step 3：Release 语义写入队列
+    // 保证：Step 1 & 2 的所有写操作对"读取到此 task 的线程"可见
+    launch_queue_.enqueue(std::move(task), std::memory_order_release);
+    //                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    //                                     等同 MSQueue 中的 release store
+}
+
+// ---- CUDA Launch 线程 ----
+void CUDALaunchThread::launch_loop() {
+    while (true) {
+        BatchTask task;
+        // Acquire 语义读取队列：保证后续读操作不重排到此之前
+        if (!launch_queue_.dequeue(task, std::memory_order_acquire)) {
+            std::this_thread::yield();
+            continue;
+        }
+        //                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        // 保证：读取到 block_table_ptr 时，
+        //        调度线程在 release 之前对 block_table_ptr 的写入已可见
+
+        // 此处读取 block_table_ptr 是安全的
+        KVBlockTable* table = task.block_table_ptr;
+
+        // 将 Block Table 拷贝到 GPU
+        cudaMemcpyAsync(d_block_table, table, sizeof(*table),
+                        cudaMemcpyHostToDevice, stream_);
+        launch_attention_kernel(stream_, d_block_table, task.num_tokens);
+    }
+}
+```
+
+#### 3. GPU-side 一致性
+
+`cudaMemcpyAsync` 本身保证：在提交到 Stream 之前，CPU 对 `table` 的写入对该次 `cudaMemcpyAsync` 读取可见（CPU→GPU 路径通过 PCIe 总线，硬件保证传输的是 `cudaMemcpyAsync` 调用时的内存快照）。因此：
+
+- **CPU 内存序**：保证 CUDA Launch 线程读取到正确的 `block_table_ptr`（指针值本身）
+- **GPU DMA**：保证 GPU 拿到正确的 Block Table 内容（指针指向的数据）
+
+两者缺一不可。若 CPU 内存序不正确，CUDA Launch 线程读到 NULL 指针，`cudaMemcpyAsync` 会传输 NULL 地址的数据，导致 Kernel 崩溃（通常表现为 `cudaErrorIllegalAddress`，极难调试）。
 ## 第 12 章·参考答案：MoE 架构推理
 
 ---
