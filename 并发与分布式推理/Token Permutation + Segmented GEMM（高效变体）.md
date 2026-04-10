@@ -67,10 +67,10 @@ $$
 
 解决方案拆分为两个正交步骤：
 
-| 步骤 | 操作 | 解决的问题 |
-|------|------|------------|
-| Token Permutation | 数据重排，使同一 expert 的 token 在内存中连续 | 访存非合并 |
-| Grouped GEMM | 所有 expert 的 GEMM 在单次 persistent kernel 中动态调度 | 计算碎片化 + 负载失衡 |
+| 步骤                | 操作                                           | 解决的问题        |
+| ----------------- | -------------------------------------------- | ------------ |
+| Token Permutation | 数据重排，使同一 expert 的 token 在内存中连续               | 访存非合并        |
+| Grouped GEMM      | 所有 expert 的 GEMM 在单次 persistent kernel 中动态调度 | 计算碎片化 + 负载失衡 |
 
 两步操作的组合，将一个**稀疏、不规则**的计算问题，转化为一个**密集、可被 Tensor Core 高效执行**的计算问题，代价是引入两次额外的 HBM 读写（permutation + un-permutation），这也是优化后系统的主要瓶颈所在。
 
