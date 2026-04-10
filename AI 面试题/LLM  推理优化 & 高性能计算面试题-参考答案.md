@@ -6429,6 +6429,9 @@ $$\text{MoE Tax} \approx \frac{t_{\text{A2A}} \times 2}{t_{\text{Dense Decode}}}
 - 减小 EP 度（降低 All-to-All 跳数和延迟）。
 - 增大 Decode Batch Size（增加每次 All-to-All 携带的 Token 数，使通信时间相对固定而计算时间增长，收敛到 Overlap 友好的区间）。
 - 使用节点内 NVLink 替代跨节点 InfiniBand（EP=8，仅限小模型）。
+
+---
+
 ## 第 13 章·参考答案：P/D 分离架构（Disaggregated Prefill-Decode）
 
 ---

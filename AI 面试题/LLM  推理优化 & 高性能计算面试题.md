@@ -308,15 +308,22 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 13.1 核心动机与架构
 
-- **Q91.** Prefill 阶段计算密集，适合高 FLOPS GPU；Decode 阶段对延迟敏感且显存需求持续增长，适合高带宽 GPU。传统架构两阶段共享硬件，Prefill 请求占用 Decode 资源，导致输出延迟抖动。
-- **Q92.** P/D 分离已成为 2025 年主流推理栈（NVIDIA Dynamo、llm-d、SGLang、vLLM、MoonCake）的默认方案。
-- **Q93.** KV Cache Transfer 的实现方式：GPUDirect RDMA vs. NVLink vs. TCP，各自的延迟量级？
+- **Q91.** Prefill 与 Decode 两阶段的计算特性（Compute-bound vs. Memory-bound、主要算子、KV Cache 读写行为）有何根本差异？传统混合部署因此引发哪三类干扰问题（Prefill 阻塞 Decode、显存竞争、最优 Batch Size 矛盾）？
+- **Q92.** P/D 分离已成为 2025 年主流推理栈的默认方案：vLLM、SGLang、TensorRT-LLM、NVIDIA Dynamo、MoonCake、llm-d 各自的实现方式与 KV Transfer 机制？NIXL（NVIDIA Inference Xfer Library）的定位与核心能力？
+- **Q93.** KV Cache Transfer 的三种实现路径（NVLink 节点内、GPUDirect RDMA 跨节点、TCP 降级）的带宽与延迟量级？Transfer 延迟如何叠加到 TTFT？为何生产环境必须配备高速互联？
+- **Q93-b.** NVLink 节点内传输的正确带宽参数：H100 单 GPU NVLink 总线双向带宽 900 GB/s 与 GPU-to-GPU 点对点可用带宽（~300 GB/s 双向）的区别？误用总线带宽会导致 Transfer 时间估算偏差多大？
+- **Q93-c.** NIXL 与 NCCL 的定位区别：两者分别针对哪类通信模式（点对点 KV Transfer vs. 集合通信 AllReduce）？为何不能直接用延迟百分比对比？NIXL 对非连续 PagedAttention Block 的 Scatter-Gather DMA 支持是其核心优化点？
 
 ### 13.2 调度设计
 
-- **Q94.** xPyD Ratio（P 实例数 : D 实例数）如何根据 ISL/OSL（输入/输出序列长度）比例调优？
-- **Q95.** P/D 分离对以下场景收益最显著：超大模型（120B+）、长输入序列（ISL > 10k tokens）、稀疏 MoE 架构。
-- **Q96.** KV Cache Transfer 与 Expert Parallelism 通信的带宽竞争问题如何缓解？
+- **Q94.** xPyD Ratio（P 实例数 : D 实例数）的调优依据：如何根据单实例 Prefill 吞吐 $R_P$、Decode 吞吐 $R_D$ 及 ISL/OSL 比例推导平衡条件 $x/y = (R_D \cdot \text{ISL}) / (R_P \cdot \text{OSL})$？不同 ISL/OSL 场景（长输入短输出 vs. 短输入长输出）下的典型配比举例？
+- **Q94-b.** xPyD 静态配比与动态扩缩容的工程权衡：全局调度器如何依据 P/D 队列积压实时调整实例数？D 实例是否可临时承担 Prefill（"Prefill-fallback"）？扩缩容的触发阈值如何量化设计（队列深度 vs. 时延 SLO 违约率）？
+- **Q95.** P/D 分离收益最显著的三类场景（超大模型 120B+、长输入序列 ISL > 10k、稀疏 MoE 架构）的量化分析：以长输入场景（ISL=16k，OSL=512，P99 TPOT 目标 < 100ms）对比混合部署与 P/D 分离的 TPOT 差异？
+- **Q95-b.** P/D 分离在 MoE 架构下的额外收益：P 节点与 D 节点可采用不同 EP（Expert Parallelism）规模，DeepSeek-V3 为何在 P 节点使用更大 EP？两阶段对 All-to-All 通信特性的差异（大 Batch 可 Overlap vs. 小 Batch 延迟敏感）？
+- **Q96.** KV Cache Transfer 与 EP All-to-All 的带宽竞争根源及四类缓解方案（网络隔离、QoS 优先级降级、Transfer 时序错开、KV 压缩减少传输量）的实现机制与适用场景？
+- **Q96-b.** KV 感知路由（KV-aware Routing）：全局调度器如何利用 Prefix Cache 命中信息将请求路由到已持有相关 KV Block 的 D 实例，从而避免重复 Transfer？NVIDIA Dynamo 的 Smart Router 与 SGLang 的 RadixAttention 在此机制上的实现差异？
+- **Q97-PD.** P/D 分离架构中的容错与一致性设计：Prefill 实例完成计算但 KV Transfer 失败时如何处理（重试 vs. 本地降级为混合模式）？D 实例崩溃时持有的 KV Cache 如何恢复（Recompute vs. Checkpoint）？两种恢复路径的延迟代价与适用场景？
+- **Q98-PD.** P/D 分离的显存规划差异：P 实例 KV Cache 仅需在 Transfer 完成前驻留（短暂峰值），D 实例 KV Cache 需要长期驻留（随 Decode 步数线性增长）；两类实例应如何分别配置 KV Cache 内存池大小？P 实例回收 KV Block 的时机与 Transfer 完成事件的同步机制？
 
 ---
 
