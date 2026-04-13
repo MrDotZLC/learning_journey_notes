@@ -6446,39 +6446,49 @@ $$\text{MoE Tax} \approx \frac{t_{\text{A2A}} \times 2}{t_{\text{Dense Decode}}}
 
 |特性|Prefill 阶段|Decode 阶段|
 |---|---|---|
-|每步处理 Token 数|$S_{\text{in}}$（全部输入，可达数千）|1（逐 Token 生成）|
-|主要算子|GEMM（矩阵 × 矩阵）|GEMV（矩阵 × 向量）|
-|计算瓶颈|**Compute-bound**（Tensor Core 利用率高）|**Memory-bound**（HBM 带宽饱和）|
+|每步处理 Token 数|$S_{\text{in}}$（全部输入，可达数千）|1（逐 Token 自回归生成）|
+|主要算子|GEMM（矩阵 $\times$ 矩阵）|GEMV（矩阵 $\times$ 向量）|
+|计算瓶颈类型|**Compute-bound**|**Memory-bound**|
 |时延特征|单次耗时长（百毫秒级），决定 TTFT|单步耗时短（毫秒级），累积决定 E2E 延迟|
-|并发偏好|单请求大 Token 数（充分利用矩阵乘）|大 Batch Size（提升 GEMV 算术强度）|
-|最优硬件|高 TFLOPS（H100 SXM）|高 HBM 带宽（H20、H100 NVL）|
-|KV Cache 状态|**写**（生成 KV，逐步填充）|**读**（每步读全部 KV）|
+|并发偏好|单请求大 Token 数（充满矩阵乘）|大 Batch Size（将 GEMV 堆叠为 GEMM）|
+|最优硬件特征|高 TFLOPS（H100 SXM）|高 HBM 带宽（H20、H100 NVL）|
+|KV Cache 行为|**写**（批量写入，Prefill 结束时跳变至峰值）|**读**（每步读取全部历史 KV，线性递增）|
+
+**算术强度（Arithmetic Intensity）量化对比：**
+
+以 LLaMA-3 70B 单 Transformer 层为例，权重矩阵 $W \in \mathbb{R}^{8192 \times 8192}$，FP16：
+
+Prefill（批量 $S$ tokens）：
+
+$$\text{AI}_{\text{prefill}} = \frac{2 \cdot S \cdot d^2}{2 \cdot d^2 + 2 \cdot S \cdot d} \approx \frac{S \cdot d}{d + S} \xrightarrow{S \gg 1} d = 8192 \text{ FLOP/Byte}$$
+
+Decode（$S=1$，Batch=$B$）：
+
+$$\text{AI}_{\text{decode}} = \frac{2 \cdot B \cdot d^2}{2 \cdot d^2 + 2 \cdot B \cdot d} \approx \frac{B \cdot d}{d + B} \xrightarrow{B \ll d} B \text{ FLOP/Byte}$$
+
+H100 的 Ridge Point（Roofline 脊点）约为 $312 \text{ TFLOPS} / 3.35 \text{ TB/s} \approx 93 \text{ FLOP/Byte}$。Decode 阶段 $B < 93$ 时始终 Memory-bound。
 
 **传统混合部署的三类干扰问题：**
 
 **问题 1：Prefill 阻塞 Decode（TPOT 抖动）**
 
-当长 Prefill 请求（ISL = 4096）与 Decode 请求共享同一 GPU 时，Prefill 阶段独占 GPU 约 200–500ms，期间所有 Decode 请求无法前进，TPOT 出现严重抖动。
+长 Prefill 请求（ISL = 4096）独占 GPU 约 200–500 ms，期间所有 Decode 请求无法前进，TPOT P99 出现跳变式抖动：
 
 ```
 时间轴（混合部署）：
-GPU: [Decode×32步][Decode×32步][Prefill 4096tokens，~300ms!][Decode×32步]
-                                 ↑ Decode 请求全部阻塞，TPOT P99 飙升
+GPU: [Decode×32步][Prefill ISL=4096，~300ms][Decode×32步]
+                      ↑ Decode 请求全部阻塞，TPOT P99 飙升至秒级
 ```
 
-**问题 2：显存竞争（KV Cache vs 权重）**
+**问题 2：显存竞争（KV Cache vs. 激活值峰值）**
 
-- Prefill 峰值激活值（Forward Pass 中间结果）占用大量显存。
-- Decode KV Cache 需要持久驻留（不可换出）。
-- 两者共享有限显存，互相挤压，并发上限受制于短板。
+Prefill 阶段需要存储中间激活（Forward Pass 中间张量），与 Decode 阶段需要长期驻留的 KV Cache 共享有限 HBM，两者互相挤压并发上限。
 
-**问题 3：最优 Batch Size 相互矛盾**
+**问题 3：最优 Batch Size 根本矛盾**
 
-- Prefill 最优：单请求尽量多 Token（充满矩阵乘）。
-- Decode 最优：尽量多请求并发（GEMV → GEMM 转变）。
-- 同一 GPU 无法同时为两者调优。
+Prefill 最优：单请求尽量多 Token，充满 GEMM； Decode 最优：尽量多请求并发，将 GEMV 堆叠达到脊点。 同一 GPU 无法同时为两者调优，只能折中，导致两阶段 GPU 利用率均低于最优。
 
-**P/D 分离的核心价值：** 彻底解耦两阶段，各自在最优硬件上以最优策略运行。
+**P/D 分离的核心价值：** 彻底解耦两阶段资源竞争，各自在最优硬件配置与调度策略下独立运行。
 
 ---
 
@@ -6489,112 +6499,179 @@ GPU: [Decode×32步][Decode×32步][Prefill 4096tokens，~300ms!][Decode×32步]
 ```
 请求入口
     ↓
-┌──────────────────────────────────┐
-│  全局调度器（Global Scheduler）    │
-│  - 请求路由（分发到 P 实例）        │
-│  - P/D 实例健康监控                │
-│  - KV Cache Transfer 协调          │
-└──────────────┬───────────────────┘
+┌─────────────────────────────────────┐
+│  全局调度器（Global Scheduler）      │
+│  - 请求路由（分发到 P 实例）          │
+│  - P/D 实例健康监控与弹性扩缩容      │
+│  - KV Cache Transfer 协调与 Retry    │
+└──────────────┬──────────────────────┘
                ↓
-┌──────────────────────┐    KV Transfer    ┌──────────────────────┐
-│  Prefill 实例群（P）  │ ─────────────────→│  Decode 实例群（D）   │
-│                      │  GPUDirect RDMA   │                      │
-│  - 专注 Prefill 计算  │  / NVLink         │  - 专注 Decode 生成   │
-│  - 生成 KV Cache     │  / TCP（备选）     │  - KV Cache 长期驻留  │
-│  - 无需长期显存占用   │                   │  - 大 Batch 调度      │
-│  - 高 MFU 目标       │                   │  - 高 MBU 目标        │
-└──────────────────────┘                   └──────────────────────┘
-               ↓（生成完成回传 Token）
-        响应流式返回给用户
+┌──────────────────────┐   KV Transfer   ┌──────────────────────┐
+│  Prefill 实例群（P）  │ ───────────────→│  Decode 实例群（D）   │
+│                      │  GPUDirect RDMA │                      │
+│  - 专注 Prefill 计算  │  / NVLink       │  - 专注 Decode 生成   │
+│  - 生成 KV Cache     │  / TCP（降级）   │  - KV Cache 长期驻留  │
+│  - Transfer 后即释放  │                 │  - 大 Batch 调度      │
+│  - 高 MFU 目标        │                 │  - 高 MBU 目标        │
+└──────────────────────┘                 └──────────────────────┘
+               ↓（生成完成后 Token 流式返回用户）
 ```
 
-**2025 年主流框架实现：**
+**2025 年主流框架实现现状：**
 
-|框架|P/D 分离方案|KV Transfer 方式|特点|
-|---|---|---|---|
-|**vLLM（v0.6+）**|`--enable-disagg-prefill`|NIXL / ZMQ|社区最活跃，生态最广|
-|**SGLang**|原生支持，与 RadixAttention 结合|NCCL / NIXL|RadixAttention 前缀复用效率高|
-|**TensorRT-LLM**|Disaggregated Serving 模式|UCX / RDMA|NVIDIA 官方，与 Triton Server 集成|
-|**NVIDIA Dynamo**|原生 P/D 分离架构|NIXL（专用）|2025 年 NVIDIA 推理平台核心|
-|**MoonCake（月之暗面）**|KVCache-centric 调度|RDMA|重点优化 KV Transfer 调度|
-|**llm-d（IBM）**|Kubernetes 原生 P/D|gRPC / RDMA|云原生，适合 K8s 部署|
+| 框架                     | P/D 分离方案                 | KV Transfer 方式 | 特点                                   |
+| ---------------------- | ------------------------ | -------------- | ------------------------------------ |
+| **vLLM（v0.6+）**        | 原生 Disaggregated Serving | NIXL / ZMQ     | 社区生态最广，兼容性强                          |
+| **SGLang**             | 原生支持，结合 RadixAttention   | NCCL / NIXL    | Prefix 复用命中率高                        |
+| **TensorRT-LLM**       | Disaggregated Serving 模式 | UCX / RDMA     | 与 Triton Server 深度集成                 |
+| **NVIDIA Dynamo**      | 原生 P/D 分离 + Smart Router | NIXL（专用）       | 2025 NVIDIA 推理平台核心，KV 感知路由           |
+| **MoonCake（月之暗面）**     | KVCache-centric 调度       | RDMA           | 重点优化 KV Transfer 调度与 Prefix 路由       |
+| **llm-d（IBM/Red Hat）** | Kubernetes 原生 P/D        | NIXL / gRPC    | 云原生，适合 K8s 部署，Red Hat Summit 2025 发布 |
 
-**NIXL（NVIDIA Inference Xfer Library）：**
+**NIXL（NVIDIA Inference Xfer Library）的定位与核心能力：**
 
-NVIDIA 为 P/D 分离专门设计的 KV Transfer 库，相比通用 NCCL：
+NIXL 是 NVIDIA 专为分布式推理数据移动设计的点对点传输库，是 NVIDIA Dynamo 的核心组件之一。与 NCCL 的本质区别：
 
-- 针对 KV Cache 的非连续内存布局（PagedAttention Block）优化，支持 Scatter-Gather DMA。
-- 支持 GPUDirect RDMA（GPU 显存直接跨节点传输，绕过 CPU）。
-- 延迟比 NCCL 低约 **30–50%**（小消息场景）。
+- **NCCL**：针对集合通信（AllReduce、AllGather 等），多节点同步语义，面向训练与 TP/PP 推理通信。
+- **NIXL**：针对点对点非对称数据移动，异步非阻塞 API，专为 KV Cache Transfer、权重搬运、分级存储卸载设计。
+
+NIXL 的核心技术特征：
+
+1. **Scatter-Gather DMA 支持**：KV Cache 以 PagedAttention Block 形式存储，物理上非连续。NIXL 原生支持非连续内存描述符，无需先拷贝到连续缓冲区再传输。
+2. **统一 API 抽象**：同一接口支持 NVLink、InfiniBand RDMA、RoCE、GPUDirect Storage、NVMe-oF，自动选择最优路径。
+3. **异步无阻塞**：Transfer 期间 GPU 可继续执行其他 Kernel，与 Prefill 计算重叠。
+4. **内存层次穿透**：支持 HBM → CPU DRAM → 本地 SSD → 网络存储的全层次 KV 卸载。
 
 ---
 
-**Q93. KV Cache Transfer 的实现方式：GPUDirect RDMA vs NVLink vs TCP，各自的延迟量级。**
+**Q93. KV Cache Transfer 的实现方式：三种传输路径的带宽与延迟量级。**
 
-**KV Cache Transfer 的数据规模：**
+**KV Cache Transfer 的数据规模（以 LLaMA-3 70B GQA 为基准）：**
 
-以 Llama-3 70B GQA，ISL = 1024 tokens，FP16 为例：
+参数：$L=80$，GQA KV 头数 $H_{kv}=8$，头维度 $d=128$，FP16（2 bytes/element），ISL = 1024 tokens。
 
-$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 1024 \times 2 = 335 \text{ MB}$$
+$$M_{\text{KV}} = 2 \times L \times H_{kv} \times d \times S \times \text{sizeof(FP16)}$$
 
-这 335 MB 需要在 Prefill 完成后尽快传输到 D 节点，传输延迟直接叠加到 TTFT。
+$$= 2 \times 80 \times 8 \times 128 \times 1024 \times 2 = 335{,}544{,}320 \text{ bytes} \approx 320 \text{ MiB} \approx 335 \text{ MB}$$
 
 **三种传输方式对比：**
 
-**① NVLink（节点内，P/D 部署在同一机器）：**
+**① NVLink（节点内，P/D 部署在同一 8-GPU 机器）**
 
 ```
-P GPU → NVLink → D GPU（直接 GPU-GPU 传输）
-带宽：900 GB/s（H100 NVLink，双向）
-单向：450 GB/s
-335 MB 传输时间：335 MB / 450 GB/s ≈ 0.74 ms
+P GPU → NVSwitch（节点内） → D GPU
 ```
 
-- **最快**，适合 P/D 部署在同一 NVLink 域（8 卡节点内）。
-- 限制：P、D 共享同一节点的显存，KV Cache 驻留在 D 实例占用同节点显存，与 P 实例竞争。
+| 参数                 | 数值        | 说明                                   |
+| ------------------ | --------- | ------------------------------------ |
+| 总线双向带宽             | 900 GB/s  | 单 GPU 至 NVSwitch 全部 18 条链路之和         |
+| GPU-to-GPU 点对点双向带宽 | ~300 GB/s | 经 NVSwitch 转发，与其他 GPU 共享 NVSwitch 端口 |
+| 单向可用带宽（P→D）        | ~150 GB/s |                                      |
+| 335 MB 传输时间        | ~2.2 ms   | $335 \text{ MB} / 150 \text{ GB/s}$  |
 
-**② GPUDirect RDMA（跨节点，InfiniBand / RoCE）：**
+- 适合 P/D 同节点部署，延迟最低，但同节点 D 实例 KV Cache 长期驻留与 P 实例显存存在竞争。
 
-```
-P GPU 显存 → RDMA NIC → InfiniBand 网络 → RDMA NIC → D GPU 显存
-（绕过 CPU 和主机内存，GPU 显存直接跨节点传输）
-带宽（NDR InfiniBand 单端口）：~50 GB/s（400 Gb/s）
-335 MB 传输时间：335 MB / 50 GB/s ≈ 6.7 ms
-```
-
-- 延迟约 **5–20 ms**（含网络传播延迟 + RDMA 建连开销）。
-- **主流选择**：P/D 分别部署在不同节点，完全解耦显存竞争。
-- 需要 GPUDirect RDMA 支持（NVIDIA OFED + RDMA-capable NIC）。
-
-**③ TCP（通用网络，CPU 中转）：**
+**② GPUDirect RDMA（跨节点，InfiniBand / RoCE）**
 
 ```
-P GPU 显存 → cudaMemcpy → CPU 内存 → TCP Socket → CPU 内存 → cudaMemcpy → D GPU 显存
-带宽：100 GbE ≈ 12.5 GB/s（理论），实际 ~8–10 GB/s
-335 MB 传输时间：335 MB / 10 GB/s ≈ 33.5 ms
+P GPU HBM → RDMA NIC（绕过 CPU 和主机内存） → IB 网络 → RDMA NIC → D GPU HBM
 ```
 
-- 延迟约 **20–100 ms**，含 2 次 CPU-GPU 拷贝。
-- **不推荐**用于生产，仅作为 RDMA 不可用时的 Fallback。
-- 适合初期验证或低成本部署（普通 10/25 GbE 网络）。
+|参数|数值|说明|
+|---|---|---|
+|NDR InfiniBand 单端口带宽|~50 GB/s|400 Gb/s ≈ 50 GB/s|
+|HDR InfiniBand 单端口带宽|~25 GB/s|200 Gb/s ≈ 25 GB/s|
+|335 MB 传输时间（NDR）|~6.7 ms|$335 \text{ MB} / 50 \text{ GB/s}$|
+|端到端实际延迟|~5–20 ms|含 RDMA 连接建立、网络传播延迟|
 
-**选型决策：**
+- **生产主流选择**：P/D 分别部署在不同节点，彻底解耦显存竞争。
+- 前提：需要 GPUDirect RDMA 支持（NVIDIA OFED + RDMA-capable NIC）。
+
+**③ TCP（通用以太网，CPU 中转）**
 
 ```
-P/D 同节点 → NVLink（最低延迟，~1 ms）
-P/D 跨节点，有 InfiniBand → GPUDirect RDMA（~5–20 ms）
-P/D 跨节点，仅以太网 → TCP（~20–100 ms，TTFT 增加显著）
+P GPU HBM → cudaMemcpy → CPU DRAM → TCP Socket → CPU DRAM → cudaMemcpy → D GPU HBM
 ```
 
-**KV Transfer 延迟对 TTFT 的影响（以 ISL=1024 为例）：**
+| 参数              | 数值         | 说明           |
+| --------------- | ---------- | ------------ |
+| 100 GbE 有效带宽    | ~8–10 GB/s | 含 CPU 拷贝开销   |
+| 335 MB 传输时间     | ~33–42 ms  |              |
+| 额外 CPU-GPU 拷贝次数 | 2 次        | P 侧 + D 侧各一次 |
 
-|传输方式|Transfer 延迟|Prefill 计算（H100×8）|总 TTFT 增加|
+- **仅作降级方案**，TTFT 增加显著，不适合延迟敏感场景。
+
+**Transfer 延迟对 TTFT 的叠加分析（ISL=1024，Prefill 计算约 30 ms）：**
+
+|传输路径|Transfer 延迟|Prefill 计算|TTFT 增量|
 |---|---|---|---|
-|NVLink|~1 ms|~30 ms|+3%|
-|RDMA|~10 ms|~30 ms|+33%|
+|NVLink（节点内）|~2 ms|~30 ms|+6.7%|
+|RDMA（NDR IB）|~10 ms|~30 ms|+33%|
 |TCP|~40 ms|~30 ms|+133%|
 
-**结论：** 生产环境 P/D 分离**必须配备 InfiniBand 或 NVLink 高速互联**，TCP 方案 TTFT 增加过多，不适合延迟敏感场景。
+**结论：** 生产环境 P/D 分离**必须配备 InfiniBand 或 NVLink 高速互联**，否则 Transfer 延迟超过 Prefill 计算本身，分离收益大幅缩水。
+
+---
+
+**Q93-b. NVLink 节点内传输带宽的正确理解。**
+
+**关键区分：NVLink 总线带宽 vs. GPU-to-GPU 点对点带宽**
+
+H100 DGX 节点内通信拓扑：
+
+```
+GPU0 ─┐               ┌─ GPU4
+GPU1 ─┤  NVSwitch×4   ├─ GPU5
+GPU2 ─┤  (全互联)      ├─ GPU6
+GPU3 ─┘               └─ GPU7
+```
+
+每 GPU 通过 18 条 NVLink4 链路连接至 4 个 NVSwitch 芯片，总带宽：
+
+$$18 \times 25 \text{ GB/s}(\text{单向/链路}) = 450 \text{ GB/s}(\text{单向}), \quad 900 \text{ GB/s}(\text{双向})$$
+
+然而，当 GPU0 向 GPU1 发送数据时，流量经过 NVSwitch 转发，NVSwitch 的总交换带宽有上限，实测 GPU-to-GPU 点对点带宽约为 **300 GB/s（双向）**。
+
+**误用总线带宽的估算偏差：**
+
+$$\Delta t_{\text{误}} = \frac{335 \text{ MB}}{450 \text{ GB/s}} \approx 0.74 \text{ ms}$$
+
+$$\Delta t_{\text{正}} = \frac{335 \text{ MB}}{150 \text{ GB/s}} \approx 2.2 \text{ ms}$$
+
+偏差约 **3×**，在 TTFT 估算或 xPyD Ratio 推导中会导致 P 实例数被低估（误以为 Transfer 极快而忽略其 TTFT 贡献）。
+
+---
+
+**Q93-c. NIXL 与 NCCL 的定位区别及 Scatter-Gather 优化。**
+
+**通信模式对比：**
+
+|维度|NCCL|NIXL|
+|---|---|---|
+|通信语义|集合通信（AllReduce、AllGather、ReduceScatter、All-to-All）|点对点非对称传输（P→D 单向）|
+|同步模型|所有参与节点同步屏障|异步非阻塞，发送方无需等待接收方|
+|内存布局要求|通常要求连续缓冲区|原生支持非连续 Scatter-Gather 描述符|
+|优化目标|最大化集合通信带宽利用率|最小化 KV Block 传输延迟 + 支持多层次存储|
+|典型使用场景|TP AllReduce、EP All-to-All、PP P2P|KV Cache Transfer、权重搬运、KV 分级卸载|
+
+**Scatter-Gather DMA 的重要性：**
+
+PagedAttention 将 KV Cache 拆分为固定大小的 Block（典型 16 tokens/block），物理地址非连续。若用 NCCL 传输，需先将所有 Block 拷贝到临时连续缓冲区，引入额外一次 HBM-to-HBM 拷贝：
+
+```
+PagedAttention Block（非连续）
+    → 合并到临时连续缓冲区（额外 HBM 拷贝，~10ms for 335MB）
+    → NCCL 传输
+```
+
+NIXL 通过 Scatter-Gather 描述符直接描述所有 Block 的地址列表，RDMA 网卡硬件完成聚合读取，消除临时合并步骤：
+
+```
+PagedAttention Block 地址列表
+    → NIXL Scatter-Gather 描述符 → RDMA NIC 直接读取并传输
+```
+
+**不能直接比较 NIXL vs. NCCL 延迟百分比的原因：** 两者通信模式、消息大小、同步语义均不同。在 KV Cache Transfer 场景（非连续块、点对点、大消息）下，NIXL 避免了临时合并拷贝开销，端到端延迟优于用 NCCL P2P 接口实现的同等传输。
 
 ---
 
@@ -6602,141 +6679,309 @@ P/D 跨节点，仅以太网 → TCP（~20–100 ms，TTFT 增加显著）
 
 ---
 
-**Q94. xPyD Ratio（P 实例数 : D 实例数）如何根据 ISL/OSL 比例调优？**
+**Q94. xPyD Ratio 的推导与典型场景配比。**
 
-**xPyD Ratio 的含义：**
+**符号定义：**
 
-$x$ 个 Prefill 实例对应 $y$ 个 Decode 实例（如 1P4D 表示 1 个 P 实例 + 4 个 D 实例）。
+| 符号    | 含义                                        |
+| ----- | ----------------------------------------- |
+| $x$   | Prefill 实例数                               |
+| $y$   | Decode 实例数                                |
+| $R_P$ | 单 P 实例 Prefill 吞吐（prefill tokens/s）       |
+| $R_D$ | 单 D 实例 Decode 吞吐（decode tokens/s，含 KV 读取） |
+| ISL   | 平均输入序列长度（tokens）                          |
+| OSL   | 平均输出序列长度（tokens）                          |
 
-**最优比例的推导思路：**
+**平衡条件推导：**
 
-**目标：P 实例与 D 实例的处理速率相匹配（无积压）。**
+单 P 实例每秒处理请求数：
 
-设：
+$$r_P = \frac{R_P}{\text{ISL}} \quad (\text{requests/s})$$
 
-- 单个 P 实例吞吐：$R_P$（tokens/s，Prefill token）
-- 单个 D 实例吞吐：$R_D$（tokens/s，Decode token）
-- 请求的平均输入长度：$\text{ISL}$，平均输出长度：$\text{OSL}$
+单 D 实例每秒完成请求数：
 
-P 实例处理速率（以请求计）：$r_P = R_P / \text{ISL}$（每秒处理多少请求） D 实例处理速率（以请求计）：$r_D = R_D / \text{OSL}$（每秒完成多少请求）
+$$r_D = \frac{R_D}{\text{OSL}} \quad (\text{requests/s})$$
 
-**平衡条件（$x$ 个 P 实例 = $y$ 个 D 实例的处理能力相匹配）：**
+$x$ 个 P 实例与 $y$ 个 D 实例吞吐匹配的平衡条件：
 
 $$x \cdot r_P = y \cdot r_D$$
 
-$$\frac{x}{y} = \frac{r_D}{r_P} = \frac{R_D / \text{OSL}}{R_P / \text{ISL}} = \frac{R_D}{R_P} \cdot \frac{\text{ISL}}{\text{OSL}}$$
+$$\boxed{\frac{x}{y} = \frac{r_D}{r_P} = \frac{R_D}{R_P} \cdot \frac{\text{ISL}}{\text{OSL}}}$$
 
-**典型参数估算（H100 × 8，Llama-3 70B）：**
+**典型参数估算（8×H100 SXM，LLaMA-3 70B，TP=8）：**
 
-- $R_P \approx 50{,}000$ prefill tokens/s（Prefill 吞吐）
-- $R_D \approx 5{,}000$ decode tokens/s（Decode 吞吐，Batch=64）
+- $R_P \approx 50{,}000$ prefill tokens/s（Prefill 阶段 Compute-bound，MFU ≈ 45%）
+- $R_D \approx 5{,}000$ decode tokens/s（Decode 阶段 Batch=64，Memory-bound）
 - $R_D / R_P = 0.1$
 
-|ISL/OSL|最优 x/y|实例配置|
-|---|---|---|
-|2048/256（长输入，短输出）|$0.1 \times 8 = 0.8 \approx 1/1$|1P1D|
-|512/512（均等）|$0.1 \times 1 = 0.1 \approx 1/10$|1P10D|
-|128/1024（短输入，长输出）|$0.1 \times 0.125 = 0.0125 \approx 1/80$|1P80D|
+|ISL|OSL|ISL/OSL|$x/y$|实例配比|典型业务|
+|---|---|---|---|---|---|
+|2048|256|8|$0.1 \times 8 = 0.8 \approx 1$|**1P1D**|长文档摘要|
+|512|512|1|$0.1 \times 1 = 0.1$|**1P10D**|通用对话|
+|256|1024|0.25|$0.1 \times 0.25 = 0.025$|**1P40D**|长链推理（CoT）|
+|128|4096|0.031|$0.1 \times 0.031 \approx 1/320$|**1P80D（近似）**|超长 CoT / o1 类模型|
 
-**实践中的动态调整：**
-
-- 工作负载的 ISL/OSL 分布会随时间变化（白天 vs 夜间，不同业务类型）。
-- vLLM/SGLang 支持动态扩缩 P/D 实例数，由全局调度器根据队列积压情况实时调整。
-- 当 P 队列积压 → 增加 P 实例（或临时让 D 实例承担 Prefill）。
-- 当 D 队列积压 → 增加 D 实例（或提高 D 实例的最大 Batch Size）。
+> ⚠️ **注意**：上表中 $R_P$ 和 $R_D$ 为估算值，实际值依赖模型配置、量化方案、Batch Size 策略，必须通过 Profiling 实测后代入公式。
 
 ---
 
-**Q95. P/D 分离收益最显著的场景：超大模型、长输入、稀疏 MoE 架构的分析。**
+**Q94-b. 动态扩缩容与调度降级策略。**
+
+**触发阈值设计：**
+
+```python
+# 伪代码：全局调度器的扩缩容逻辑
+if prefill_queue_depth > HIGH_WATERMARK:
+    # P 实例不足，KV Transfer 积压
+    if free_gpus > 0:
+        spawn_prefill_instance()
+    else:
+        # GPU 资源耗尽：将部分 D 实例临时转为混合模式承担 Prefill
+        enable_prefill_fallback_on_decode_instance(least_loaded_D)
+
+if decode_queue_depth > HIGH_WATERMARK:
+    # D 实例不足，Decode 积压
+    if free_gpus > 0:
+        spawn_decode_instance()
+    else:
+        # 限流：拒绝新请求或延迟接入
+        apply_admission_control()
+```
+
+**队列积压 vs. SLO 违约率两类触发指标：**
+
+- **队列积压（响应快，成本高）**：队列深度超过阈值即触发扩容，可预防 SLO 违约，但可能导致过早扩容浪费资源。
+- **SLO 违约率（准确，有滞后）**：当 P99 TTFT 或 TPOT 开始违约时触发，反应滞后约 1–2 个 SLO 周期，适合代价高的跨节点扩容。
+
+**Prefill-fallback 机制：** 允许 D 实例在 P 队列积压时临时承担 Prefill 任务，代价是 D 实例的 Decode 并发受到短暂干扰，适合 P/D 比例偏差不大（$\Delta < 20\%$）的场景。
+
+---
+
+**Q95. P/D 分离收益最显著的三类场景量化分析。**
 
 **场景 1：超大模型（120B+）**
 
-单节点无法容纳完整模型，必须跨节点 TP 或 PP。P/D 分离后：
+单节点无法容纳完整模型，必须跨节点并行（TP=16 或 PP 跨机）。P/D 分离后：
 
 - P 节点专用 TP=8 执行大矩阵乘，MFU 可达 40–60%。
 - D 节点专用大 Batch Decode，MBU 可达 60–80%。
-- 相比混合部署，GPU 利用率提升约 **1.5–2×**。
+- 相比混合部署（MFU 与 MBU 互相压制），GPU 有效利用率提升约 **1.5–2×**。
 
 **场景 2：长输入序列（ISL > 10k tokens）**
 
-- Prefill 单次耗时极长（ISL=32k 在 H100×8 上约 2–5 秒）。
-- 混合部署时 Decode 请求被阻塞数秒，TPOT P99 完全失控。
-- P/D 分离后 Decode 独立运行，TPOT SLA 不受长 Prefill 影响。
+Prefill 单次耗时随 ISL 的关系（H100×8，LLaMA-3 70B）：
 
-量化收益（ISL=16k，OSL=512，P99 TPOT 目标 < 100ms）：
+$$t_{\text{prefill}} \approx \frac{2 \cdot N_{\text{param}} \cdot \text{ISL}}{R_P \cdot \text{ISL}} \approx \frac{2N_{\text{param}}}{R_P}$$
 
-|部署方式|P99 TPOT|TTFT|
-|---|---|---|
-|混合部署|**> 5000ms（完全违约）**|2s|
-|P/D 分离|**< 80ms（满足 SLA）**|2.1s|
+但注意 Attention 的 Prefill FLOPs 为 $O(\text{ISL}^2)$，对极长序列（ISL=32k）在 H100×8 上约需 2–5 秒。
 
-**场景 3：稀疏 MoE 架构（DeepSeek-V3、Mixtral）**
+**量化对比（ISL=16k，OSL=512，P99 TPOT 目标 < 100 ms）：**
 
-- MoE 的 EP All-to-All 通信在 Prefill 和 Decode 阶段特性不同：
-    - Prefill：通信量大但可与计算重叠（大 Batch）。
-    - Decode：通信量小但延迟敏感（小 Batch，通信占比高）。
-- P/D 分离后 P 节点可用更大 EP（Wide EP，跨多节点并行），D 节点用小 EP 专注低延迟。
-- DeepSeek-V3 生产部署即采用 P/D 分离 + 不同 EP 规模的混合策略。
+|部署方式|P99 TPOT|TTFT|SLA 达成率|
+|---|---|---|---|
+|混合部署|**> 5000 ms（严重违约）**|~2 s|< 5%|
+|P/D 分离（RDMA）|**< 80 ms（满足 SLA）**|~2.1 s|> 99%|
+
+混合部署下，16k Prefill 阻塞所有 Decode 请求约 2 秒，每次阻塞期间积累的 Decode 队列需要数十秒清空，导致 TPOT P99 持续爆表。
+
+**场景 3：稀疏 MoE 架构（DeepSeek-V3、Mixtral 8×7B）**
+
+MoE 的 EP All-to-All 通信在两阶段特性不同：
+
+| 阶段      | Batch Size      | All-to-All 特性                        | P/D 分离收益                     |
+| ------- | --------------- | ------------------------------------ | ---------------------------- |
+| Prefill | 大（数千 tokens）    | 通信量大，但可与 Expert 计算 Overlap（DualPipe） | P 节点可用更大 EP（Wide EP），跨更多节点并行 |
+| Decode  | 小（Batch=32–128） | 通信量小，但占 Decode 延迟比例高（无法充分 Overlap）   | D 节点用小 EP 专注低延迟              |
+
+DeepSeek-V3 生产部署采用 P 节点 EP=320、D 节点 EP=32 的非对称配置，是 P/D 分离针对 MoE 优化的典型案例。
 
 ---
 
-**Q96. KV Cache Transfer 与 Expert Parallelism 通信的带宽竞争问题如何缓解？**
+**Q95-b. P/D 分离在 MoE 架构下的额外收益。**
+
+**两阶段 All-to-All 通信特性差异：**
+
+设 MoE 层共 $E$ 个 Expert，EP 度为 $D_E$（每 GPU 持有 $E/D_E$ 个 Expert），Batch 中 Token 数为 $B$，每 Token 激活 $k$ 个 Expert。
+
+单次 All-to-All 通信量（发送侧）：
+
+$$C_{\text{A2A}} = B \cdot k \cdot d_{\text{model}} \cdot \text{sizeof(dtype)} / D_E$$
+
+Prefill 阶段（$B$ 大）：$C_{\text{A2A}}$ 大，但 Expert FFN 计算时间（$T_{\text{compute}}$）也大，可通过 Micro-batch 流水线将 All-to-All 隐藏在计算后面（DualPipe 方案中 $T_{\text{compute}} \geq T_{\text{A2A}}$ 成立）。
+
+Decode 阶段（$B$ 小）：$C_{\text{A2A}}$ 小，但 $T_{\text{compute}}$ 也小（Expert GEMV），All-to-All 延迟占 Decode 总延迟比例高，难以 Overlap。
+
+**非对称 EP 配置的优势（以 DeepSeek-V3 为参考）：**
+
+|实例类型|EP 规模|每 GPU Expert 数|通信特性|优化目标|
+|---|---|---|---|---|
+|P 节点|EP=320（大）|少（Expert 分布广）|All-to-All 可大 Batch 充分 Overlap|最大化 Prefill 吞吐（MFU）|
+|D 节点|EP=32（小）|多（Expert 集中）|All-to-All 小 Batch 延迟短|最小化单步 Decode 延迟（TPOT）|
+
+---
+
+**Q96. KV Cache Transfer 与 EP All-to-All 带宽竞争的缓解方案。**
 
 **带宽竞争的根源：**
 
-在 MoE + P/D 分离架构中，跨节点网络（InfiniBand）同时承载两类流量：
+MoE + P/D 分离场景下，跨节点 InfiniBand 同时承载两类流量：
 
 ```
-流量类型 1：EP All-to-All（MoE Expert 间 Token 分发）
-  特征：高频（每 MoE 层 2 次）、延迟敏感、小消息（KB 级）
+流量类型 1：EP All-to-All
+  特征：高频（每 MoE 层执行 2 次：Dispatch + Combine）
+       小消息（KB–MB 级，延迟敏感）
 
-流量类型 2：KV Cache Transfer（P → D 节点）
-  特征：低频（每请求 1 次）、延迟可稍宽松、大消息（数百 MB）
+流量类型 2：KV Cache Transfer（P → D）
+  特征：低频（每请求仅执行 1 次）
+       大消息（数十–数百 MB，带宽敏感）
 ```
 
-两者共享 InfiniBand 带宽时，KV Transfer 的大消息可能抢占 All-to-All 的带宽，导致 MoE 层延迟抖动。
+大消息 KV Transfer 占用 IB 带宽时，会导致 All-to-All 的小消息排队延迟上升，引发 MoE 层延迟抖动。
 
-**缓解方案：**
+**四类缓解方案：**
 
-**方案 1：网络隔离（物理/逻辑分离）**
+**方案 1：物理网络隔离**
+
+为两类流量配置独立的 IB 端口（或 Rail）：
 
 ```
-InfiniBand Rail 0: 专用于 EP All-to-All 通信
-InfiniBand Rail 1: 专用于 KV Cache Transfer
+IB Rail 0（专用）：EP All-to-All
+IB Rail 1（专用）：KV Cache Transfer
 ```
 
-通过 SR-IOV 或 VLAN 隔离，两类流量互不干扰。成本：需要双倍 InfiniBand 端口。
+代价：需要双倍 NIC 端口，硬件成本显著增加。DeepSeek-V3 生产部署采用此方案。
 
-**方案 2：KV Transfer 优先级降级（QoS）**
+**方案 2：QoS 优先级降级**
 
-在 RDMA QoS 策略中，将 KV Transfer 设为低优先级（Best Effort），All-to-All 设为高优先级（Guaranteed）：
+通过 RDMA QoS（DSCP 或 InfiniBand SL）将 KV Transfer 标记为低优先级：
 
 ```bash
-# RDMA QoS 配置（示意）
-mlnx_qos -i ib0 --trust dscp
-# EP All-to-All 流量标记高 DSCP → 高优先级队列
-# KV Transfer 流量标记低 DSCP → 低优先级队列
+# InfiniBand QoS 配置示意（Service Level 映射）
+# SL 0–3：EP All-to-All（高优先级）
+# SL 4–7：KV Cache Transfer（低优先级）
 ```
 
-**方案 3：KV Transfer 时序错开（调度层优化）**
+优点：无需额外硬件；缺点：高负载时 KV Transfer 延迟不可控，可能导致 TTFT 抖动。
 
-全局调度器感知当前 All-to-All 通信负载，在 MoE 层 All-to-All 的**计算间隙**（Expert FFN 计算期间）发送 KV Transfer，利用 All-to-All 的静默窗口：
+**方案 3：Transfer 时序与计算间隙对齐（调度层优化）**
+
+全局调度器感知 MoE 计算时间线，在 Expert FFN 计算窗口（All-to-All 静默期）内发起 KV Transfer：
 
 ```
-MoE 层时间轴：
-[A2A Dispatch][Expert 计算（~10ms）][A2A Combine]
-                    ↑ KV Transfer 在此期间发送（带宽空闲）
+MoE Prefill 时间轴（P 节点）：
+[A2A Dispatch][Expert FFN计算，~10ms][A2A Combine][A2A Dispatch]...
+                   ↑ KV Transfer 插入此窗口（带宽空闲）
 ```
+
+实现前提：需要 P 节点将 KV Transfer 请求的发起时机暴露给全局调度器，耦合度较高。
 
 **方案 4：KV Transfer 压缩（减少传输量）**
 
-传输前对 KV Cache 做轻量压缩：
+|压缩策略|带宽节省|精度损失|实现代价|
+|---|---|---|---|
+|FP8 KV Cache|~50%（FP16→FP8）|< 0.5% PPL 劣化|H100 硬件原生支持，低|
+|仅传输增量 KV|最高 (1−前缀命中率)×100%|无|需 D 节点已有前缀 KV，依赖 KV 感知路由|
+|稀疏 KV（Heavy Hitter）|可达 50–80%|中等|结合 H2O/SnapKV，实现较复杂|
 
-- **FP8 KV**：带宽减半（FP16 → FP8，精度损失 < 0.5%）。
-- **KV 量化 + 前缀跳过**：只传输新生成的 KV（Prefix 已在 D 节点缓存时），传输量从 ISL 降为 ISL - 前缀长度。
-- **稀疏 KV 传输**：只传输 Attention Score 较高的 KV（Heavy Hitters），丢弃低分 KV（结合 H2O 策略）。
+---
 
-**DeepSeek-V3 的实践：** 采用专用 IB 网卡用于 KV Transfer，与 EP All-to-All 使用的 IB 端口物理隔离，彻底消除带宽竞争。
+**Q96-b. KV 感知路由（KV-aware Routing）。**
+
+**动机：** 传统负载均衡路由将请求均匀分配到各 D 实例，忽视了 D 实例已有的 KV 前缀缓存。若请求与某 D 实例的已有 KV 前缀匹配，无需 Transfer 该前缀部分（或完全无需 Transfer），TTFT 可大幅下降。
+
+**实现架构：**
+
+```
+全局调度器收到请求（Prompt Hash = H）
+    ↓
+查询 KV 感知路由表：哪个 D 实例的 KV Cache 包含 H 的前缀？
+    ↓
+匹配命中 → 路由到目标 D 实例，仅 Transfer 增量 KV（或 0 Transfer）
+未命中 → 路由到负载最轻的 D 实例，执行完整 KV Transfer
+```
+
+**主流框架的实现方式：**
+
+|框架|机制|粒度|
+|---|---|---|
+|**NVIDIA Dynamo Smart Router**|维护全局 KV Block 哈希目录，请求到来时匹配最长前缀|Block 级（PagedAttention Block）|
+|**SGLang RadixAttention**|全局 Radix Tree 维护所有 D 实例的 KV 前缀树，LCP（最长公共前缀）匹配|Token 级（精度更高）|
+|**MoonCake**|KVCache-centric 调度，将 KV 视为一级资源进行全局调度|Block 级|
+
+**收益量化（多轮对话场景）：**
+
+假设多轮对话平均前缀命中率 60%（ISL=2048，前缀长度平均 1200 tokens），FP16：
+
+$$\Delta M_{\text{Transfer}} = 2 \times 80 \times 8 \times 128 \times 1200 \times 2 \approx 393 \text{ MB} \to 157 \text{ MB}（节省 60\%）$$
+
+对应 RDMA 传输时间从 ~7.9 ms 降至 ~3.1 ms，TTFT 减少约 4–5 ms。
+
+---
+
+**Q97-PD. P/D 分离的容错与一致性设计。**
+
+**Prefill 完成但 KV Transfer 失败的处理策略：**
+
+|策略|机制|延迟代价|适用场景|
+|---|---|---|---|
+|**重试（Retry）**|P 实例保留 KV Cache 至 Transfer 确认完成，失败后重传|+1 次 Transfer 延迟（~10–20 ms）|网络偶发抖动|
+|**重计算（Recompute）**|P 实例已释放 KV，D 实例接收失败后通知调度器，由 D 实例或新 P 实例重新执行 Prefill|+1 次完整 Prefill 时间（~30–300 ms）|P 实例已崩溃|
+|**本地降级（Fallback）**|D 实例临时切换为混合模式，自行执行 Prefill|+Prefill 时间，但 D 实例 Decode 并发下降|短暂降级可接受场景|
+
+**D 实例崩溃时的 KV Cache 恢复：**
+
+D 实例崩溃意味着正在 Decode 的所有请求的 KV Cache 全部丢失。有两类恢复路径：
+
+1. **Recompute**：调度器将请求重新路由到新 D 实例，触发完整 Prefill（从 Prompt 开始重算），代价是 TTFT 重置，等同于全新请求。适合无状态服务。
+2. **KV Checkpoint**（研究阶段）：定期将 D 实例 KV Cache Checkpoint 到 CPU DRAM 或 SSD，崩溃后恢复到最近 Checkpoint 点再续 Decode。代价是 Checkpoint IO 开销（每步 Decode 写入 KV 增量，~MB 级，对 NVMe SSD 可接受）。NVIDIA Dynamo 的 KV Cache 分级存储架构为此提供了底层支撑。
+
+---
+
+**Q98-PD. P/D 分离的显存规划差异。**
+
+**P 实例的 KV Cache 规划（短暂峰值模型）：**
+
+P 实例在 Prefill 期间生成 KV Cache，Transfer 完成后即可释放。KV Cache 显存需求为：
+
+$$M_{P,\text{KV}} = \text{max\_concurrent\_prefills} \times M_{\text{KV}}(\text{ISL}_{\text{max}})$$
+
+关键设计：KV Block 的释放时机必须与 NIXL 的 Transfer 完成事件同步：
+
+```cpp
+// 伪代码：P 实例的 KV Block 生命周期管理
+nixl_handle_t handle = nixl_send_async(kv_blocks, dest_d_instance);
+
+// 不可立即释放！必须等 Transfer 完成确认
+nixl_wait(handle);  // 或通过回调注册释放操作
+
+// Transfer 确认后才能释放 Block
+kv_block_pool.release(kv_blocks);
+```
+
+若提前释放（未等待 Transfer 完成），RDMA NIC 可能还在读取已释放的 HBM 地址，导致 D 实例收到脏数据，且此类 Bug 难以复现（因 RDMA 读取窗口极短，正常情况下不覆盖）。
+
+**D 实例的 KV Cache 规划（线性增长模型）：**
+
+D 实例 KV Cache 随 Decode 步数线性增长，需要预留充足显存以避免 OOM：
+
+$$M_{D,\text{KV}}(t) = \sum_{i \in \text{active\_requests}} (S_{i,\text{prompt}} + t_i) \times \frac{M_{\text{KV}}(1)}{1}$$
+
+其中 $t_i$ 为请求 $i$ 已生成的 Token 数。
+
+**D 实例 KV Pool 大小的保守估计：**
+
+$$M_{D,\text{KV pool}} = \text{max\_batch\_size} \times (\text{ISL}_{\text{avg}} + \text{OSL}_{\text{max}}) \times M_{\text{KV}}(1)$$
+
+**两类实例显存分配对比：**
+
+|实例类型|KV Cache 持有时间|显存分配策略|典型占 HBM 比例|
+|---|---|---|---|
+|P 实例|毫秒级（Transfer 结束即释放）|小池（max_concurrent_prefills × ISL_max）|10–20%|
+|D 实例|秒–分钟级（整个 Decode 周期）|大池（batch_size × (ISL+OSL)_max）|60–80%|
+
+P 实例因 KV 驻留时间极短，可将大部分 HBM 用于权重缓存和激活值，有利于 Tensor Parallelism 效率；D 实例则需要牺牲 Batch Size 以换取更大 KV Pool，两者的显存预算策略根本不同。
+
+---
 
 ## 第 14 章·参考答案：长上下文推理
 

@@ -337,14 +337,18 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}!\left[\left(\mathbf{W}_q \mathbf{x}_m 
 
 - **Q98.** RoPE 外推问题：训练长度之外的位置 $\theta$ 分量溢出，YaRN / LongRoPE / Llama3 RoPE Scaling 各自的补偿策略？
 - **Q99.** ALiBi 与 RoPE 的外推能力对比？
+- **Q99-b.** RoPE 与 ALiBi 对 Prefix Caching（前缀 KV 复用）的兼容性差异：RoPE 的旋转变换将绝对位置嵌入 KV 向量，为何只要 Token 绝对位置不变即可跨请求复用？动态插入内容（如 RAG 文档）会破坏哪些 Token 的 KV 缓存？ALiBi 为何天然兼容 Prefix Caching？（与 Q31、Q34-b 形成闭环）
 
 ### 14.2 超长上下文系统
 
 - **Q100.** Ring Attention（序列并行）的原理：将序列维度切分到多 GPU，通过 P2P Ring 通信交换 KV，避免将全序列集中到单 GPU？
 - **Q101.** Context Parallelism（CP）与 Sequence Parallelism（SP）的区别？
+- **Q101-b.** CP 的精确通信量推导：设 CP 度为 $P$，序列长度 $N$，GQA KV 头数 $H_{\text{KV}}$，头维度 $d$，推导每卡总通信量 $(P-1)/P \times 2N H_{\text{KV}} d \cdot b$；代入 LLaMA-3 70B 参数，在 NVLink 节点内（点对点带宽 ~300 GB/s）估算单步传输时间，说明计算-通信 Overlap 成立的条件；跨节点（InfiniBand ~25 GB/s）场景下 Overlap 效率的变化？
 - **Q102.** 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill 的配合？
 - **Q102-KV.** 128k+ 上下文时单请求 KV Cache 显存压力的量化分析（与 Q102 关联）：以 LLaMA-3 70B GQA FP16 为例推导 $S = 128\text{k}$ 时 KV Cache 大小，逐步分析 FP8 量化、Token Eviction、Context Parallelism 三种应对路径的精度与延迟代价。
+- **Q102-b.** 超长上下文下 Chunked Prefill 的 Chunk Size 选择原则：Block 大小 $B$、Chunk Size $C$ 与内部碎片率 $\approx (B-1)/(2C)$ 的量化关系；Chunk Size 对 GEMM 效率（Wave Quantization 效应，$M \geq 128$ 要求）与 Decode TPOT P99 的双向约束；在 TPOT SLO 约束下给出 $C^*$ 的选择框架，并对比 TPOT SLO = 100ms / 20ms / 5ms 三种场景的推荐值；CP 联合部署时每卡实际处理的 Token 数 $C/P$ 对 Chunk Size 下界的影响？
 - **Q103.** Sliding Window Attention 在长上下文中的 Attention Sink 失效问题？
+- **Q104-LC.** 长上下文下 KV Cache 分级存储（HBM $\to$ CPU DRAM $\to$ NVMe SSD）的触发阈值与精度无损条件：各级有效带宽与恢复延迟的数量级；以 LLaMA-3 70B 128k 为例估算从 DRAM 恢复全量 KV Cache 对 TTFT 的叠加影响；精度无损的前提条件（Block 完整性、传输前完成保证）；与 FP8 量化和 Prefetch 策略的组合方案？（与 Q37-b 形成闭环）
 
 ---
 
