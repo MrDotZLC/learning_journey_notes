@@ -384,15 +384,21 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 - **Q109.** 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？
 - **Q110.** 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？
+- **Q110-b.** 序列蒸馏（Sequence-level Distillation）与在线蒸馏（On-policy Distillation）的 Exposure Bias 问题：离线 SFT 数据训练的 Student 在推理时为何产生分布漂移？RLVR 如何作为第二阶段修正？
+- **Q110-c.** 知识蒸馏的温度参数 $\tau$ 的作用：为何 $\tau > 1$ 能放大"暗知识"（Dark Knowledge）？$\tau$ 过高或过低对 Student 学习的影响？
 
 ### 16.2 结构剪枝
 
 - **Q111.** Unstructured Pruning vs. Structured Pruning（Head Pruning、Layer Dropping）对推理加速的实际贡献差异？
+- **Q111-b.** Head Importance 评估方法：如何用 Gradient × Activation 或 Taylor Expansion 近似估计每个 Attention Head 的重要性？剪枝后是否需要恢复性微调（Recovery Fine-tuning）？
 - **Q112.** 2:4 稀疏格式（NVIDIA Sparse Tensor Core）的激活方式与精度损失分析？
+- **Q112-b.** 2:4 稀疏与量化的组合方案（Sparse + INT8 / FP8）：两者能否叠加？在 A100 / H100 上的硬件支持情况？叠加后精度损失的累积规律？
+- **Q112-c.** SparseGPT（NeurIPS 2022）的核心思路：如何将非结构化剪枝的逐权重误差补偿推广至 2:4 结构化稀疏，在单次前向中完成校准？与 GPTQ 误差补偿方案的异同？
 
 ### 16.3 模型架构设计题
 
 - **Q113.** 给定延迟 SLA = 50ms / Token，如何在 7B 模型的基础上通过蒸馏 + 量化组合达到目标，说明决策链？
+- **Q113-b.** 多目标约束下的轻量化决策：若同时存在 TTFT < 200ms（P99）、TPOT < 30ms（P99）、精度损失 < 1%（MMLU）三重约束，优化顺序与方案选择的思路？如何量化评估 Pareto 前沿上的方案？
 
 ---
 
