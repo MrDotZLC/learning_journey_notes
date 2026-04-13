@@ -6983,7 +6983,7 @@ P 实例因 KV 驻留时间极短，可将大部分 HBM 用于权重缓存和激
 
 ---
 
-## 第 14 章·参考答案：长上下文推理
+## 第 14 章·参考答案：长上下文推理（勘误版 + 补充）
 
 ---
 
@@ -6991,15 +6991,15 @@ P 实例因 KV 驻留时间极短，可将大部分 HBM 用于权重缓存和激
 
 ---
 
-**Q97. RoPE 的数学原理：旋转矩阵使注意力得分仅依赖相对位置，推导形式。**
+#### 1. Q97. RoPE 的数学原理
 
-**RoPE 的设计目标：**
+**设计目标：**
 
 位置编码需满足：Query 位置 $m$、Key 位置 $n$ 的内积结果仅依赖**相对位置差 $m - n$**，而非绝对位置，使模型对相对距离天然敏感。
 
-**核心思路：对向量施加位置相关的旋转变换**
+**1.1 核心思路：对向量施加位置相关的旋转变换**
 
-将 $d$ 维向量 $\mathbf{x}$ 视为 $d/2$ 对二维子向量，对第 $k$ 对子向量施加旋转角度 $m\theta_k$（$m$ 为绝对位置）：
+将 $d$ 维向量视为 $d/2$ 对二维子向量，对第 $k$ 对子向量施加旋转角度 $m\theta_k$（$m$ 为 Token 的绝对位置）：
 
 $$f_q(\mathbf{x}_m, m) = \mathbf{x}_m \odot e^{im\theta}, \quad \theta_k = 10000^{-2k/d}$$
 
@@ -7007,36 +7007,36 @@ $$f_q(\mathbf{x}_m, m) = \mathbf{x}_m \odot e^{im\theta}, \quad \theta_k = 10000
 
 $$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \\ \sin m\theta_k & \cos m\theta_k \end{pmatrix}$$
 
-**内积推导（证明相对位置依赖性）：**
+**1.2 内积推导（证明相对位置依赖性）：**
 
 位置 $m$ 的 Query 与位置 $n$ 的 Key 的内积：
 
 $$\mathbf{q}_m^T \mathbf{k}_n = \left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\theta}\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{in\theta}\right)$$
 
-利用旋转矩阵的正交性：$R(m\theta)^T R(n\theta) = R((n-m)\theta)$，展开得：
+利用旋转矩阵的正交性 $R(m\theta)^T R(n\theta) = R((n-m)\theta)$，展开得：
 
 $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{i(n-m)\theta}\right)\right]$$
 
-结果**只含 $(n-m)$**，与绝对位置 $m, n$ 无关，仅取决于相对位置差 $m - n$。✅
+结果**只含 $(n-m)$**，与绝对位置 $m, n$ 无关，仅取决于相对位置差。
 
-**不同频率的 $\theta_k$（RoPE 的频率谱）：**
+**1.3 不同频率的 $\theta_k$（RoPE 的频率谱）**
 
 $$\theta_k = 10000^{-2k/d}, \quad k = 0, 1, \ldots, d/2 - 1$$
 
-- 小 $k$（低频分量）：$\theta_k$ 大，旋转快，编码短程依赖。
-- 大 $k$（高频分量）：$\theta_k$ 小，旋转慢，编码长程依赖。
-- 底数 $10000$ 决定位置分辨率的上限（位置超过约 $10000$ 时低频分量周期完成一圈）。
+|$k$ 大小|$\theta_k$ 大小|旋转速度|频率类型|编码的位置信息|
+|---|---|---|---|---|
+|小（$k \approx 0$）|大（$\approx 1$）|快|**高频**|短程相对位置|
+|大（$k \approx d/2$）|小（$\approx 10^{-4}$）|慢|**低频**|长程相对位置|
 
-**高效实现（无需显式旋转矩阵）：**
+底数 $10000$ 决定位置分辨率的上限（低频分量的周期约为 $2\pi \times 10000 / \theta_0 = 2\pi \times 10^4$，远超常规训练长度）。
+
+**1.4 高效实现（无需显式旋转矩阵）：**
 
 ```cpp
 // 对向量的相邻两个元素分组，直接用复数乘法实现旋转
-// x = [x0, x1, x2, x3, ..., x_{d-2}, x_{d-1}]
-// 分组为 (x0+ix1), (x2+ix3), ...
-// 旋转：(x_{2k} + ix_{2k+1}) × e^{imθ_k}
-//      = (x_{2k}cosθ - x_{2k+1}sinθ) + i(x_{2k}sinθ + x_{2k+1}cosθ)
-
-__device__ void apply_rope(float* q, int pos, int head_dim, float base=10000.f) {
+// 分组: (x_{2k}, x_{2k+1}) 视为复数 x_{2k} + i·x_{2k+1}
+// 旋转后: (x_{2k}cosθ - x_{2k+1}sinθ, x_{2k}sinθ + x_{2k+1}cosθ)
+__device__ void apply_rope(float* q, int pos, int head_dim, float base = 10000.f) {
     for (int k = 0; k < head_dim / 2; ++k) {
         float theta = pos / powf(base, 2.f * k / head_dim);
         float cos_t = cosf(theta), sin_t = sinf(theta);
@@ -7049,64 +7049,57 @@ __device__ void apply_rope(float* q, int pos, int head_dim, float base=10000.f) 
 
 ---
 
-**Q98. RoPE 外推问题：YaRN / LongRoPE / Llama3 RoPE Scaling 各自的补偿策略。**
+#### 2. Q98. RoPE 外推问题
 
-**外推失效的根本原因：**
+**2.1 外推失效的根本原因**
 
-训练时序列长度为 $L_{\text{train}}$（如 4096），位置编码的旋转角度范围为 $[0, L_{\text{train}} \times \theta_k]$。推理时若位置 $m > L_{\text{train}}$，某些高频分量 $\theta_k$ 的旋转角度**超出训练分布**，模型未见过这些角度组合，导致 Attention 计算失效（Perplexity 骤增）。
+训练时序列长度为 $L_{\text{train}}$（如 4096），位置编码的旋转角度范围为 $[0,\; L_{\text{train}} \times \theta_k]$。推理时若位置 $m > L_{\text{train}}$，某些高频分量（$\theta_k$ 大）的旋转角度超出训练分布，模型未见过这些角度组合，导致 Attention 计算失效（PPL 骤增）。
 
-**直觉理解：** 对于低频分量（$\theta_k$ 小），$m \times \theta_k$ 在训练范围内完成的旋转圈数少，外推时虽然 $m$ 增大但 $m \times \theta_k$ 仍在已见范围内，**外推容易**；对于高频分量（$\theta_k$ 大），外推时旋转已超出训练范围，**外推困难**。
-
----
-
-**方案 1：Linear Scaling（线性缩放，最简单）**
-
-将所有频率等比缩小，扩展因子 $s = L_{\text{target}} / L_{\text{train}}$：
-
-$$\theta_k' = \theta_k / s$$
-
-等价于对位置 $m$ 做线性压缩：$m' = m / s$，使 $m' \in [0, L_{\text{train}}]$ 始终在训练范围内。
-
-- **优点**：实现极简，无需重新训练（可直接 Fine-tuning 少量步数）。
-- **缺点**：所有频率被同等压缩，短程依赖（高频）的分辨率降低，模型对近距离 Token 的区分能力下降。
+低频分量（$\theta_k$ 小）的旋转角度即使 $m > L_{\text{train}}$ 也未必超出训练范围，因此外推更容易；高频分量旋转快，外推时最先失效。
 
 ---
 
-**方案 2：YaRN（Yet another RoPE extensioN，2023）**
+**2.2 方案一：Linear Scaling（线性缩放）**
 
-**核心观察：** 不同频率的外推难度不同，应差异化处理。
+扩展因子 $s = L_{\text{target}} / L_{\text{train}}$，对所有频率等比缩小：
 
-将频率分为三组，分别应用不同策略：
+$$\theta_k' = \theta_k / s \quad \Leftrightarrow \quad m' = m / s$$
 
-$$\theta_k' = \begin{cases} \theta_k & \text{if } \lambda_k \leq d_{\text{low}}\ \text{（高频，短程，保持不变）} \\ \theta_k / s & \text{if } \lambda_k \geq d_{\text{high}}\ \text{（低频，长程，线性压缩）} \\ \text{插值} & \text{otherwise（中频，平滑过渡）} \end{cases}$$
+使 $m' \in [0, L_{\text{train}}]$ 始终在训练范围内。
 
-其中 $\lambda_k = 2\pi / \theta_k$ 为对应频率的波长，$d_{\text{low}}, d_{\text{high}}$ 为超参数。
+优点：实现极简。缺点：所有频率被同等压缩，高频分量（短程）的分辨率降低，近距离 Token 的区分能力下降。
 
-此外 YaRN 引入**温度缩放（Attention Temperature）**：
+---
 
-$$\text{score} = \frac{\mathbf{q}^T \mathbf{k}}{\sqrt{d} \cdot t}, \quad t = 0.1 \ln(s) + 1$$
+**2.3 方案二：YaRN（Yet another RoPE extensioN，2023）**
+
+核心观察：不同频率外推难度不同，应差异化处理。将频率按波长 $\lambda_k = 2\pi / \theta_k$ 分为三组：
+
+$$\theta_k' = \begin{cases} \theta_k & \lambda_k \leq d_{\text{low}} \quad \text{（高频，短程，保持不变）} \\ \theta_k / s & \lambda_k \geq d_{\text{high}} \quad \text{（低频，长程，线性压缩）} \\ \text{平滑插值} & \text{（中频，过渡区）} \end{cases}$$
+
+YaRN 还引入**注意力温度缩放**：
+
+$$\text{score} = \frac{\mathbf{q}^T \mathbf{k}}{\sqrt{d} \cdot t}, \quad t = 0.1 \ln(s) + 1 > 1$$
 
 温度 $t > 1$ 平滑 Attention 分布，补偿外推时高频分量的不稳定性。
 
-- **效果**：在 4× 甚至 32× 扩展比下，PPL 仅小幅增加，优于 Linear Scaling。
-
 ---
 
-**方案 3：Llama3 RoPE Scaling（官方方案，2024）**
+**2.4 方案三：Llama3 RoPE Scaling（2024）**
 
-Meta 在 Llama3 中采用**低频插值 + 高频保持**的混合方案（类似 YaRN 但更简洁）：
+Meta 采用**低频插值 + 高频保持**的混合方案，以平滑系数 $\alpha$ 过渡：
 
-$$\theta_k' = \begin{cases} \theta_k & \text{if}\ \frac{d}{\lambda_k} > f_{\text{high}} \\ \theta_k / s & \text{if}\ \frac{d}{\lambda_k} < f_{\text{low}} \\ \theta_k \cdot \frac{1 - \alpha}{s} + \theta_k \cdot \alpha & \text{otherwise（平滑插值）} \end{cases}$$
+$$\theta_k' = \begin{cases} \theta_k & d/\lambda_k > f_{\text{high}} \\ \theta_k / s & d/\lambda_k < f_{\text{low}} \\ \theta_k \left(\frac{1-\alpha}{s} + \alpha\right) & \text{otherwise} \end{cases}$$
 
-其中 $\alpha = \frac{d/\lambda_k - f_{\text{low}}}{f_{\text{high}} - f_{\text{low}}}$，$f_{\text{low}} = 1, f_{\text{high}} = 32$（Llama3 默认值）。
+其中 $\alpha = \dfrac{d/\lambda_k - f_{\text{low}}}{f_{\text{high}} - f_{\text{low}}}$，Llama-3 默认 $f_{\text{low}} = 1,; f_{\text{high}} = 32$。
 
 Llama-3.1 使用此方案将上下文从 8k 扩展到 **128k**（配合长上下文微调）。
 
 ---
 
-**方案 4：LongRoPE（2024）**
+**2.5 方案四：LongRoPE（2024）**
 
-在 YaRN 的基础上，通过**在长序列数据上搜索最优的非均匀缩放因子**（每个频率分量独立优化），进一步减少外推误差。同时引入两套位置编码（短上下文和长上下文各一套），推理时根据序列长度自动切换。
+在 YaRN 基础上，通过在长序列数据上**搜索每个频率分量的最优非均匀缩放因子**（每维独立优化），进一步减少外推误差。引入两套位置编码（短上下文和长上下文各一套），推理时根据序列长度自动切换。
 
 **各方案对比：**
 
@@ -7119,32 +7112,70 @@ Llama-3.1 使用此方案将上下文从 8k 扩展到 **128k**（配合长上下
 
 ---
 
-**Q99. ALiBi 与 RoPE 的外推能力对比。**
+#### 3. Q99. ALiBi 与 RoPE 的外推能力对比
 
-**ALiBi（Attention with Linear Biases，2022）：**
+**3.1 ALiBi 原理**
 
-不对 Q/K 向量添加位置信息，而是在 Attention Score 上直接加一个与相对位置成正比的**线性惩罚项**：
+不对 Q/K 向量添加位置信息，而是在 Attention Score 上直接加**线性惩罚项**：
 
-$$\text{score}_{m,n} = \frac{\mathbf{q}_m^T \mathbf{k}_n}{\sqrt{d}} - m_{\text{head}} \cdot |m - n|$$
+$$\text{score}_{m,n} = \frac{\mathbf{q}_m^T \mathbf{k}_n}{\sqrt{d}} - m_h \cdot |m - n|$$
 
-其中 $m_{\text{head}}$ 为每个头固定的斜率（不同头斜率不同，通过几何级数设定）。
+其中 $m_h$ 为每个头固定的斜率（通过几何级数设定，不同头使用不同斜率）。
 
-**外推能力对比：**
+**3.2 外推能力对比**
 
 |维度|RoPE|ALiBi|
 |---|---|---|
-|外推原理|旋转角度在训练范围内则有效，超出则失效|线性惩罚无界，天然支持任意长度|
-|外推上限|训练长度（不修改时），修改后可扩展|**理论无限**（线性外推天然成立）|
-|短程精度|高（旋转精确编码相对位置）|中（线性近似相对距离）|
-|长程性能|需扩展策略（YaRN 等）|开箱即用，PPL 平滑增长|
-|表达能力|更强（编码方向信息）|较弱（仅编码距离）|
+|外推原理|旋转角度超出训练范围则失效|线性惩罚天然适应任意长度|
+|外推上限|训练长度（不修改时）|理论无界（PPL 缓慢上升）|
+|短程精度|高（精确编码相对位置方向与距离）|中（仅编码距离，损失方向信息）|
+|长程表现|需扩展策略|开箱即用|
+|与 KV Cache Prefix Caching 兼容性|受限（见 Q99-b）|天然兼容|
 |代表模型|Llama、Mistral、Qwen|MPT、BLOOM（部分）|
 
-**结论：**
+**3.3 工业界现状**
 
-- **ALiBi** 长度外推性更强，无需修改即可推理超出训练长度的序列，适合需要处理长度高度可变的场景。
-- **RoPE** 模型容量更强，短程位置编码精度更高，是当前（2024–2025）主流大模型的首选，配合 YaRN/LongRoPE 可获得优秀的长程外推能力。
-- 工业界当前趋势：**RoPE + 长上下文微调**（在长文本数据上继续训练数千步）是最可靠的方案，纯外推（零 Fine-tuning）的 YaRN 质量稍逊。
+当前主流选择为 **RoPE + 长上下文微调**（在长文本数据上继续训练数千步），是最可靠的方案。纯外推（零 Fine-tuning）的 YaRN 质量稍逊。ALiBi 因损失位置方向信息、表达能力略弱，在新的大规模预训练中使用减少。
+
+---
+
+#### 4. Q99-b. RoPE 与 ALiBi 对 Prefix Caching 的兼容性差异（新增）
+
+**4.1 问题背景**
+
+Prefix Caching（前缀 KV 复用）的核心假设：相同前缀 Prompt 在不同请求间共享 KV Cache，避免重复计算。这要求**相同位置的相同 Token，其 KV 向量必须完全相同**（与请求中的其他 Token 无关）。
+
+**4.2 ALiBi 的天然兼容性**
+
+ALiBi 不将位置信息嵌入 K/V 向量本身，而是在 Score 矩阵上加偏置。KV 向量只由 Token 内容决定，与位置无关，因此：
+
+$$K_i = \mathbf{W}_K \mathbf{x}_i \quad \text{（与位置无关）}$$
+
+位置 $i$ 处 Token 的 KV 向量在任何请求中均相同，**Prefix Caching 无条件兼容**。
+
+**4.3 RoPE 的兼容性限制**
+
+RoPE 将旋转变换应用于 K 向量，KV 向量本身携带位置信息：
+
+$$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \cdot \theta}$$
+
+其中 $\text{pos}(i)$ 为 Token 在序列中的绝对位置。**只要相同 Token 占据相同绝对位置**，KV 向量就相同，Prefix Caching 兼容。
+
+但以下场景会破坏兼容性：
+
+| 场景                 | 问题                           |
+| ------------------ | ---------------------------- |
+| System Prompt 位置变化 | 同一 Token 绝对位置不同，KV 向量不同      |
+| 多轮对话历史拼接           | 每轮后续追加内容，历史部分位置不变，兼容         |
+| 动态插入新内容（如 RAG 文档）  | 插入点后的所有 Token 位置偏移，KV 缓存全部失效 |
+
+**4.4 工程实践**
+
+实际系统（vLLM、SGLang）在使用 RoPE 模型时，通过以下策略维持 Prefix Caching 的高命中率：
+
+1. **固定 System Prompt 为序列起始**：确保 System Prompt 的每个 Token 始终占据相同绝对位置，KV 可跨请求复用。
+2. **避免前缀插入**：仅在序列末尾追加新 Token，不改变已有 Token 的位置。
+3. **Chunk Prefill 的 Position Offset 一致性**：Chunked Prefill 分块计算时，每个 Chunk 的起始位置必须与原始序列位置对齐。
 
 ---
 
@@ -7152,188 +7183,317 @@ $$\text{score}_{m,n} = \frac{\mathbf{q}_m^T \mathbf{k}_n}{\sqrt{d}} - m_{\text{h
 
 ---
 
-**Q100. Ring Attention（序列并行）的原理：切分序列维度，P2P Ring 通信交换 KV。**
+#### 5. Q100. Ring Attention 原理
 
-**动机：** 序列长度 $N = 128k$ 时，单 GPU 的 Attention 计算需要 $O(N^2)$ 的 FLOP 和 $O(N \cdot d)$ 的 KV Cache，单卡显存（80 GB）完全无法容纳。
+**5.1 动机**
 
-**Ring Attention 核心思路：**
+序列长度 $N = 128\text{k}$ 时，Attention 计算需要 $O(N^2)$ FLOPs 和 $O(N \cdot d_{\text{KV}})$ 的 KV Cache，单卡 80 GB HBM 无法容纳单请求的完整 KV（见 Q102-KV 的量化分析）。
 
-将序列 $[1, N]$ 沿序列维度切分到 $P$ 张 GPU，每卡只持有 $N/P$ 个 Query 和对应的 KV。
+**5.2 核心思路：序列分片 + P2P Ring 通信**
 
-为了让每个 Query 能 Attend 全部 $N$ 个 KV（跨卡），通过 **P2P Ring 通信**以流水方式轮流传递 KV：
+将序列 $[1, N]$ 沿序列维度切分到 $P$ 张 GPU，每卡持有 $N/P$ 个 Query 和对应 KV 分片。通过逻辑环形 P2P 通信轮流传递 KV 块：
 
 ```
-P 张 GPU 形成逻辑环（Ring）：
-  GPU 0 → GPU 1 → GPU 2 → ... → GPU P-1 → GPU 0
-
-每一轮（共 P 轮）：
-  1. 每卡持有当前 KV 块，用本地 Q 对其做 Local Attention（计算部分 Attention 分数）
-  2. 将 KV 块发送给右邻，同时接收左邻的 KV 块（P2P，非阻塞）
-  3. 与步骤 2 并行：用新收到的 KV 块继续计算（Overlap 计算与通信）
-  4. 经过 P 轮后，每个 Q 已与全部 N 个 KV 交互，利用 Online Softmax 合并结果
+每轮（共 P 轮）：
+  1. 每卡用本地 Q 对当前持有的 KV 块做 Local Attention（输出部分 softmax 分子/分母）
+  2. 非阻塞 P2P：将当前 KV 块发往右邻，同时从左邻接收新 KV 块
+  3. 步骤 1 与步骤 2 通过双 CUDA Stream 并行（计算与通信 Overlap）
+  4. 用 Online Softmax（保存每步的 max 和 sum）在 P 轮后合并得到最终输出
 ```
 
-**通信量分析：**
+**5.3 通信量分析**
 
-每轮每卡发送 $N/P \times d_{\text{KV}}$ 的 KV 数据，共 $P$ 轮：
+每轮每卡传输 $\frac{N}{P} \times H_{\text{KV}} \times d \times \text{sizeof}$ 字节，共 $P$ 轮：
 
-$$\text{总通信量/卡} = P \times \frac{N}{P} \times d_{\text{KV}} \times \text{sizeof} = N \times d_{\text{KV}} \times \text{sizeof}$$
+$$V_{\text{comm/卡}} = P \times \frac{N}{P} \times H_{\text{KV}} \times d \times b = N \times H_{\text{KV}} \times d \times b$$
 
-与不使用 Ring Attention 的单卡计算量等价，**通信量与 $P$ 无关**（类似 Ring-AllReduce 的带宽最优性）。
+**通信量与 $P$ 无关**（类比 Ring-AllReduce 的带宽最优性），通信开销不随设备数增加而增大。
 
-**计算-通信重叠：** 每卡在接收新 KV 的同时，对已收到的 KV 执行 Local Attention（FlashAttention Tiling），两者通过双 CUDA Stream 并行，通信延迟几乎完全被计算隐藏。
+**5.4 正确性保证（Causal Mask 场景）**
+
+对于Causal Attention（Decoder-only 模型），每个 Query 只能 Attend 自身及之前的 Token，分布在不同卡上的 KV 块中只有部分与当前 Q 块有效。实现时通过 Mask 跳过无效 KV 块（GPU 编号 > 当前 Q 所在 GPU 的 KV 块），减少约一半的有效计算量：
+
+$$\text{有效 FLOPs} \approx \frac{N^2 / 2}{P} \quad \text{（Causal Mask 下每卡）}$$
 
 ---
 
-**Q101. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别。**
+#### 6. Q101. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别
 
-两者都将序列维度切分到多卡，但切分的**算子范围**不同：
+**6.1 核心区分**
 
-|维度|Sequence Parallelism（SP）|Context Parallelism（CP）|
+两者均沿序列维度切分，但切分的**算子范围**不同：
+
+| 维度           | Sequence Parallelism（SP）                  | Context Parallelism（CP）               |
+| ------------ | ----------------------------------------- | ------------------------------------- |
+| 提出来源         | Megatron-LM（与 TP 联合设计）                    | Ring Attention / Megatron CP          |
+| 切分对象         | **非 Attention 算子**（LayerNorm、Dropout、残差）  | **Attention 算子**（QKV 计算、Score 矩阵）     |
+| Attention 处理 | AllGather 恢复全序列后执行                        | 序列分片后分布式执行（Ring 或 All-to-All）         |
+| 通信模式         | ReduceScatter（正向）+ AllGather（前 Attention） | P2P Ring KV 传递                        |
+| 显存收益         | 激活值显存 $\div P$（仅非 Attention 部分）           | KV Cache 显存 $\div P$ + 激活值显存 $\div P$ |
+| 适用序列长度       | 中长（8k–64k，单卡 Attention 仍可放下）              | 超长（64k+，单卡 KV Cache 放不下）              |
+
+**6.2 SP 的通信模式推导**
+
+SP 与 TP 联合使用时，AllReduce 被拆分为 ReduceScatter + AllGather（通信量不变，但每卡的激活值只持有 $1/P$ 的序列切片）：
+
+$$\underbrace{\text{TP-Linear}}_{\text{列切分}} \xrightarrow{\text{ReduceScatter}} \underbrace{\text{SP 区域（LayerNorm 等）}}_{\text{每卡持有 } N/P \text{ 个 Token}} \xrightarrow{\text{AllGather}} \underbrace{\text{Attention}}_{\text{全序列}}$$
+
+**6.3 三维并行组合（TP $\times$ SP $\times$ CP）**
+
+在一个 Transformer 层内：SP 处理 LayerNorm/Dropout，CP 处理 Attention，TP 处理 MLP 和 QKV 投影。三者正交，可同时部署。
+
+---
+
+#### 7. Q101-b. Context Parallelism 的精确通信量推导（新增）
+
+**7.1 单步 Ring 通信量**
+
+设 CP 度为 $P$，序列长度 $N$，GQA KV 头数 $H_{\text{KV}}$，头维度 $d$，数据类型 $b$ 字节。
+
+每卡在每一轮（共 $P-1$ 轮，因本地一轮不需传输）传输：
+
+$$V_{\text{step}} = \underbrace{2}_{\text{K+V}} \times \frac{N}{P} \times H_{\text{KV}} \times d \times b \text{ bytes}$$
+
+总通信量（每卡）：
+
+$$V_{\text{total/卡}} = (P-1) \times 2 \times \frac{N}{P} \times H_{\text{KV}} \times d \times b$$
+
+当 $P$ 较大时 $\dfrac{P-1}{P} \to 1$，因此：
+
+$$V_{\text{total/卡}} \approx 2N H_{\text{KV}} d \cdot b$$
+
+**7.2 代入 LLaMA-3 70B 参数（$N = 128\text{k}$，$P = 8$，$H_{\text{KV}} = 8$，$d = 128$，FP16）**
+
+$$V_{\text{total/卡}} = \frac{7}{8} \times 2 \times 131072 \times 8 \times 128 \times 2 \approx 471 \text{ MB}$$
+
+在 NVLink（节点内 ~300 GB/s 点对点）环境下，每步传输约 $2 \times 131072 / 8 \times 8 \times 128 \times 2 \approx 67 \text{ MB}$，传输时间约：
+
+$$t_{\text{comm/step}} \approx \frac{67 \text{ MB}}{300 \text{ GB/s}} \approx 0.22 \text{ ms}$$
+
+而每步的 Local Attention 计算时间（$N/P = 16\text{k}$ tokens）远超 $0.22 \text{ ms}$，**通信可被完全隐藏**在计算之后，理论 CP Overlap 效率接近 $100\%$。
+
+**7.3 跨节点（PCIe/RDMA）场景**
+
+跨节点带宽降至 $\sim 25 \text{ GB/s}$（InfiniBand HDR），传输时间约 $2.7 \text{ ms}$，与计算时间接近，Overlap 效率下降。此时需配合 Flash-Decoding 或增大 Chunk Size 以保证计算时间 $\geq$ 通信时间。
+
+---
+
+#### 8. Q102. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill
+
+**8.1 KV Cache 显存量化（LLaMA-3 70B，FP16，GQA）**
+
+$$M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times S \times b$$
+
+|序列长度 $S$|KV Cache 大小（单请求）|H100 80GB 可容纳并发数（权重占~140GB，8卡均摊后单卡剩余~62.5GB）|
 |---|---|---|
-|提出来源|Megatron-LM（2023）|Megatron-LM / Ring Attention|
-|切分对象|**非 Attention 算子**（LayerNorm、Dropout）|**Attention 算子**（QKV 计算、Attention Score）|
-|Attention 处理|仍在全序列上（AllGather 后执行）|序列切分后分布式执行（Ring 或 All-to-All）|
-|通信模式|ReduceScatter + AllGather（替换 AllReduce）|P2P Ring 传递 KV / All-to-All|
-|显存收益|**激活值显存** $\div P$（非 Attention 部分）|**KV Cache 显存** $\div P$ + 激活值显存 $\div P$|
-|适用序列长度|中长（8k–64k）|超长（64k+，单卡 KV Cache 放不下）|
+|4k|~0.5 GB|~125|
+|32k|~4.0 GB|~15|
+|128k|~16.0 GB|~3|
+|1M|~125 GB|<1（需分级存储）|
 
-**组合使用（SP + CP）：**
+**8.2 Chunked Prefill 的必要性**
 
-在 Transformer 层内：
+128k tokens 的 Prefill 计算量约为：
 
-- SP 负责 LayerNorm、Dropout、残差连接的序列切分。
-- CP 负责 Attention 的序列切分（Ring Attention）。
-- TP 负责 MLP 和 QKV 投影的特征维度切分。
+$$\text{FLOPs} \approx 2 \times N^2 \times d_{\text{model}} \times L \approx 2 \times (1.3 \times 10^5)^2 \times 8192 \times 80 \approx 2.2 \times 10^{17}$$
 
-三者正交，可同时使用，形成三维并行策略（TP × SP × CP）。
+在 H100 $\times$ 8（TP=8）上理论峰值约 $8 \times 989 \text{ TFLOPS} \approx 7.9 \text{ PFLOPS}$，MFU 约 $30\text{–}50\%$，实际耗时约：
 
----
+$$t_{\text{prefill}} \approx \frac{2.2 \times 10^{17}}{7.9 \times 10^{15} \times 0.4} \approx 70 \text{ s}$$
 
-**Q102. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill 的配合。**
+若不拆分，TTFT 约 70 秒，完全不可接受。Chunked Prefill 将其拆分为若干 Chunk，每 Chunk 与 Decode 请求交错调度，将单步延迟控制在秒级。
 
-**KV Cache 显存压力量化（Llama-3 70B，FP16，GQA）：**
+**8.3 Chunk Size 选择**
 
-$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times S \times 2 \text{ Bytes}$$
+|Chunk Size|每 Chunk 耗时（估算）|GEMM 形状 M|Tensor Core 效率|Decode 阻塞|
+|---|---|---|---|---|
+|256|~0.1s|256|低（过瘦）|最小|
+|1024|~0.4s|1024|中等|小|
+|4096|~1.6s|4096|高|可接受|
+|16384|~6s|16384|最高|过长|
 
-|序列长度 $S$|KV Cache 大小（单请求）|H100 80GB 可容纳并发数|
-|---|---|---|
-|4k|83 MB|~965 个请求|
-|32k|671 MB|~119 个请求|
-|128k|2.7 GB|~29 个请求|
-|1M|21 GB|~3 个请求|
-
-**128k 上下文的核心挑战：**
-
-1. **单请求 KV Cache 2.7 GB**：8× H100 共 640 GB，模型权重占 140 GB，可用于 KV Cache 约 500 GB，最多并发约 **185 个**长上下文请求。
-2. **Prefill 计算量极大**：128k tokens 的 Prefill 在 H100×8 上约需 **60–120 秒**（FlashAttention，$O(N^2)$ 计算），TTFT 无法接受。
-3. **Chunked Prefill 是唯一可行方案**：将 128k Prefill 拆分为每次 2k 的 64 个 Chunk，每个 Chunk 约 1–2 秒，与 Decode 请求交错，避免长时间阻塞。
-
-**Chunk Size 选择（128k 场景）：**
-
-- Chunk Size 过小（如 256）：GEMM 形状过瘦（M=256），Tensor Core 利用率低，每 Chunk 效率差。
-- Chunk Size 过大（如 8192）：每 Chunk 耗时 ~3s，Decode 阻塞时间过长。
-- 推荐 **Chunk Size = 1024–4096**（平衡 GEMM 效率与 Decode 延迟），每 Chunk 约 0.5–1.5s。
-
-**CP 与 Chunked Prefill 的配合：**
-
-当使用 CP（序列切分到多卡）时，Chunk 的序列维度被进一步切分：
-
-$$\text{每卡每 Chunk Token 数} = C / P$$
-
-以 $C = 4096, P = 8$ 为例，每卡每 Chunk 处理 512 tokens，GEMM 形状极小，需配合 SplitK（见 Q19）提升效率。
+推荐 Chunk Size = **1024–4096**，在 Tensor Core 效率与 Decode P99 延迟之间取得平衡。
 
 ---
 
-**Q102-KV. 128k+ 上下文时单请求 KV Cache 显存压力量化**
+#### 9. Q102-KV. 128k+ 上下文显存压力量化分析
 
-**基线计算（LLaMA-3 70B GQA FP16）：**
+**9.1 基线计算（LLaMA-3 70B GQA FP16，全局 KV Cache 视角）**
 
-参数：$L = 80$，$H_{\text{KV}} = 8$（GQA），$d = 128$，$b = 2$（FP16），$S = 131072$（128k）：
+参数：$L = 80$，$H_{\text{KV}} = 8$，$d = 128$，$b = 2$（FP16），$S = 131072$（128k）：
 
-$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 131072 \times 2$$
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 131072 \times 2 = 42{,}949{,}672{,}960 \text{ B} \approx 40.0 \text{ GB}$$
 
-$$= 2 \times 80 \times 8 \times 128 \times 131072 \times 2 = 43{,}486{,}543{,}872 \text{ B} \approx 40.5 \text{ GB}$$
+**9.2 单卡可用显存（8 × H100，TP=8）**
 
-单 H100 显存 80 GB，模型权重约 140 GB（FP16，需多卡），在 8×H100 TP=8 的配置下，每卡权重占用约 $140/8 \approx 17.5$ GB，剩余可用显存 $\approx 62.5$ GB。单请求 128k KV Cache 占用 40.5 GB，**Batch Size 实际仅能为 1**，GPU 利用率极低。
+$$\text{单卡可用} = 80 \text{ GB} - \frac{140 \text{ GB（模型权重 FP16）}}{8} = 80 - 17.5 = 62.5 \text{ GB}$$
 
-**三种应对路径的分析：**
+单请求 128k KV Cache = 40.0 GB，**Batch Size 实际仅能为 1**，且单请求已占用单卡 $64\%$ 的可用显存。
+
+**9.3 三种应对路径**
 
 **路径一：FP8 KV Cache 量化**
 
-$$M_{\text{KV}}^{\text{FP8}} = 40.5 \text{ GB} \times \frac{1}{2} \approx 20.3 \text{ GB}$$
+$$M_{\text{KV}}^{\text{FP8}} = 40.0 \text{ GB} \times \frac{1}{2} = 20.0 \text{ GB}$$
 
-Batch Size 可提升至 2–3。精度损失 $< 0.3\%$（Per-token FP8）。实现成本低，H100 硬件原生支持，推荐作为**第一道优化**。
+Batch Size 可提升至 2–3。精度损失 $<0.3\%$（Per-token FP8，H100 硬件原生支持，无软件反量化开销）。**推荐作为第一道优化**。
 
 **路径二：Token Eviction（H2O / SnapKV）**
 
-保留预算 $B_{\text{budget}}$ 个 Token 的 KV，压缩比 $r = B_{\text{budget}} / 131072$。若保留 $B_{\text{budget}} = 16384$（12.5%），则：
+保留预算 $B_{\text{budget}} = 16384$（$12.5\%$ 的 Token），显存降至：
 
-$$M_{\text{KV}}^{\text{Eviction}} \approx 40.5 \times 0.125 \approx 5.1 \text{ GB}$$
+$$M_{\text{KV}}^{\text{Eviction}} \approx 40.0 \times 0.125 = 5.0 \text{ GB}$$
 
-Batch Size 可达 8–10。但精度损失与任务强相关：对需要长程依赖的任务（超长文档问答、多跳推理），丢弃远端 Token 的 KV 会导致关键信息丢失，质量下降显著；对对话生成类任务损失相对可控。适合**对质量要求不苛刻或已验证特定任务的部署**。
+Batch Size 可达 8–10。精度损失与任务强相关：长程依赖任务（超长文档 QA、多跳推理）损失显著；对话生成类任务损失可控。适合已验证的特定任务部署。
 
-**路径三：Context Parallelism（CP）**
+**路径三：Context Parallelism（CP = 4）**
 
-将序列维度切分到 $N_{\text{CP}}$ 张 GPU，每张 GPU 仅持有 $S / N_{\text{CP}}$ 个 Token 的 KV：
+$$M_{\text{KV/卡}}^{\text{CP}} = \frac{40.0}{4} = 10.0 \text{ GB}$$
 
-$$M_{\text{KV}}^{\text{per-GPU}} = \frac{40.5}{N_{\text{CP}}} \text{ GB}$$
-
-$N_{\text{CP}} = 4$ 时每卡 $\approx 10.1$ GB，Batch Size 恢复正常。但引入额外的跨 GPU 通信（Ring Attention 的 P2P KV 交换），每步 Attention 通信量为：
-
-$$V_{\text{comm}} = 2 \times \frac{S}{N_{\text{CP}}} \times H_{\text{KV}} \times d \times b \times (N_{\text{CP}} - 1)$$
-
-通信与计算可以 Overlap（见 Q100），但增加了系统复杂度和 GPU 数量成本。适合**显存不足但 GPU 数量充足**的场景。
+Batch Size 恢复至 4–5，无精度损失。引入跨 GPU Ring 通信（节点内 NVLink 可完全 Overlap，见 Q101-b），增加系统复杂度和 GPU 数量成本。
 
 **三路径综合对比：**
 
-|路径|显存节省比|Batch Size 提升| 精度影响      |延迟影响|推荐优先级|
-| ------ | ------------ | ------------- | --------- | ---- | -------- |
-|FP8 量化|$\times 0.5$|$\times 2$| $< 0.3\%$ |可忽略|**第一优先**|
-|Token Eviction|$\times 0.05\text{–}0.2$|$\times 5\text{–}20$|任务相关|可忽略（Prefill 阶段筛选）|经验证后使用|
-|Context Parallelism|$\times 1/N_{\text{CP}}$|$\times N_{\text{CP}}$|无损|增加通信延迟|GPU 充足时使用|
+| 路径     | 显存节省比        | Batch Size 提升 | 精度影响     | 延迟影响 | 推荐优先级    |
+| ------ | ------------ | ------------- | -------- | ---- | -------- |
+| FP8 量化 | $\times 0.5$ | $\times 2$    | $<0.3\%$ | 可忽略  | **第一优先** |
+|Token Eviction|$\times 0.05\text{–}0.2$|$\times 5\text{–}20$|任务相关|可忽略|经验验证后使用|
+|CP（$N_{\text{CP}}=4$）|$\times 0.25$|$\times 4$|无损|增加通信延迟|GPU 充足时使用|
 
-实践中三种方案可叠加：先 FP8 量化减半显存，再 CP 多卡分散，必要时辅以轻度 Token Eviction（仅驱逐明确低重要性 Token），以获得最优的显存利用率与质量平衡。
+实践中三种方案可叠加：FP8 量化 → CP 多卡分散 → 轻度 Token Eviction，逐步提升显存利用率。
 
 ---
 
-**Q103. Sliding Window Attention 在长上下文中的 Attention Sink 失效问题。**
+#### 10. Q102-b. 超长上下文下 Chunked Prefill 的 Chunk Size 选择原则（新增）
 
-**Sliding Window Attention（SWA）的假设：**
+**10.1 内部碎片率**
 
-每个 Token 只 Attend 最近 $w$ 个 Token，超出窗口的历史 Token 的 KV 不保存，实现 $O(w)$ 的 KV Cache。
+PagedAttention 中，Block 大小为 $B$ tokens，Chunk Size 为 $C$ tokens。每个请求的最后一个 KV Block 平均浪费约 $B/2$ tokens（均匀分布假设）。当 Chunked Prefill 运行中途请求被中止时，已分配但未完全填充的 Block 产生内部碎片，碎片率近似为：
 
-**Attention Sink 现象（见 Q37）：**
+$$\text{碎片率} \approx \frac{B - 1}{2C}$$
 
-前几个 Token（Sink Tokens）吸收了大量"无处安放"的注意力权重（Softmax 的数学特性），是维持模型正常输出的关键。
+Chunk Size 越大，相对碎片率越低；Block 越小，碎片越少。典型参数 $B = 16, C = 2048$：碎片率 $\approx 15 / 4096 \approx 0.4\%$，可忽略不计。
 
-**在 Sliding Window 中的失效场景：**
+**10.2 Chunk Size 对 GEMM 效率的影响**
+
+Prefill 阶段主要算子为 QKV Projection（GEMM，$M = C$，$K = d_{\text{model}}$，$N = d_{\text{model}}$）。H100 Tensor Core 的高效计算要求 $M \geq 128$（Wave Quantization 效应）：
+
+- $C < 128$：GEMM 效率 $<40\%$，不可接受
+- $C = 256$：效率约 $60\%$
+- $C = 1024$：效率约 $80\%$
+- $C \geq 4096$：效率约 $90\text{–}95\%$
+
+**10.3 Chunk Size 对 Decode 延迟的影响**
+
+Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算时间：
+
+$$\text{TPOT}_{\text{P99}} \approx t_{\text{chunk}} = \frac{C \times \text{FLOPs/token}}{P_{\text{GPU}}}$$
+
+在 H100 $\times$ 8 上，$C = 2048$ 时约 $0.8\text{–}1.2 \text{ ms}$，满足大多数 TPOT SLO（$<20 \text{ ms}$）。
+
+**10.4 推荐 Chunk Size 的选择框架**
+
+$$C^* = \arg\max_C \;\text{GEMM效率}(C) \quad \text{s.t.} \;\; t_{\text{chunk}}(C) < \text{TPOT\_SLO}$$
+
+|场景|推荐 Chunk Size|依据|
+|---|---|---|
+|TPOT SLO = 100ms，H100×8|4096–8192|计算效率优先|
+|TPOT SLO = 20ms，H100×8|1024–2048|延迟优先|
+|TPOT SLO = 5ms，H100×8|256–512|延迟极严，效率妥协|
+|CP = 8（每卡 $C/8$ tokens）|$C \geq 4096$（保证每卡 $\geq 512$）|防止 GEMM 退化|
+
+---
+
+#### 11. Q103. Sliding Window Attention 的 Attention Sink 失效问题
+
+**11.1 Sliding Window Attention（SWA）的假设**
+
+每个 Token 只 Attend 最近 $w$ 个 Token，超出窗口的历史 Token KV 不保存，实现 $O(w)$ KV Cache（固定大小），适合流式生成。
+
+**11.2 Attention Sink 现象**
+
+模型训练时前几个 Token（Sink Tokens，通常为 BOS Token 及开头少量 Token）吸收了大量"无处安放"的注意力权重——这是 Softmax 数学特性的产物：Softmax 输出总和为 1，当无明显相关 Token 时，权重集中于固定的"垃圾桶"位置。
+
+**11.3 在 SWA 中的失效场景**
 
 ```
-普通 Sliding Window（无 Sink 保护）：
-位置 0, 1, 2, 3 的 KV 在序列超过 w+4 后被驱逐
-
-→ 后续 Token 的 Softmax 无"垃圾桶"可用
-→ 注意力权重强行分配给窗口内不相关的 Token
-→ 模型输出质量崩溃（PPL 急剧上升）
+序列长度超过 w + sink 位置后，Sink Tokens 的 KV 被逐出窗口：
+  ┌─────────────┬───────────────────────────────┐
+  │  Sink (pos 0-3)  │       ... tokens ...       │ ← 被驱逐
+  └─────────────┴───────────────────────────────┘
+  当前窗口：[N-w, N]（不含 Sink）
+  
+  → Softmax 强行将权重分配给窗口内的无关 Token
+  → 模型输出质量骤降（PPL 从 ~5 跳升至 >>100）
 ```
 
-**量化失效程度：**
+**11.4 StreamingLLM 的解决方案**
 
-在生成长度超过窗口大小 $w$ 后，不加 Sink 保护的 SWA 的 PPL 从正常的 ~5 急剧跳升至 **>1000**（近乎乱码），而保留 4 个 Sink Tokens 的 StreamingLLM 方案 PPL 仅从 ~5 增加到 ~5.3（几乎无损）。
+保留 $k$ 个 Sink Tokens（通常 $k = 4$）+ 最近 $w$ 个 Token，KV Cache 大小为 $O(k + w)$：
 
-**解决方案对比：**
+$$\text{KV Cache 大小} = (k + w) \times H_{\text{KV}} \times d \times b \times L$$
 
-|方案|原理|KV Cache 大小|长程依赖|
+实验表明，保留 4 个 Sink Tokens 后 PPL 仅从 ~5 增加到 ~5.3，可在无限长流式生成中保持稳定。
+
+**11.5 各方案对比**
+
+|方案|KV Cache 大小|长程依赖|说明|
 |---|---|---|---|
-|全 KV Cache|保存全部历史|$O(N)$，随 $N$ 线性增长|✅ 完整|
-|SWA（无保护）|只保存最近 $w$ 个|$O(w)$，固定|❌ 超窗口后崩溃|
-|StreamingLLM|保存 $k$ Sink + 最近 $w$ 个|$O(k + w) \approx O(w)$，固定|❌ 超窗口仍无长程依赖|
-|SWA + 周期全 Attention（LongFormer 思路）|间隔层做全 Attention|$O(N)$（全 Attention 层）|✅ 部分长程依赖|
+|全 KV Cache|$O(N)$，随 $N$ 线性增长|完整|标准 Attention|
+|SWA（无保护）|$O(w)$，固定|超窗口后崩溃|不可用于长流式生成|
+|StreamingLLM|$O(k + w) \approx O(w)$，固定|无真实长程依赖|仅保证输出不崩溃|
+|SWA + 周期全 Attention|$O(w)$ + 全 Attention 层 $O(N)$|部分长程依赖|LongFormer 思路|
 
-**Mistral / Mixtral 的实践：**
+**11.6 本质局限**
 
-使用窗口大小 $w = 4096$（Mistral 7B），配合 Rolling Buffer KV Cache（环形队列），Sink Tokens 通过特殊位置编码（`sink_token_pos = 0` 固定）实现，在流式生成场景下有效工作。但对于需要跨越 4k 窗口的长程依赖（如长文档问答），SWA 本质上无法解决，需改用全 KV Cache 或 Ring Attention。
+StreamingLLM 仅解决了**输出不崩溃**的问题，并不提供真实的长程依赖能力。对于需要跨越窗口长度的信息检索（如超长文档 QA），SWA 架构在本质上无法解决，必须使用全 KV Cache 或 Ring Attention（CP）。
+
+---
+
+#### 12. Q104-LC. 长上下文下 KV Cache 分级存储的触发条件与精度无损条件
+
+**12.1 分级存储架构**
+
+当单请求 KV Cache 超过 HBM 容量或批量并发导致 HBM 耗尽时，将不活跃的 KV 块降级存储：
+
+$$\text{HBM（80 GB）} \xrightarrow{\text{驱逐}} \text{CPU DRAM（~512 GB–2 TB）} \xrightarrow{\text{驱逐}} \text{NVMe SSD（~10 TB）}$$
+
+**12.2 各级有效带宽与恢复延迟**
+
+|存储层|读带宽（典型值）|写带宽|访问延迟|每 GB KV 恢复时间|
+|---|---|---|---|---|
+|HBM（H100）|3.35 TB/s|3.35 TB/s|~100 ns|基准|
+|CPU DRAM（PCIe 5.0）|~50 GB/s（单向）|~50 GB/s|~1 µs|~20 ms/GB|
+|NVMe SSD（NVLink 直接）|~7 GB/s（seq）|~3 GB/s|~100 µs|~143 ms/GB|
+
+**12.3 对 TTFT 的叠加影响**
+
+若恢复 $V_{\text{KV}}$ GB 的 KV Cache（从 DRAM）：
+
+$$\Delta \text{TTFT} \approx \frac{V_{\text{KV}}}{B_{\text{PCIe}}} = \frac{V_{\text{KV}}}{50 \text{ GB/s}}$$
+
+以 LLaMA-3 70B 的 128k KV Cache（$V_{\text{KV}} \approx 40 \text{ GB}$，未量化）为例：
+
+$$\Delta \text{TTFT} \approx \frac{40}{50} \approx 0.8 \text{ s}$$
+
+这对于 TTFT SLO = 500ms 的服务不可接受，因此 KV 分级存储通常配合以下策略：
+
+1. **FP8 量化先行**：将 40 GB 压缩至 20 GB，恢复时间降至 $\sim 0.4$ s
+2. **预取（Prefetch）**：预测即将激活的请求，提前将 KV 从 DRAM 加载到 HBM
+3. **Prefix Cache 优先驻留**：高复用前缀的 KV 始终保留在 HBM，只驱逐尾部低复用 KV
+
+**12.4 精度无损的前提条件**
+
+|条件|说明|
+|---|---|
+|不执行有损压缩|仅做搬运（HBM↔DRAM↔SSD），不量化或修改数值|
+|数值精度一致|原始 FP16/BF16/FP8 格式不变，搬运过程无精度损失|
+|PagedAttention Block 完整性|整块搬运（不跨 Block 切割），避免 Block 边界错位|
+|恢复前完成传输|KV Block 被 Attention Kernel 访问前必须完全回传至 HBM|
+
+SSD 分级存储由于延迟极高（>100 ms/GB），在生产环境中仅适用于**非在线（Batch Offline）推理**或**极低 QPS 的冷 KV 存储**场景，不适合 P99 TTFT < 1s 的在线服务。
+
+---
 
 ## 第 15 章·参考答案：推理时计算扩展（Test-Time Compute Scaling）
 

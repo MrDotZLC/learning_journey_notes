@@ -365,6 +365,17 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 - **Q107.** 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？
 - **Q108.** 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？
 
+### 15.3 采样策略与资源分析（新增）
+
+- **Q109-TTC.** Best-of-N 与 Self-Consistency 的系统资源对比：并行采样（$N$ 个独立请求）与串行采样（单请求多次生成）对 KV Cache 占用、Batch 利用率和吞吐量的影响差异？Reward Model 评分的计算开销如何叠加到端到端延迟？
+- **Q110-TTC.** Test-Time Compute 的收益边际递减规律：对于不同难度的任务（数学证明 vs. 开放式问答），扩展推理 Token 数的质量提升曲线有何差异？如何估算特定任务的"最优推理预算"？
+
+### 15.4 工程实现细节（新增）
+
+- **Q111-TTC.** Thinking Token 的流式传输与用户体验设计：推理模型在生成"思考过程"（thinking tokens）期间是否向客户端流式输出？不同框架（OpenAI o1、DeepSeek-R1、Anthropic Extended Thinking）的行为差异？思考内容的可见性设计对 TTFT 感知的影响？
+- **Q112-TTC.** 推理模型的 KV Cache 动态增长与抢占调度：Extended Thinking 场景下 KV Cache 按步线性增长（每步 +1 token），当单请求 KV 超过预分配 Block Pool 时，vLLM / SGLang 的动态扩容机制与抢占触发条件？Swap-Out 的 PCIe 带宽瓶颈如何量化为延迟惩罚？
+- **Q113-TTC.** Test-Time Compute Scaling 与 P/D 分离架构的联动：长 CoT（OSL > 8k）场景下，D 节点的 KV Cache 规划策略与常规服务有何不同？P 节点完成 Prefill 后向 D 节点传输 KV，D 节点需为后续数千步 Decode 预留多大 Block Pool？动态扩容与静态预留的工程权衡？
+
 ---
 
 ## 16. 模型结构轻量化
