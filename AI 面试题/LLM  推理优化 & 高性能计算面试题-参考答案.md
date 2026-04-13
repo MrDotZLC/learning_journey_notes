@@ -7005,7 +7005,7 @@ $$f_q(\mathbf{x}_m, m) = \mathbf{x}_m \odot e^{im\theta}, \quad \theta_k = 10000
 
 其中复数乘法 $\odot e^{im\theta_k}$ 等价于对第 $k$ 对子向量施加旋转矩阵 $R(m\theta_k)$：
 
-$$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \ \sin m\theta_k & \cos m\theta_k \end{pmatrix}$$
+$$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \\ \sin m\theta_k & \cos m\theta_k \end{pmatrix}$$
 
 **内积推导（证明相对位置依赖性）：**
 
@@ -7078,7 +7078,7 @@ $$\theta_k' = \theta_k / s$$
 
 将频率分为三组，分别应用不同策略：
 
-$$\theta_k' = \begin{cases} \theta_k & \text{if } \lambda_k \leq d_{\text{low}}\ \text{（高频，短程，保持不变）} \ \theta_k / s & \text{if } \lambda_k \geq d_{\text{high}}\ \text{（低频，长程，线性压缩）} \ \text{插值} & \text{otherwise（中频，平滑过渡）} \end{cases}$$
+$$\theta_k' = \begin{cases} \theta_k & \text{if } \lambda_k \leq d_{\text{low}}\ \text{（高频，短程，保持不变）} \\ \theta_k / s & \text{if } \lambda_k \geq d_{\text{high}}\ \text{（低频，长程，线性压缩）} \\ \text{插值} & \text{otherwise（中频，平滑过渡）} \end{cases}$$
 
 其中 $\lambda_k = 2\pi / \theta_k$ 为对应频率的波长，$d_{\text{low}}, d_{\text{high}}$ 为超参数。
 
@@ -7096,7 +7096,7 @@ $$\text{score} = \frac{\mathbf{q}^T \mathbf{k}}{\sqrt{d} \cdot t}, \quad t = 0.1
 
 Meta 在 Llama3 中采用**低频插值 + 高频保持**的混合方案（类似 YaRN 但更简洁）：
 
-$$\theta_k' = \begin{cases} \theta_k & \text{if}\ \frac{d}{\lambda_k} > f_{\text{high}} \ \theta_k / s & \text{if}\ \frac{d}{\lambda_k} < f_{\text{low}} \ \theta_k \cdot \frac{1 - \alpha}{s} + \theta_k \cdot \alpha & \text{otherwise（平滑插值）} \end{cases}$$
+$$\theta_k' = \begin{cases} \theta_k & \text{if}\ \frac{d}{\lambda_k} > f_{\text{high}} \\ \theta_k / s & \text{if}\ \frac{d}{\lambda_k} < f_{\text{low}} \\ \theta_k \cdot \frac{1 - \alpha}{s} + \theta_k \cdot \alpha & \text{otherwise（平滑插值）} \end{cases}$$
 
 其中 $\alpha = \frac{d/\lambda_k - f_{\text{low}}}{f_{\text{high}} - f_{\text{low}}}$，$f_{\text{low}} = 1, f_{\text{high}} = 32$（Llama3 默认值）。
 
