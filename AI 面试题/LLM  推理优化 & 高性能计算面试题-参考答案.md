@@ -7503,176 +7503,173 @@ SSD 分级存储由于延迟极高（>100 ms/GB），在生产环境中仅适用
 
 ---
 
-**Q104. 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？**
+#### 1. Q104. 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？
 
-**Training-Time Scaling（训练时计算扩展）：**
+**1.1 Training-Time Scaling（训练时计算扩展）**
 
-通过增大训练计算量提升模型能力，遵循 Chinchilla Scaling Law：
+通过增大训练计算量提升模型能力，遵循 Chinchilla Scaling Law（Hoffmann et al., 2022）：
 
 $$L(N, D) = \frac{A}{N^\alpha} + \frac{B}{D^\beta} + L_\infty$$
 
-其中 $N$ 为模型参数量，$D$ 为训练 Token 数。提升路径为：
+其中 $N$ 为模型参数量，$D$ 为训练 Token 数，$L_\infty$ 为不可约损失下界。提升路径为：扩大模型参数（更大的 $N$）、增加训练数据（更大的 $D$）、增加训练 FLOPs（$C \approx 6ND$）。
 
-- 扩大模型参数（更大的 $N$）
-- 增加训练数据（更大的 $D$）
-- 增加训练 FLOPs（$C \approx 6ND$）
+**1.1.1 Training-Time Scaling 的边界**
 
-**Train-Time Scaling 的边界问题（2024 年出现的瓶颈）：**
+2023—2024 年观察到的主要瓶颈：
 
-- 高质量训练数据接近枯竭（互联网文本总量有限）。
-- 训练成本指数增长，边际收益递减。
-- 部分能力（如复杂推理、数学证明）仅靠扩大训练难以突破。
+- 训练成本随参数量指数增长，边际收益递减（loss 下降速率放缓）。
+- 部分能力（复杂数学推理、多步规划）仅靠扩大训练数据难以突破，需要在推理阶段引入搜索或自我校正机制。
 
-**Test-Time Compute Scaling（推理时计算扩展）：**
+> **注**："高质量训练数据接近枯竭"是 2023 年前后业界的讨论方向，但互联网文本总量的实际上限存在争议。此处仅列为动机之一，非已被证明的客观事实。
 
-在**推理阶段**投入更多计算，通过让模型"多想一会儿"来提升输出质量，而无需重新训练更大的模型。
+**1.2 Test-Time Compute Scaling（推理时计算扩展）**
 
-$$\text{质量} = f(\text{模型参数}, \underbrace{\text{推理时计算量}}_{\text{新维度}})$$
+在**推理阶段**投入更多计算，通过让模型"多想一会儿"提升输出质量，无需重新训练更大的模型：
 
-**实现方式：**
+$$\text{质量} = f\bigl(\text{模型参数},\; \underbrace{\text{推理时计算量}}_{\text{新维度}}\bigr)$$
 
-|方式|机制|代表|
-|---|---|---|
-|Chain-of-Thought（CoT）|生成中间推理步骤，分解复杂问题|GPT-4o、Llama-3.1|
-|Extended Thinking|模型生成"思考 Token"（不直接输出），再给出答案|Claude 3.7、o1、DeepSeek-R1|
-|Self-consistency|多次采样后投票取最优答案|Wang et al. 2023|
-|Best-of-N|生成 $N$ 个答案，用 Reward Model 选最优|AlphaCode 2|
-|Tree-of-Thought（ToT）|树状搜索，在推理过程中评估并剪枝|Yao et al. 2023|
-|MCTS（蒙特卡洛树搜索）|用价值函数引导推理路径搜索|AlphaProof|
+实验上（Snell et al., 2024，OpenAI o1 技术报告）观察到质量与推理 Token 数近似呈对数关系，但该规律依赖任务类型（推理密集型任务效果显著，开放问答效果有限），不应视为普遍定律。
 
-**本质区别：**
+**1.3 主要实现方式**
 
-|维度|Training-Time Scaling|Test-Time Scaling|
-|---|---|---|
-|成本承担|模型提供方（一次性）|用户/推理服务（按次）|
-|灵活性|固定（训练后能力确定）|**动态**（可按任务难度投入不同计算）|
-|适用任务|通用能力提升|**推理密集型**（数学、代码、逻辑）|
-|计算形式|FLOPs（训练）|**输出 Token 数**（推理）|
-|扩展规律|Chinchilla Law|$\text{质量} \propto \log(\text{Token 数})$（经验）|
+| 方式                    | 机制                              | 代表                                                |
+| --------------------- | ------------------------------- | ------------------------------------------------- |
+| Chain-of-Thought（CoT） | 生成中间推理步骤，分解复杂问题                 | Wei et al. 2022                                   |
+| Extended Thinking     | 模型生成"思考 Token"后给出答案             | Claude 3.7, DeepSeek-R1                           |
+| Self-consistency      | 多次采样后多数投票取最优答案                  | Wang et al. 2023                                  |
+| Best-of-N             | 生成 $N$ 个答案，用 Reward Model 评分选最优 | AlphaCode 2（过滤策略之一）                               |
+| Tree-of-Thought（ToT）  | 树状搜索，评估中间推理节点                   | Yao et al. 2023                                   |
+| MCTS 引导搜索             | 用价值函数引导推理路径，经典算法                | rStar-Math, AlphaProof（使用 formal search，非标准 MCTS） |
 
-**OpenAI Scaling 研究的关键发现：** 在数学、编程等任务上，Test-Time Compute Scaling 的边际收益显著高于等量 Training Compute，即"多想"比"更大模型"更高效（对特定难题）。
+> **纠错**：AlphaCode 2 的候选过滤使用 tournament-style filtering + clustering，非严格意义的 Best-of-N（单一 RM 打分）；AlphaProof 使用 Lean 形式化证明搜索，算法上接近 proof-tree search，与通用 MCTS 有本质差异，不应直接等同。
+
+**1.4 本质区别**
+
+| 维度   | Training-Time Scaling | Test-Time Scaling                                     |
+| ---- | --------------------- | ----------------------------------------------------- |
+| 成本承担 | 模型提供方（一次性）            | 推理服务（按请求）                                             |
+| 灵活性  | 固定（训练后能力确定）           | **动态**（按任务难度投入不同计算）                                   |
+| 适用任务 | 通用能力提升                | **推理密集型**（数学、代码、逻辑）                                   |
+| 计算形式 | FLOPs（训练）             | **输出 Token 数**（推理）                                    |
+| 扩展规律 | Chinchilla Law        | $\text{质量} \approx f(\log \text{Token 数})$（经验观测，任务相关） |
 
 ---
 
-**Q105. Chain-of-Thought / Extended Thinking 对推理系统的负载特征有何改变？**
+#### 2. Q105. Chain-of-Thought / Extended Thinking 对推理系统的负载特征有何改变？
 
-**标准生成 vs CoT/Extended Thinking 的负载对比：**
+**2.1 标准生成 vs. CoT / Extended Thinking 的负载对比**
 
 |特征|标准生成|CoT / Extended Thinking|
 |---|---|---|
-|平均输出 Token 数（OSL）|50–500|**1000–32000+**|
-|OSL 分布|相对集中（方差小）|**长尾分布**（方差极大）|
-|KV Cache 峰值大小|ISL + OSL（小）|ISL + OSL（极大）|
-|Decode 阶段占比|30–60% 总时间|**80–95% 总时间**|
+|平均 OSL|50–500 tokens|**1000–32000+** tokens|
+|OSL 分布|相对集中（方差小）|**重尾分布**（P50 ≪ P99）|
+|KV Cache 峰值|ISL + OSL（小）|ISL + OSL（极大）|
+|Decode 阶段占比|30–60% 总时间|**80–95%** 总时间|
 |主要瓶颈|Prefill + Decode 均衡|**Decode 极度主导**|
-|TTFT 重要性|高|相对降低（首 Token 后长时间生成）|
-|TPOT 重要性|中|**极高**（决定用户等待总时长）|
+|TTFT 重要性|高|相对降低|
+|TPOT 重要性|中|**极高**（决定用户总等待时长）|
 
-**对系统设计的具体冲击：**
+**2.2 KV Cache 显存压力量化**
 
-**① KV Cache 显存压力激增：**
+以 LLaMA-3 70B（GQA，$L=80$，$H_{\text{KV}}=8$，$d=128$，BF16）为例，单请求 Extended Thinking 的 KV Cache 显存：
 
-Extended Thinking 场景下，单请求 OSL 可达 32k tokens，KV Cache 显存：
+$$M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times S_{\text{total}} \times \text{sizeof(BF16)}$$
 
-$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times (1024 + 32768) \times 2 \approx 10.7 \text{ GB（单请求，Llama-3 70B）}$$
+取 $S_{\text{total}} = S_{\text{prompt}} + S_{\text{output}} = 1024 + 32768 = 33792$ tokens：
 
-单 H100（80 GB）最多并发 **7 个**此类请求（扣除权重后），并发上限骤降。
+$$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 33792 \times 2\;\text{B} \approx 11.1\;\text{GB}$$
 
-**② Decode 阶段 Batch Size 下降：**
+> **重要说明**：LLaMA-3 70B 的 BF16 权重本身约 140 GB，无法在单张 H100（80 GB）上运行。实际部署需多卡（如 2× H100 TP=2，权重占用约 140 GB 分散后每卡 70 GB）或使用 FP8 量化（权重约 70 GB，可单卡装载）。以下并发估算基于 **FP8 量化模型（权重约 70 GB）**，剩余约 10 GB 可用于 KV Cache，每请求 KV 约 5.5 GB（FP8 降半），最大并发约 **1–2 个**此类超长请求。标准 OSL 场景（OSL=512）每请求 KV 约 0.17 GB，并发可达 50+。
 
-KV Cache 显存被少数长请求占满时，能并发的 Decode 请求数减少，GEMV 算术强度下降，GPU MBU 降低（从 70% 降至 30% 以下）。
+**2.3 Decode Batch Size 下降对 MBU 的影响**
 
-**③ 调度不公平问题：**
+KV Cache 被少数长请求占满时，并发 Decode 请求数 $B_{\text{eff}}$ 减少：
 
-OSL 极度不均（有的请求 100 tokens，有的 20000 tokens）时，长请求长期占据 Batch Slot，短请求等待时间增加（Head-of-Line Blocking）。
+$$\text{MBU} = \frac{B_{\text{eff}} \times 2N}{\text{HBM BW} \times T_{\text{step}}}$$
 
-**系统层应对策略：**
+$B_{\text{eff}}$ 从 64 降至 4 时，MBU 从约 70% 跌至 10% 以下，GPU 计算资源严重浪费。
 
-```
-问题                          应对方案
-──────────────────────────────────────────────────────
-KV Cache 显存不足           → FP8 KV Cache + KV 压缩（H2O/SnapKV）
-                            → 增大 D 节点显存（H20 96 GB）
-Decode Batch Size 小         → 预留更多显存给 KV Cache
-                            → 动态调整 max_model_len 上限
-调度不公平（长请求霸占）      → 抢占式调度（Preemption）
-                            → 设置 max_tokens_per_request 上限
-TPOT 要求极高               → Speculative Decoding（EAGLE）
-                            → 更大 Decode Batch（多实例聚合）
-```
+**2.4 系统层应对策略**
 
-**抢占式调度（Preemption）：**
+| 问题               | 应对方案                                        |
+| ---------------- | ------------------------------------------- |
+| KV Cache 显存不足    | FP8 KV Cache；H2O / SnapKV Token Eviction    |
+| Decode Batch 太小  | 多 D 实例聚合（P/D 分离）；增大 KV Cache 预算             |
+| 长请求霸占 Batch Slot | 抢占式调度（Swap Out to CPU DRAM）                 |
+| TPOT 要求极高        | Speculative Decoding（EAGLE）；更大 Decode Batch |
 
-vLLM 支持对超长请求进行抢占（Swap Out）：将其 KV Cache 换出到 CPU 内存，让出 GPU 资源给其他请求，待资源充足时再换回（Swap In）继续生成。代价是换出/换入的 PCIe 传输延迟（~10 GB/s，换出 1 GB KV Cache 需 ~100ms）。
+**抢占代价估算**：换出 1 GB KV Cache 经 PCIe（~32 GB/s 实测单向）约需 31 ms；换回同等时间。对于 11 GB 的超长请求 KV，Swap 往返约 688 ms，不可忽视。
 
 ---
 
-**Q106. o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？**
+#### 3. Q106. o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？
 
-**推理模型的 OSL 分布特征：**
+**3.1 OSL 分布特征**
 
-o1、DeepSeek-R1 等推理模型在处理复杂任务时，"思考 Token"（Thinking Tokens）数量高度依赖问题难度：
-
-```
-简单问题（如基础算术）：OSL ~ 200–500 tokens
-中等难度（如竞赛数学）：OSL ~ 2000–8000 tokens
-困难问题（如定理证明）：OSL ~ 10000–32000 tokens
-```
-
-OSL 分布呈**重尾分布（Heavy-tailed）**，P50 可能仅 1000 tokens，但 P99 超过 20000 tokens。
-
-**对 KV Cache 规划的具体影响：**
-
-**① 无法按平均 OSL 分配 KV Cache 容量：**
-
-若按 P50 OSL = 1000 tokens 规划，P99 请求会因 KV Cache 耗尽被强制截断（OOM Kill 或 max_tokens 截断），影响输出质量。
-
-**② 必须按 P99 OSL 规划，导致显存利用率低：**
-
-按 P99 = 20000 tokens 规划 KV Cache：
-
-$$M_{\text{KV per req}} \approx 2 \times 80 \times 8 \times 128 \times 20000 \times 1 \approx 3.28 \text{ GB（FP8）}$$
-
-H100 扣除权重后可用约 10 GB KV Cache，最大并发仅 **3 个请求**，GPU 利用率极低。
-
-**③ 实际工程中的平衡策略：**
-
-**策略 A：动态 KV Cache 分配 + 抢占**
+推理模型在处理复杂任务时，思考 Token 数高度依赖问题难度，呈**重尾分布**：
 
 ```
-初始：按较小容量（如 P75 OSL）分配 KV Block
-运行：请求超出预算时，动态申请更多 Block
-溢出：Block 不足时，抢占低优先级请求，换出其 KV Cache
+简单问题（基础计算）：OSL ~ 200–500 tokens
+中等难度（竞赛数学）：OSL ~ 2000–8000 tokens
+困难问题（定理证明）：OSL ~ 10000–32000 tokens
 ```
 
-**策略 B：按难度分级路由**
+P50 可能仅 1000 tokens，P99 超过 20000 tokens。
+
+> **数据说明**：以上区间为公开 benchmark 报告（DeepSeek-R1 技术报告、AIME 评测）的观测参考值，具体数值随模型版本变化；生产流量的 OSL 分布与 benchmark 分布可能存在显著差异，部署前应基于实际流量采样统计。
+
+**3.2 KV Cache 规划的三个核心矛盾**
+
+**矛盾 1**：按 P50 规划 → P99 请求被截断，影响质量。
+
+**矛盾 2**：按 P99 规划 → 大多数请求浪费显存，并发上限极低。
+
+以 LLaMA-3 70B FP8 为例，P99 规划（$S=20000$）：
+
+$$M_{\text{KV per req}} = 2 \times 80 \times 8 \times 128 \times 20000 \times 1\;\text{B} = 3.28\;\text{GB（FP8）}$$
+
+FP8 量化后权重约 70 GB，H100 剩余约 10 GB，最大并发约 **3 个请求**。
+
+**矛盾 3**：OSL 方差极大导致调度不公平（短请求等待长请求释放 KV Block）。
+
+**3.3 工程平衡策略**
+
+**策略 A：动态 KV Block 分配 + 抢占**
 
 ```
-简单请求（分类器预测 OSL < 1000）→ 小 KV 预算实例
-困难请求（分类器预测 OSL > 5000）→ 大 KV 预算实例（专用 H20 节点，96 GB）
+初始：按 P75 OSL 估算分配 KV Block
+运行中：超出预算时触发动态扩容（PagedAttention Block 追加）
+Block 池耗尽：触发抢占，将低优先级请求 KV Swap Out 到 CPU DRAM
 ```
 
-**策略 C：思考 Token 上限 + 质量-效率权衡**
+**策略 B：按预测难度分级路由**
 
-设置 `max_thinking_tokens`（如 DeepSeek-R1 支持 `thinking_budget` 参数），强制限制思考长度：
+轻量分类器对请求预测 OSL 区间，将预测超长请求路由到大显存实例（如 H20 96 GB）。
+
+**策略 C：Thinking Budget 上限控制**
+
+各框架通过参数约束最大思考 Token 数，在质量与延迟之间取折衷：
 
 ```python
+# DeepSeek 官方 API 示例（以实际 SDK 文档为准）
 response = client.chat.completions.create(
-    model="deepseek-r1",
-    messages=[...],
+    model="deepseek-reasoner",
+    messages=[{"role": "user", "content": "..."}],
     max_tokens=8192,
-    extra_body={"thinking_budget": 4096}  # 限制思考 Token 上限
+    # 思考预算控制方式随 API 版本变化，以官方文档为准
 )
 ```
 
-**显存规划建议（推理模型专用集群）：**
+> **说明**：`thinking_budget` 等参数的实际名称与可用性因框架版本而异，使用前应查阅对应框架的最新 API 文档，不应直接照搬示例字段名。
 
-|组件|普通 LLM|推理模型（R1/o1 类）|
+**3.4 硬件选型建议**
+
+|组件|常规 LLM 服务|推理模型（R1/o1 类）|
 |---|---|---|
 |权重显存占比|40–60%|**20–30%**（留更多给 KV）|
 |KV Cache 占比|30–50%|**60–70%**|
-|最大并发（H100 80GB）|64–128|**4–16**|
-|推荐硬件|H100 SXM|**H20（96 GB 大显存）**|
+|最大并发（H100 80 GB, FP8）|50–128|**3–16**|
+|推荐硬件|H100 SXM|**H20（96 GB）或多卡 H100**|
 
 ---
 
@@ -7680,110 +7677,429 @@ response = client.chat.completions.create(
 
 ---
 
-**Q107. 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？**
+#### 4. Q107. 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？
 
-**理论预期：**
+**4.1 理论分析**
 
-Speculative Decoding 的接受率 $\alpha$ 衡量 Draft 分布 $q$ 与 Target 分布 $p$ 的匹配程度。对于推理模型的长 CoT 输出，有以下挑战：
+Speculative Decoding 的接受率 $\alpha$ 衡量 Draft 分布 $q(x)$ 与 Target 分布 $p(x)$ 的匹配程度。对于推理模型的长 CoT：
 
-**挑战 1：推理链的语义连贯性要求高**
+$$\alpha = \mathbb{E}_{x \sim q}\left[\min\!\left(1,\frac{p(x)}{q(x)}\right)\right]$$
 
-CoT 中每个 Token 依赖前面完整的推理链（逻辑关键词如 "therefore"、"since"、变量名、等式中间步骤），Draft 模型若参数量远小于 Target 模型，对复杂推理链的预测准确率低。
+**4.2 长推理链的挑战**
 
-**实验观测（EAGLE-2 on DeepSeek-R1）：**
+**挑战 1：推理链内部分布异质**
 
-|内容类型|接受率 $\alpha$|加速比|
+CoT 内容并非均匀分布，不同阶段 $q$ 与 $p$ 的 KL 散度差异显著：
+
+```
+自然语言段（问题分析、结论总结）：Draft 分布与 Target 接近，α 较高
+数学符号段（等式推导、变量操作）：专业符号序列，小模型预测准确率低，α 下降
+代码段（伪代码、表达式）：α 介于两者之间
+```
+
+**挑战 2：Draft 模型自身推理能力不足**
+
+若 Draft 模型（如通用 1B 小模型）未经推理能力训练，在数学/形式化推理步骤上 $\alpha$ 可低至 0.3–0.5，此时 Draft 计算开销大于收益，Speculative Decoding 变为负优化。
+
+> **数据说明**：下表接受率区间为基于公开论文（EAGLE-2、Medusa 等）与工程经验的参考范围，非特定版本的实测精确值，不同模型、不同 Draft 架构下会有较大差异。
+
+|内容类型|$\alpha$ 参考区间|加速比参考|
 |---|---|---|
 |普通对话|0.85–0.92|2.5–3.5×|
-|代码生成|0.80–0.88|2.0–3.0×|
-|**数学推理（CoT）**|**0.65–0.78**|**1.5–2.2×**|
-|**长思考链（Thinking Token）**|**0.55–0.70**|**1.3–1.8×**|
+|代码生成|0.78–0.88|2.0–3.0×|
+|数学推理（CoT）|0.62–0.78|1.5–2.2×|
+|长思考链（Thinking Token）|0.50–0.70|1.2–1.8×|
 
-**挑战 2：推理链不同阶段接受率差异大**
+**4.3 应对策略**
 
+**策略 1：使用同系列蒸馏小模型**
+
+经同分布推理链蒸馏训练的 Draft 模型（如 DeepSeek-R1-Distill-Qwen-1.5B 配合 DeepSeek-R1-671B），在推理链上的 $\alpha$ 显著高于通用小模型，因 Draft 与 Target 共享推理链分布先验。
+
+**策略 2：EAGLE 架构（复用 Target 隐状态）**
+
+EAGLE 的 Draft 头以 Target 最后一层隐状态 $\mathbf{h}_t$ 为条件预测下一 Token，等价于在 Target 自身特征空间内做一步轻量预测：
+
+$$\hat{x}_{t+1} \sim \text{Draft}\!\left(\mathbf{h}_t,, x_t\right)$$
+
+即使在复杂推理链上，由于复用了 Target 的语义理解，$\alpha$ 相比独立 Draft 有明显提升。
+
+**策略 3：自适应 $\gamma$（动态 Draft 长度）**
+
+```python
+# 伪代码：基于历史接受率动态调整 Draft 步数
+gamma = initial_gamma  # 初始值，如 4
+alpha_ema = 1.0        # 指数移动平均接受率
+
+for step in decode_steps:
+    draft_tokens = draft_model.generate(gamma)
+    accepted, _ = target_verify(draft_tokens)
+    alpha_ema = 0.9 * alpha_ema + 0.1 * (len(accepted) / gamma)
+    # 低接受率阶段缩小 gamma，高接受率阶段增大 gamma
+    gamma = max(1, min(8, round(gamma * alpha_ema / 0.7)))
 ```
-推理链阶段分析：
-阶段 A（问题分析，自然语言）：α ≈ 0.85（分布接近普通对话）
-阶段 B（数学推导，符号运算）：α ≈ 0.60（专业符号序列难预测）
-阶段 C（结论总结，自然语言）：α ≈ 0.82（分布再次接近普通对话）
-```
 
-**挑战 3：Draft 模型本身不具备推理能力**
-
-若 Draft 模型（如 1B 参数的小模型）未经推理能力训练，在数学/代码推理步骤上的预测接近随机，$\alpha$ 可能低至 0.3–0.5，Speculative Decoding 反而引入额外开销（Draft 计算浪费）。
-
-**应对策略：**
-
-**策略 1：使用同系列蒸馏小模型作为 Draft**
-
-DeepSeek-R1-Distill-Qwen-1.5B 作为 DeepSeek-R1-671B 的 Draft，因经过同分布蒸馏，推理链上的 $\alpha$ 显著高于通用小模型（0.70–0.80 vs 0.55–0.65）。
-
-**策略 2：EAGLE 架构（复用 Target 特征）**
-
-EAGLE 的 Draft 头以 Target 模型的最后一层隐状态为条件，即使在复杂推理链上也能保持较高 $\alpha$（因为复用了 Target 的"理解"，只需预测下一步）。
-
-**策略 3：动态 Draft 长度（自适应 $\gamma$）**
-
-在推理链的高 $\alpha$ 阶段（自然语言段）增大 $\gamma$（多猜测几步），在低 $\alpha$ 阶段（数学符号段）减小 $\gamma$，避免低接受率时大量 Draft 计算浪费。
-
-**结论：** Speculative Decoding 在长 CoT 上**仍有收益**（1.3–2.2×），但收益低于普通对话场景（2.5–3.5×）。推理模型专用 Draft（同系列蒸馏）是关键，通用小模型 Draft 在推理链上效果差。
+**结论**：Speculative Decoding 在长 CoT 上**仍有正收益**（1.2–2.2×），但低于普通对话（2.5–3.5×）。**推理模型专用 Draft**（同系列蒸馏 + EAGLE 架构）是关键，通用小模型在复杂推理链上效果差。
 
 ---
 
-**Q108. 推理模型的 SLO 设计：TTFT vs Total Latency 的权衡如何变化？**
+#### 5. Q108. 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？
 
-**标准 LLM 服务的 SLO 体系：**
+**5.1 标准 LLM 服务 SLO 体系**
 
 ```
-TTFT SLA：P99 < 500ms（用户等待首字时间，决定交互感）
-TPOT SLA：P99 < 50ms/token（流式输出流畅度）
-E2E Latency：TTFT + TPOT × OSL（总等待时间）
+TTFT P99 < 500ms   — 用户等待首字时间，决定交互感受
+TPOT P99 < 50ms    — 流式输出流畅度
+E2E Latency = TTFT + TPOT × OSL
 ```
 
-**推理模型的 SLO 体系变化：**
+**5.2 推理模型的 SLO 体系变化**
 
-推理模型（R1、o1）在输出"答案"之前会生成大量"思考 Token"，这些 Token 通常**不展示给用户**（或以折叠形式展示），用户实际关注的是**最终答案的延迟**。
+推理模型（R1、o1）在输出最终答案前生成大量"思考 Token"，这些 Token 通常不直接展示给用户（或折叠展示），用户实际关注的是**最终答案完成时刻**，而非首个思考 Token 的到达时刻。
 
-**SLO 设计的核心变化：**
+**SLO 体系迁移**：
 
 |SLO 指标|标准 LLM|推理模型|
 |---|---|---|
-|**TTFT**|极重要（首字决定体验）|**重要性降低**（用户知道需等待思考）|
-|**TPOT**|重要（流畅度）|仍重要（思考完成后的答案输出速度）|
-|**Time to Answer（TTA）**|等同 E2E Latency|**新核心指标**：思考结束到答案完成的时间|
-|**Total Latency**|次要（OSL 短，E2E 短）|**最重要**（OSL 长，总等待可达分钟级）|
-|**Thinking Token Budget**|不适用|新增：控制思考深度与延迟的旗钮|
+|TTFT|极重要|**重要性降低**（用户预期需等待思考）|
+|TPOT|重要|仍重要（答案输出阶段）|
+|Time to Answer（TTA）|$\approx$ E2E Latency|**新核心指标**：首个答案 Token 的绝对等待时间|
+|Total Latency|次要（OSL 短）|**最重要**（总等待可达分钟级）|
+|Thinking Budget|不适用|**关键调控旋钮**|
 
-**SLO 设计建议（推理模型专用）：**
+> **术语说明**：TTA（Time to Answer）为部分团队使用的非标准术语，学术文献与工程文档中命名不统一（有时称 Time to First Answer Token 或 Answer Latency），使用时需明确定义。
+
+**5.3 SLO 设计建议（推理模型专用）**
+
+**交互场景（对话）**：
 
 ```
-用户交互模式（对话）：
-  - TTFT P99 < 2s（可接受略长的首字等待）
-  - TPOT P99 < 100ms（答案流式输出要流畅）
-  - Total Latency P99 < 60s（超过 1 分钟用户会放弃）
-  - Thinking Budget：动态（简单问题 < 2000 tokens，困难问题 < 16000 tokens）
-
-批量任务（离线，如代码审查、文档分析）：
-  - TTFT：不重要
-  - Throughput（Tokens/s）：核心指标
-  - Total Latency P99 < 5min
-  - Thinking Budget：最大值（质量优先）
+TTFT P99 < 2s            — 首个思考 Token 延迟（允许较长，用户有心理预期）
+TPOT P99 < 100ms         — 答案流式输出流畅度
+TTA P99 < 60s            — 答案开始时间上限（超过用户放弃率显著上升）
+Total Latency P99 < 3min — 总等待时间硬上限
+Thinking Budget          — 动态（简单问题 2k tokens，困难问题 ≤ 16k tokens）
 ```
 
-**Thinking Budget 与质量-延迟曲线：**
+**批量离线场景**：
 
-实验表明（DeepSeek-R1，AIME 数学竞赛题）：
+```
+TTFT / TPOT              — 不作为主要 SLO
+Throughput（tokens/s）    — 核心指标
+Total Latency P99 < 5min
+Thinking Budget          — 最大值（质量优先）
+```
 
-|Thinking Budget|AIME 正确率|平均 Total Latency|
+**5.4 Thinking Budget 与质量-延迟权衡**
+
+实验表明（以 AIME 数学竞赛题类问题为参考，具体模型版本影响显著），推理质量与 Thinking Budget 之间呈**递减边际收益**关系：
+
+$$\frac{d,\text{Accuracy}}{d,\text{Budget}} > 0, \quad \frac{d^2,\text{Accuracy}}{d,\text{Budget}^2} < 0$$
+
+**定性趋势**（非精确数值，以实际 benchmark 为准）：
+
+|Thinking Budget|质量趋势|延迟趋势|
 |---|---|---|
-|1000 tokens|45%|~15s|
-|4000 tokens|68%|~45s|
-|8000 tokens|79%|~85s|
-|16000 tokens|85%|~160s|
-|无限制|87%|~220s|
+|极低（< 500 tokens）|明显不足|极短|
+|中等（2k–4k tokens）|中等，收益显著|可接受|
+|较高（8k–16k tokens）|较好，收益递减|较长|
+|极高（> 32k tokens）|边际提升极小|极长|
 
-**结论：** 推理模型的 SLO 体系需从"低 TTFT + 低 TPOT"转向"合理 Thinking Budget + 可接受 Total Latency"，并根据任务难度动态调整。固定 max_tokens 的简单限制会在简单问题上浪费计算、在困难问题上截断思考，**自适应 Thinking Budget 是推理模型系统的核心调度能力**。
+**5.5 自适应 Thinking Budget 的实现思路**
 
+固定 `max_tokens` 的简单限制存在两个问题：简单问题浪费计算，困难问题被截断。自适应方案：
+
+```
+阶段 1：难度分类器对请求预测 difficulty ∈ {easy, medium, hard}
+阶段 2：按难度设置 thinking_budget_max
+          easy   → 1000 tokens
+          medium → 4000 tokens
+          hard   → 16000 tokens
+阶段 3：模型提前输出 <end_thinking> 标记时立即切换到 answer 生成
+        （不强制填满 budget，避免无效思考 Token）
+```
+
+**结论**：推理模型的 SLO 体系需从"低 TTFT + 低 TPOT"转向"合理 Thinking Budget + 可接受 Total Latency"。**自适应 Thinking Budget** 是推理模型服务的核心调度能力，固定上限方案在质量与效率之间的权衡空间极小。
+
+---
+
+### 15.3 采样策略与资源分析
+
+---
+
+#### 6. Q109-TTC. Best-of-N 与 Self-Consistency 的系统资源对比
+
+**6.1 两种策略的定义**
+
+**Best-of-N（BoN）**：生成 $N$ 个独立答案，用 Reward Model（RM）或 Verifier 对每个答案评分，选取得分最高的结果。
+
+**Self-Consistency（SC）**：生成 $N$ 个独立答案（通常使用 Temperature > 0 采样），通过**多数投票**选取出现频率最高的答案，无需 RM。
+
+**6.2 实现方式对比**
+
+| 维度     | Best-of-N          | Self-Consistency |
+| ------ | ------------------ | ---------------- |
+| 评分机制   | RM / Process RM 打分 | 多数投票             |
+| RM 依赖  | **需要**             | 不需要              |
+| 适用答案类型 | 开放式（难以多数投票）        | **结构化**（数学答案、选项） |
+| 并行实现   | $N$ 个独立请求并行        | $N$ 个独立请求并行      |
+| 串行实现   | 顺序生成，边生成边评分        | 顺序生成后批量投票        |
+
+**6.3 系统资源分析**
+
+**并行采样**（$N$ 个独立请求同时进入调度队列）：
+
+KV Cache 峰值：
+
+$$M_{\text{peak}} = N \times M_{\text{KV per request}}$$
+
+对于 $N=8$，$M_{\text{KV per req}} = 2\;\text{GB}$，峰值 $= 16\;\text{GB}$，单 H100 可能直接触发 OOM。
+
+优势：延迟 $\approx$ 单请求延迟（完全并行），批处理效率高（$N$ 个请求合并为大 Batch，提升 Compute 利用率）。
+
+**串行采样**（顺序生成 $N$ 次）：
+
+KV Cache 峰值：
+
+$$M_{\text{peak}} = 1 \times M_{\text{KV per request}}$$
+
+劣势：总延迟 $= N \times$ 单请求延迟，用户等待时间不可接受。
+
+**实际部署建议**：
+
+```
+在线服务（延迟敏感）：并行采样，但限制 N ≤ 4（避免 KV OOM）
+离线批处理（吞吐优先）：串行采样（or 小批量并行），N 可设为 16–64
+```
+
+**6.4 RM 推理开销**
+
+Best-of-N 需要对每个候选答案运行 RM 推理：
+
+- RM 规模通常为被评分模型的 1/4–1/2（如 7B RM 评分 70B 输出）。
+- RM 推理为 Prefill-dominant（输入 = 问题 + 完整答案，无 Decode）。
+- 对于 OSL=2000 的答案，RM Prefill 约占 Best-of-N 总延迟的 10–20%。
+
+Process RM（逐步评分）在 Decode 阶段每步评分一次，开销更高，通常与 beam search / MCTS 联合使用，而非独立 BoN。
+
+**6.5 收益边际分析**
+
+$$\text{Pass@1}(N) \approx 1 - (1 - p_{\text{single}})^N$$
+
+当 $p_{\text{single}}$ 较高时，$N$ 的边际收益迅速递减；$N$ 从 1→4 的提升远大于 64→256 的提升。
+
+---
+
+#### 7. Q110-TTC. Test-Time Compute 的收益边际递减规律
+
+**7.1 任务类型对收益的影响**
+
+不同任务类型对推理 Token 数的响应曲线差异显著：
+
+**推理密集型任务**（数学证明、代码调试、逻辑推理）：
+
+$$\text{Accuracy}(T) \approx a \cdot \log(T) + b \quad (T \text{ 为推理 Token 数})$$
+
+收益持续为正，但边际递减。在 $T$ 较小时（< 2k tokens），每增加 1k tokens 质量提升显著；$T > 16k$ 后边际提升趋近于零。
+
+**开放式生成任务**（创意写作、开放问答）：
+
+质量对 $T$ 不敏感甚至**负相关**（过度思考导致绕圈子、重复、分散注意力）。Extended Thinking 不适用于此类任务。
+
+**7.2 任务-计算曲线的特征差异**
+
+|任务类型|最优 Thinking Budget|超过最优后的风险|
+|---|---|---|
+|竞赛数学（AMC/AIME）|4k–16k tokens|边际收益趋零|
+|代码生成（算法题）|2k–8k tokens|边际收益趋零|
+|软件工程（复杂系统设计）|4k–12k tokens|边际收益趋零|
+|事实问答|< 500 tokens|可能出现质量下降|
+|创意写作|0（不适用 CoT）|负相关|
+
+**7.3 最优推理预算的估算框架**
+
+```
+Step 1：对任务样本（100–1000 条）做扫描实验
+         取 Budget ∈ {500, 1000, 2000, 4000, 8000, 16000} tokens
+Step 2：记录各 Budget 下的质量指标（Accuracy / Pass@1）
+Step 3：拟合 Quality(T) = a · log(T) + b，求 dQ/dT < ε 的 T*
+Step 4：结合 SLO 约束（Total Latency P99 < X），取 min(T*, T_SLO)
+Step 5：配置 max_thinking_tokens = T*，定期用新流量样本重新校准
+```
+
+---
+
+### 15.4 工程实现细节
+
+---
+
+#### 8. Q111-TTC. Thinking Token 的流式传输与用户体验设计
+
+**8.1 思考过程的可见性设计**
+
+推理模型在生成答案前的"思考过程"存在三种典型可见性策略：
+
+|策略|描述|代表实现|
+|---|---|---|
+|完全不可见|思考 Token 在服务端生成，仅返回最终答案|OpenAI o1（初始版本）|
+|折叠展示|思考内容以折叠区块形式展示，用户可展开|Claude Extended Thinking、DeepSeek-R1|
+|完全流式|思考 Token 与答案 Token 均实时流式推送|多数开源框架默认行为|
+
+**8.2 流式传输机制**
+
+推理框架通过特殊标记区分思考内容与答案内容：
+
+```
+DeepSeek-R1 格式：
+  <think>
+  [思考 Token 流...]
+  </think>
+  [答案 Token 流...]
+
+流式 API（Server-Sent Events）：
+  data: {"delta": {"content": "<think>"}, "type": "thinking_start"}
+  data: {"delta": {"content": "..."}, "type": "thinking"}
+  data: {"delta": {"content": "</think>"}, "type": "thinking_end"}
+  data: {"delta": {"content": "..."}, "type": "answer"}
+```
+
+**8.3 对 TTFT 感知的影响**
+
+|可见性策略|用户感知 TTFT|实际 TTFT|说明|
+|---|---|---|---|
+|完全不可见|等于 TTA（可达分钟级）|首个思考 Token 时间（正常）|用户体验最差（长时间无响应）|
+|折叠展示/完全流式|等于实际 TTFT（毫秒级）|正常|用户看到思考内容在流动，**等待感显著降低**|
+
+**结论**：从用户体验角度，将思考过程以某种形式展示给用户，即使用户不阅读，"内容在持续生成"的视觉反馈显著缓解等待焦虑。这是推理模型服务中**展示思考过程的核心工程动机**，与信息传达本身无关。
+
+**8.4 服务端实现要点**
+
+- 思考 Token 与答案 Token 共享同一个 KV Cache（连续的 Token 序列），无需特殊区分存储。
+- `max_thinking_tokens` 约束在调度层实现：当思考段 Token 计数达到上限时，模型被强制"结束思考"（通过截断或软约束注入 `</think>` 标记）。
+- 折叠展示需要客户端实现标记解析，服务端无需特殊处理。
+
+---
+
+#### 9. Q112-TTC. 推理模型的 KV Cache 动态增长与抢占调度
+
+**9.1 Extended Thinking 的 KV 增长模式**
+
+与标准 Decode 相同，每生成一个 Token（无论是思考 Token 还是答案 Token），KV Cache 增长：
+
+$$\Delta M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times \text{sizeof(dtype)} \quad \text{（每步）}$$
+
+以 LLaMA-3 70B（FP8，$L=80, H_{\text{KV}}=8, d=128$）为例：
+
+$$\Delta M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 1\;\text{B} = 163\;\text{KB/step}$$
+
+生成 16000 个思考 Token 累计增长：$163\;\text{KB} \times 16000 \approx 2.6\;\text{GB}$。
+
+**9.2 动态 Block 扩容机制**
+
+vLLM / SGLang 的 PagedAttention 使用固定大小的 KV Block（典型值 16 tokens/block）按需分配：
+
+```
+请求到达：分配 1 个 Block（16 tokens 容量）
+每当当前 Block 填满：申请下一个 Block
+超过 max_num_blocks_per_req 上限：触发 OOM 处理
+```
+
+动态扩容无需预分配全量显存，Block Pool 空闲时扩容开销约为一次内存分配（纳秒级），瓶颈在于**Block Pool 是否有空闲**，而非分配速度。
+
+**9.3 Block Pool 耗尽与抢占触发**
+
+当 Block Pool 空闲 Block 数低于阈值（通常为 1–2 个 Block）时：
+
+**vLLM 抢占流程（Swap 策略）**：
+
+```
+1. 调度器选择"最低优先级"请求（通常为等待队列中最新到达的请求）
+2. 将其 KV Cache 通过 PCIe 搬移到 CPU DRAM（cudaMemcpyAsync D2H）
+3. 释放对应 GPU Block，分配给触发抢占的请求
+4. 被抢占请求进入等待队列，等待 GPU Block 重新可用
+5. 被抢占请求恢复时：将 KV Cache 从 CPU DRAM 搬回 GPU（H2D）
+```
+
+**vLLM 抢占流程（Recompute 策略）**：
+
+```
+1. 直接丢弃被抢占请求的 KV Cache
+2. 被抢占请求恢复时：从头 Prefill 重新计算全量 KV（开销更大，但无需 CPU 显存）
+```
+
+**9.4 Swap 延迟量化**
+
+|路径|实测带宽（参考值）|换出 1 GB KV 延迟|换出 2.6 GB 延迟|
+|---|---|---|---|
+|PCIe 4.0 × 16（D2H）|~28–32 GB/s（单向）|~32 ms|~83 ms|
+|PCIe 5.0 × 16（D2H）|~56–64 GB/s（单向）|~16 ms|~42 ms|
+
+对于 16k-token 的 Extended Thinking 请求，Swap Out 延迟约 80–100 ms（PCIe 4.0），叠加到 TPOT 上不可忽视。因此，**针对推理模型的最优抢占策略是预防性的**（通过合理 Block 预算避免触发抢占），而非被动响应。
+
+---
+
+#### 10. Q113-TTC. Test-Time Compute Scaling 与 P/D 分离架构的联动
+
+**10.1 长 CoT 对 P/D 分离的影响**
+
+标准 P/D 分离场景中，P 节点负责 Prefill（固定计算量），D 节点负责 Decode（持续运行直到 EOS）。长 CoT（OSL > 8k）的核心变化：
+
+**D 节点 KV Cache 规划差异**：
+
+$$M_{\text{KV, D}} = 2 \times L \times H_{\text{KV}} \times d \times (S_{\text{ISL}} + S_{\text{OSL, target}}) \times \text{sizeof(dtype)}$$
+
+其中 $S_{\text{OSL, target}}$ 在请求到达时**未知**（重尾分布，P99 可能是 P50 的 20 倍）。
+
+**10.2 D 节点 Block Pool 的动态规划**
+
+**静态预留方案**：按最大 OSL（如 32k tokens）预留 Block Pool。
+
+代价：$N$ 个 D 节点并发请求的 Block 利用率仅为 $\overline{S_{\text{OSL}}} / S_{\text{max}} \approx 10\%$（若均值 3k、最大 32k），显存浪费严重。
+
+**动态预留方案**：P 节点完成 Prefill 并传输 KV 到 D 节点后，D 节点仅分配初始少量 Block（如前 2k token 容量），后续动态扩容。
+
+关键约束：D 节点 Block Pool 扩容时，若空闲 Block 不足，触发抢占——而抢占被正在生成长 CoT 的请求，其 Swap Out 代价极高（最高可达 2.6 GB）。
+
+**推荐方案**：
+
+```
+策略 1（OSL 预测路由）：
+  调度器基于请求难度预测 OSL 区间
+  长 CoT 请求路由到"大 Block Pool D 节点"（专用集群，H20 96 GB）
+  短 CoT 请求路由到"标准 D 节点"（H100 80 GB）
+
+策略 2（软性上限 + 优雅降级）：
+  D 节点设置 per-request KV 软上限（如 8k tokens）
+  超过软上限时降低该请求调度优先级（不抢占，但不再新分配 Block）
+  模型生成到上限时输出部分答案（截断）或重新路由到大显存节点
+```
+
+**10.3 P 节点 KV Transfer 的时机**
+
+P 节点完成 Prefill 后需立即将 KV 传输到 D 节点：
+
+$$T_{\text{transfer}} = \frac{2 \times L \times H_{\text{KV}} \times d \times S_{\text{ISL}} \times \text{sizeof(dtype)}}{BW_{\text{link}}}$$
+
+长 CoT 场景下 ISL 通常较大（用户提供了复杂问题背景），ISL = 4k tokens 时：
+
+$$T_{\text{transfer}} = \frac{2 \times 80 \times 8 \times 128 \times 4096 \times 1\;\text{B}}{300\;\text{GB/s}} \approx 1.8\;\text{ms（NVLink，节点内）}$$
+
+$$T_{\text{transfer}} = \frac{671\;\text{MB}}{25\;\text{GB/s}} \approx 26.8\;\text{ms（InfiniBand，跨节点）}$$
+
+**D 节点需在 Transfer 完成后才能开始 Decode**，因此长 ISL 的跨节点 Transfer 延迟直接叠加到 TTFT，是长 CoT P/D 分离场景的关键优化点。
+
+**10.4 KV Block 时序图**
+
+```
+P 节点时序：
+  [Prefill ISL=4096 tokens] → [KV Transfer to D] → [释放 P 节点 KV Block]
+                                    ↓
+D 节点时序：
+  [等待 KV 到达] → [Decode step 1] → [Decode step 2] → ... → [Decode step ~16000] → [EOS]
+  Block Pool: 初始分配 ISL+256 容量，每 16 step 追加一个新 Block，直至 EOS 或上限
+```
+
+**总结**：Test-Time Compute Scaling 场景下，P/D 分离架构的 D 节点设计复杂度显著高于常规 LLM 服务，核心挑战在于 **OSL 不可预测性** 导致的 Block Pool 动态规划问题。推荐采用 OSL 预测路由 + 专用大显存 D 节点的组合方案。
 ## 第 16 章·参考答案：模型结构轻量化
 
 ---
