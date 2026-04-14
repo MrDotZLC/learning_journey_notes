@@ -3011,7 +3011,7 @@ Step 3 — Accept/Reject（逐位置顺序判断）：
 
 对单个候选位置，Token $\tilde{x}$ 被接受的概率为：
 
-$$\alpha = \mathbb{E}_{\tilde{x} \sim q}!\left[\min!\left(1,\ \frac{p(\tilde{x})}{q(\tilde{x})}\right)\right]$$
+$$\alpha = \mathbb{E}_{\tilde{x} \sim q}\!\left[\min\!\left(1,\ \frac{p(\tilde{x})}{q(\tilde{x})}\right)\right]$$
 
 其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha \in [0,1]$，当 $p = q$（Draft 与 Target 分布完全一致）时 $\alpha = 1$，每轮 $\gamma$ 个候选全部接受，加速比最大。
 
