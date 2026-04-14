@@ -8100,69 +8100,70 @@ D 节点时序：
 ```
 
 **总结**：Test-Time Compute Scaling 场景下，P/D 分离架构的 D 节点设计复杂度显著高于常规 LLM 服务，核心挑战在于 **OSL 不可预测性** 导致的 Block Pool 动态规划问题。推荐采用 OSL 预测路由 + 专用大显存 D 节点的组合方案。
+
+---
+
 ## 第 16 章·参考答案：模型结构轻量化
 
 ---
 
-### 16.1 知识蒸馏
+### 1. 知识蒸馏
 
 ---
 
-**Q109. 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？**
+#### 1.1 Q109. 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？
 
 **知识蒸馏的基本框架：**
 
-蒸馏目标：用大模型（Teacher）指导小模型（Student）训练，使 Student 在参数量更少的情况下逼近 Teacher 的能力。
+蒸馏目标是用大模型（Teacher）指导小模型（Student）训练，使 Student 在参数量更少的情况下逼近 Teacher 的能力。总损失由任务损失与蒸馏损失加权构成：
 
-$$\mathcal{L}_{\text{total}} = \alpha \cdot \mathcal{L}_{\text{task}} + (1-\alpha) \cdot \mathcal{L}_{\text{distill}}$$
+$$\mathcal{L}_{\text{total}} = \alpha \cdot \mathcal{L}_{\text{task}} + (1 - \alpha) \cdot \mathcal{L}_{\text{distill}}$$
 
 **① Logit Distillation（逻辑蒸馏）：**
 
-Student 的输出 Logit 分布对齐 Teacher 的输出 Logit 分布，使用 KL 散度作为损失：
+Student 的输出 Logit 分布对齐 Teacher 的软标签分布，损失函数为正向 KL 散度：
 
-$$\mathcal{L}_{\text{KD}} = \text{KL}\!\left(p_T(y|x; \tau) ,|, p_S(y|x; \tau)\right) = \sum_y p_T \log \frac{p_T}{p_S}$$
+$$\mathcal{L}_{\text{KD}} = \text{KL}\!\left(p_T(\cdot \mid x\;, \tau) \;|\; p_S(\cdot \mid x\;, \tau)\right) = \sum_y p_T \log \frac{p_T}{p_S}$$
 
-其中 $\tau$ 为温度参数（Temperature），用于软化分布：
+其中温度参数 $\tau$ 对 Logit 进行软化：
 
-$$p_T(y_i|x; \tau) = \frac{\exp(z_i^T / \tau)}{\sum_j \exp(z_j^T / \tau)}$$
+$$p_T(y_i \mid x\;, \tau) = \frac{\exp(z_i^T / \tau)}{\sum_j \exp(z_j^T / \tau)}$$
 
-**温度 $\tau$ 的作用：** $\tau > 1$ 使分布更平滑，低概率类别的信息（"暗知识"，Dark Knowledge）被放大，Student 学到更多类间相似性信息。
+$\tau > 1$ 使低概率类别的信息被放大（"暗知识"，Dark Knowledge），Student 因此学到更多类间相似性。需要注意，原始 KD 论文（Hinton et al., 2015）中同时对 Teacher 和 Student 使用相同的 $\tau$，实际损失应按 $\tau^2$ 缩放梯度，以保持梯度幅值与硬标签损失相当——大多数实现省略了此缩放，但在调优 $\alpha$ 时需意识到其影响。
 
 **优点：**
 
-- 实现简单，只需 Teacher 的输出层 Logit，无需访问中间层。
-- 对 Teacher 和 Student 架构差异无限制（异构蒸馏友好）。
+- 实现简单，只需访问 Teacher 输出层 Logit，无需中间层。
+- 对 Teacher 与 Student 架构差异无限制（异构蒸馏友好）。
 - Teacher 可以是 API 黑盒（只需输出概率分布）。
 
 **缺点：**
 
 - 仅传递最终输出的知识，Teacher 中间层的表征信息完全丢失。
-- 当 Teacher 与 Student 容量差异极大时，Logit 分布差异过大，Student 难以拟合。
+- 当 Teacher 与 Student 容量差异极大时，Logit 分布差距显著，Student 难以有效拟合。
 
 **② Feature Distillation（特征蒸馏）：**
 
-对齐 Teacher 和 Student 的中间层特征（隐状态、Attention 图、FFN 输出等）：
+对齐 Teacher 与 Student 的中间层特征（隐状态、Attention 权重图、FFN 输出等）：
 
-$$\mathcal{L}_{\text{feat}} = \sum_{l \in \mathcal{L}} \left| f_S^l(x) - \phi\!\left(f_T^l(x)\right) \right|_2^2$$
+$$\mathcal{L}_{\text{feat}} = \sum_{l \in \mathcal{L}} \bigl| f_S^l(x) - \phi\!\bigl(f_T^l(x)\bigr) \bigr|_2^2$$
 
-其中 $\phi$ 为适配器（线性投影），处理 Teacher/Student 维度不一致的情况。
+其中 $\phi$ 为可学习适配器（线性投影），处理 Teacher/Student 维度不一致的情况。
 
-**Attention 图蒸馏（TinyBERT 等）：**
+Attention 图蒸馏（TinyBERT 等）通过对齐每个头的注意力权重矩阵实现：
 
-$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h,\ A_T^h\right)$$
-
-对齐每个 Attention 头的注意力权重矩阵。
+$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h,; A_T^h\right)$$
 
 **优点：**
 
-- 传递更丰富的中间表征知识，Student 学习更充分。
-- 对容量差异大的 Teacher-Student 对效果更好（逐层引导）。
+- 传递更丰富的中间表征知识，尤其适用于 Teacher/Student 容量差距大的场景。
+- 可逐层引导，Student 的隐空间更接近 Teacher。
 
 **缺点：**
 
 - 要求 Teacher 开放中间层权重（不支持黑盒 API）。
-- Teacher 与 Student 层数不同时，需要层间映射策略（如跳层对齐）。
-- 实现复杂，超参数（对齐层数、权重）调优困难。
+- Teacher 与 Student 层数不同时，需要层间映射策略（如跳层对齐、最近邻对齐）。
+- 实现复杂，超参数（对齐层集合、损失权重）调优困难。
 
 **综合对比：**
 
@@ -8172,20 +8173,20 @@ $$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h
 |Teacher 访问要求|仅输出层|需中间层|
 |知识传递丰富度|低（仅最终分布）|高（逐层表征）|
 |架构异构性|友好|受限（需层对齐）|
-|适用 Student 大小|Teacher/Student 差距小时效果好|差距大时更优|
-|LLM 推理场景|**主流**（黑盒 API 可用）|用于白盒微调优化|
+|Teacher/Student 容量差距大时效果|较差|更优|
+|LLM 推理场景主流|**是**（黑盒 API 可用）|用于白盒微调优化|
 
 ---
 
-**Q110. 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？**
+#### 1.2 Q110. 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？
 
 **推理模型蒸馏的特殊性：**
 
-推理模型（R1、o1 类）的核心能力是**生成高质量的思考链（CoT）**，蒸馏目标不只是输出答案，而是让 Student 学会"如何思考"。
+推理模型（R1、o1 类）的核心能力是生成高质量的思考链（CoT），蒸馏目标不仅是输出答案，而是让 Student 学会"如何思考"。
 
 **方法 1：序列级 Logit 蒸馏（DeepSeek-R1 的主要方案）**
 
-用 Teacher（DeepSeek-R1-671B）对大量问题生成完整的思考链 + 答案，作为 Student（Qwen-7B/14B/32B）的监督训练数据：
+用 Teacher（DeepSeek-R1-671B）对大量问题生成完整的思考链 + 答案，作为 Student（Qwen-7B/14B/32B）的监督训练数据，Student 在此数据上执行 SFT：
 
 ```
 训练数据格式：
@@ -8197,84 +8198,113 @@ $$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h
 </answer>
 ```
 
-Student 在此数据上做 SFT（Supervised Fine-tuning），直接模仿 Teacher 的推理过程。
-
-**关键细节：**
-
-- 训练数据来自 Teacher 的**采样输出**（非 Greedy），保留多样性。
-- 仅使用"答案正确"的样本过滤（Rejection Sampling Fine-tuning，RFT），剔除 Teacher 推理错误的样本。
-- Student 无需与 Teacher 同架构，Qwen-7B 可直接蒸馏 DeepSeek-R1-671B。
+实际训练使用约 80 万条由 Teacher 采样生成的样本，并通过 Rejection Sampling Fine-tuning（RFT）过滤掉 Teacher 推理错误的样本，仅保留答案可验证正确的样本。Student 与 Teacher 无需同架构，Qwen2.5-7B 可直接蒸馏 DeepSeek-R1-671B。
 
 **方法 2：在线蒸馏（On-policy Distillation）**
 
-Student 自身生成推理链，Teacher 实时评分并提供 Token 级别的 KL 损失：
+Student 自身生成推理链，Teacher 实时在 Student 的 Token 分布上计算 KL 损失：
 
-$$\mathcal{L}_{\text{online}} = \mathbb{E}_{x \sim \text{train}} \left[ \text{KL}(p_T(\cdot|x, y_{<t}) ,|, p_S(\cdot|x, y_{<t})) \right]$$
+$$\mathcal{L}_{\text{online}} = \mathbb{E}_{x \sim \mathcal{D}} \left[ \sum_t \text{KL}\!\left(p_T(\cdot \mid x, y_{<t}) \;|\; p_S(\cdot \mid x, y_{<t})\right) \right]$$
 
-其中 $y_{<t}$ 为 Student 自身生成的历史，而非固定的 Teacher 输出。
+其中 $y_{<t}$ 为 Student 自身生成的历史，而非固定的 Teacher 输出。在线蒸馏可缓解 Exposure Bias（见 Q110-b），但需要 Teacher 实时推理，计算成本极高。
 
-**优点：** Student 在自身分布上训练，避免 Exposure Bias（训练时看 Teacher 输出，推理时看自己输出）。 **缺点：** 需要 Teacher 实时推理，计算成本极高（每步都要跑 Teacher）。
+**方法 3：RLVR 配合蒸馏（两阶段方案）**
 
-**方法 3：RLVR（强化学习验证奖励）配合蒸馏**
-
-先用序列蒸馏得到基础推理能力的 Student，再用可验证任务（数学、代码）的规则奖励（答案正确/错误）做 RL 微调，进一步提升推理准确率：
+先用序列蒸馏让 Student 获得推理格式与基础能力，再用可验证任务（数学、代码）的规则奖励做 RL 微调：
 
 ```
-Phase 1: SFT on Teacher CoT data（蒸馏获得推理格式）
-Phase 2: RL with rule-based reward（强化推理准确性）
+Phase 1: SFT on Teacher CoT data  → 获得推理格式与基础推理能力
+Phase 2: RL with rule-based reward → 强化推理准确性
 ```
 
-**DeepSeek-R1-Distill 系列效果（AIME 2024）：**
+**DeepSeek-R1-Distill 系列效果（AIME 2024，Pass@1）：**
 
-|模型|参数量|正确率|
+|模型|参数量|AIME 2024|
 |---|---|---|
 |DeepSeek-R1-Distill-Qwen-1.5B|1.5B|28.9%|
 |DeepSeek-R1-Distill-Qwen-7B|7B|55.5%|
+|DeepSeek-R1-Distill-Qwen-14B|14B|69.7%|
 |DeepSeek-R1-Distill-Qwen-32B|32B|72.6%|
 |DeepSeek-R1（Teacher）|671B|79.8%|
-|OpenAI o1（参考）|未知|74.4%|
-
-**结论：** 32B 的蒸馏模型已超越 o1，以极低成本获得接近 Teacher 的推理能力，是 2025 年推理模型部署的主流路径。
+|o1（OpenAI，参考）|未知|74.3%|
 
 ---
 
-### 16.2 结构剪枝
+#### 1.3 Q110-b. Exposure Bias 问题与 RLVR 修正
+
+**Exposure Bias 的来源：**
+
+离线 SFT 训练时，Student 在每一步都以 Teacher 的 Ground-truth Token 作为输入（Teacher Forcing）。推理时，Student 以自身生成的历史 $\hat{y}_{<t}$ 作为输入，两者分布存在差异，导致错误逐步累积：
+
+$$p_{\text{train}}(\hat{y}_t \mid x, y_{<t}^{\text{Teacher}}) \neq p_{\text{infer}}(\hat{y}_t \mid x, \hat{y}_{<t}^{\text{Student}})$$
+
+对于短序列（如分类或摘要），Exposure Bias 的影响有限；对于长推理链（CoT 可达数千 Token），每步的小偏差会在后续步骤中被放大，最终导致推理路径偏离。
+
+**RLVR 作为第二阶段修正的机制：**
+
+RLVR（Reinforcement Learning with Verifiable Rewards）让 Student 在自身生成的完整推理链上接受规则奖励（正确答案 +1，错误 0/-1），奖励信号在 Student 自身分布上计算，不依赖 Teacher 的 Ground-truth 路径：
+
+$$\mathcal{L}_{\text{RLVR}} = -\mathbb{E}_{y \sim \pi_\theta} \left[ r(y) \cdot \log \pi_\theta(y \mid x) \right]$$
+
+其中 $r(y) \in {0, 1}$ 为规则验证结果（如数学题答案是否正确）。RLVR 无需 Teacher 实时参与，计算成本远低于在线蒸馏，是工业主流的第二阶段方案。
 
 ---
 
-**Q111. Unstructured Pruning vs. Structured Pruning 对推理加速的实际贡献差异？**
+#### 1.4 Q110-c. 温度参数 $\tau$ 的作用分析
+
+**正式推导：**
+
+设 Teacher 的 Logit 向量为 $\mathbf{z}^T \in \mathbb{R}^V$，软化后的概率为：
+
+$$p_T(y_i \mid \tau) = \frac{\exp(z_i^T / \tau)}{\sum_{j=1}^V \exp(z_j^T / \tau)}$$
+
+当 $\tau \to \infty$ 时，$p_T \to \text{Uniform}(1/V)$，所有类别等权；
+当 $\tau \to 0$ 时，$p_T \to \text{one-hot}(\arg\max \mathbf{z}^T)$，退化为硬标签。
+
+**$\tau > 1$ 放大暗知识的机制：**
+
+设类别 $i$（正确类）的 Logit 远大于类别 $j$（错误但相似类），即 $z_i^T \gg z_j^T$。在 $\tau = 1$ 下，$p_T(j)$ 可能小于 $10^{-3}$，Student 几乎无法学到"$j$ 与 $i$ 有相似性"的信号。提升 $\tau$ 后：
+
+$$p_T(j \mid \tau) = \frac{\exp(z_j^T / \tau)}{\sum_k \exp(z_k^T / \tau)} \approx \frac{1}{V} + \frac{z_j^T - \bar{z}^T}{V \tau} \quad (\tau \text{ 较大时一阶近似})$$
+
+此时类别间相对大小仍被保留，但绝对概率差缩小，Student 可从中学到类间相似性结构。
+
+**$\tau$ 的推荐取值：**
+
+|场景|推荐 $\tau$|说明|
+|---|---|---|
+|分类任务（ImageNet、MMLU）|3–5|中等软化，平衡暗知识与任务监督|
+|LLM Logit 蒸馏|1–2|Vocabulary 极大（$V \approx 10^5$），过高 $\tau$ 稀释信号|
+|推理链 CoT 蒸馏|通常不单独调 $\tau$|以序列 SFT 为主，Token 级 KL 作为辅助|
+
+---
+
+### 2. 结构剪枝
+
+---
+
+#### 2.1 Q111. Unstructured Pruning vs. Structured Pruning 对推理加速的实际贡献差异？
 
 **Unstructured Pruning（非结构化剪枝）：**
 
-将权重矩阵中绝对值小于阈值的元素置零，产生**任意稀疏模式**：
+将权重矩阵中绝对值小于阈值的元素置零，产生任意稀疏模式。稀疏模式任意（非结构化），现有 GPU 的 Tensor Core 针对稠密矩阵优化，稀疏格式需要额外的索引存储与不规则内存访问，在 GPU 上实际加速收益极低：
 
-```
-原始权重:  [0.8, -0.1, 0.3, 0.0, -0.7, 0.05, 0.4, -0.2]
-剪枝后:    [0.8,  0.0, 0.3, 0.0, -0.7,  0.0, 0.4,  0.0]（50% 稀疏）
-```
-
-**推理加速的问题：**
-
-稀疏模式任意（非结构化），现有 GPU 的 CUDA Core 和 Tensor Core 均针对**稠密矩阵**优化，稀疏矩阵乘需要特殊格式（CSR、COO）和稀疏 GEMM Kernel，在 GPU 上实际加速收益极低：
-
-- **理论加速（50% 稀疏）：** 2× FLOPs 减少
-- **实际 GPU 加速：** 约 **0–20%**（稀疏格式的内存访问不规则，掩盖了计算节省）
-- **内存节省：** 需要存储非零值索引，实际节省约 30–40%（非 50%）
-
-**适用场景：** CPU 推理（Intel MKL-sparse 支持不规则稀疏）、端侧部署（ARM NEON 有限稀疏支持）。
+- 理论加速（50% 稀疏）：2× FLOPs 减少
+- GPU 实际加速：约 **0–20%**（稀疏索引导致内存访问不规则）
+- 适用场景：CPU 推理（Intel MKL-sparse）、端侧部署
 
 **Structured Pruning（结构化剪枝）：**
 
-以规则的结构单元为粒度删除权重，保持剩余权重的**稠密矩阵结构**，可直接用标准 GEMM 加速：
+以规则的结构单元为粒度删除权重，剩余权重保持稠密矩阵结构，可直接用标准 GEMM 加速：
 
-|剪枝粒度|删除单元|推理加速（GPU）|精度损失|
+|剪枝粒度|删除单元|GPU 实际加速|精度损失|
 |---|---|---|---|
-|**Attention Head Pruning**|整个注意力头（$H \to H'$）|**线性于 $H'/H$**|中（5–10%）|
-|**Layer Dropping**|整个 Transformer 层（$L \to L'$）|**线性于 $L'/L$**|中-高（10–20%）|
-|**FFN Neuron Pruning**|FFN 中间维度（$4d \to nd$）|**线性于 $n/4$**|低-中（2–8%）|
-|**Width Pruning**|隐藏维度（$d \to d'$）|线性于 $(d'/d)^2$|高（>15%）|
+|Attention Head Pruning|整个注意力头（$H \to H'$）|线性于 $H'/H$|中（5–10%）|
+|Layer Dropping|整个 Transformer 层（$L \to L'$）|线性于 $L'/L$|中-高（10–20%）|
+|FFN Neuron Pruning|FFN 中间维度（$4d \to nd$）|线性于 $n/4$|低-中（2–8%）|
+|Width Pruning|隐藏维度（$d \to d'$）|线性于 $(d'/d)^2$|高（$>$15%）|
 
-**实际推理加速对比（以 Llama-2 7B，20% 剪枝率为例）：**
+**实际推理加速对比（Llama-2 7B，20% 剪枝率）：**
 
 |方法|GPU 实际加速|精度（PPL）|模型大小|
 |---|---|---|---|
@@ -8285,199 +8315,354 @@ Phase 2: RL with rule-based reward（强化推理准确性）
 
 **工程选型建议：**
 
-- **延迟敏感、精度要求高**：FFN Neuron Pruning（精度损失最小）+ 量化组合。
-- **显存受限、快速部署**：Layer Dropping（简单粗暴，每层独立评估重要性后直接删除）。
-- **不建议单独使用 Unstructured Pruning**（GPU 上几乎无实际加速收益）。
+延迟敏感且精度要求高时优先选 FFN Neuron Pruning（精度损失最小）配合量化。显存受限且需快速部署时选 Layer Dropping（简单有效，每层独立评估重要性后直接删除）。不建议在 GPU 上单独使用 Unstructured Pruning（几乎无实际加速收益）。
 
 ---
 
-**Q112. 2:4 稀疏格式（NVIDIA Sparse Tensor Core）的激活方式与精度损失分析？**
+#### 2.2 Q111-b. Head Importance 评估与恢复微调
 
-**2:4 稀疏格式详解（见 Q90 部分内容，此处深化）：**
+**Head Importance 的常用评估方法：**
 
-**存储格式：**
+**① 幅值法（L1/L2 范数）：**
+
+$$I_h = \frac{1}{|W_h|_1 \cdot d} \sum_{i,j} |w_{ij}^h|$$
+
+计算每个头的权重平均幅值，直接剪去范数最小的头。优点是无需校准数据，计算开销极低。缺点是范数小的头不一定对输出贡献小（可能有放缩效应）。
+
+**② Gradient × Activation（梯度×激活）法：**
+
+$$I_h = \left| \sum_{t} \frac{\partial \mathcal{L}}{\partial \mathbf{A}^h_t} \odot \mathbf{A}^h_t \right|_1$$
+
+其中 $\mathbf{A}^h_t$ 为第 $h$ 个头在 Token $t$ 的输出激活，$\partial \mathcal{L} / \partial \mathbf{A}^h_t$ 为其梯度。二者 Hadamard 乘积的绝对值之和近似表示"删除该头对损失的影响"。该方法计算成本低（仅需一次前向 + 反向）且精度高于幅值法，是 LLM Head Pruning 的主流评估方式。
+
+**③ Taylor Expansion 一阶近似：**
+
+$$\Delta \mathcal{L} \approx -\frac{\partial \mathcal{L}}{\partial \mathbf{h}} \cdot \mathbf{h}$$
+
+其中 $\mathbf{h}$ 为该头的输出。与上述方法本质相同，在假设权重被置零时（$\mathbf{h} \to 0$）退化为相同形式。
+
+**恢复性微调（Recovery Fine-tuning）：**
+
+剪枝本身是对模型的一次性破坏性操作，即使选择了重要性最低的头，模型精度也会有所下降。恢复微调通过在原始训练数据的一个子集上继续训练（通常 1%–5% 的原始训练步数），让剩余参数重新适应新的网络拓扑。
+
+是否必须进行恢复微调取决于剪枝率：剪枝率低于 20% 时可选，高于 30% 时通常必须。
+
+---
+
+#### 2.3 Q112. 2:4 稀疏格式的激活方式与精度损失分析
+
+**2:4 稀疏存储格式：**
 
 每 4 个连续权重值中保留 2 个非零值，配合 2-bit 索引记录非零位置：
 
 ```
 原始权重（FP16，4 个值）: [w₀, w₁, w₂, w₃]
-2:4 剪枝后:               保留 [w₀, w₂]（值）+ [0, 2]（索引，各 2 bits）
+2:4 剪枝后（保留最大绝对值的 2 个）:
+  值: [w₀, w₂]   → 2 × 2 Bytes = 4 Bytes
+  索引: [0, 2]   → 4 bits（每个索引 2 bits）
 
-存储对比：
-  原始: 4 × 2 Bytes = 8 Bytes
-  压缩: 2 × 2 Bytes（值）+ 4 bits（索引）= 4.5 Bytes
-  压缩比: 8 / 4.5 ≈ 1.78×（非精确 2×，因为索引有开销）
+存储开销：4 Bytes + 0.5 Bytes = 4.5 Bytes
+原始存储：4 × 2 Bytes = 8 Bytes
+压缩比：8 / 4.5 ≈ 1.78×（而非理论 2×）
 ```
 
-**硬件加速机制（Ampere A100+）：**
+索引的额外开销（4 bits per 4 values = 0.5 Bytes）使实际压缩比低于理论值，有效位宽约为 $(2 \times 16 + 4) / 4 = 9$ bits/value（而非 8 bits）。
 
-Sparse Tensor Core 内置解压逻辑：
+**硬件加速机制（Ampere A100 及之后）：**
 
-1. 从压缩存储中读取非零值和索引（带宽节省 ~50%）。
-2. 硬件在 MMA 计算前自动将稀疏值展开到对应位置。
-3. 计算等效于 Dense MMA，但输入带宽减半。
+Sparse Tensor Core 内置解压逻辑，从压缩存储读取非零值和索引（HBM 带宽节省约 50%），在 MMA 计算前自动将稀疏值展开到对应位置，计算等效于 Dense MMA。
 
-理论吞吐提升：**2× FP16 Dense TFLOPS**（A100：312 → 624 TFLOPS）。
+理论吞吐提升：**2× FP16 Dense TFLOPS**。以 A100 SXM4 为例：FP16 Dense = 312 TFLOPS，2:4 Sparse = 624 TFLOPS。
 
-**激活 2:4 稀疏的步骤：**
+> **注：** 上述 TFLOPS 数值特指 A100 **SXM4** 型号。A100 PCIe 的 FP16 Dense Tensor Core TFLOPS 为 77.6 TFLOPS，2:4 Sparse 为 155.2 TFLOPS。引用时需明确型号。
+
+**激活 2:4 稀疏的流程（PyTorch 示例）：**
 
 ```python
 import torch
 from torch.ao.pruning import WeightNormSparsifier
 
-# Step 1: 确定剪枝方案（幅值剪枝，保留每组 4 个中最大的 2 个）
-sparsifier = WeightNormSparsifier(sparsity_level=0.5, sparse_block_shape=(1, 4))
+# Step 1: 按 2:4 模式确定稀疏掩码（保留每组 4 个中绝对值最大的 2 个）
+sparsifier = WeightNormSparsifier(
+    sparsity_level=0.5,
+    sparse_block_shape=(1, 4)   # 每 4 列保留 2 个
+)
 sparsifier.prepare(model, config=[{"tensor_fqn": "linear.weight"}])
 
-# Step 2: 执行剪枝（将小值置零，形成 2:4 模式）
+# Step 2: 执行剪枝（将较小的 2 个权重置零）
 sparsifier.step()
 sparsifier.squash_mask()
 
-# Step 3: 转换为压缩存储格式
+# Step 3: 转换为压缩存储格式（值 + 索引）
 from torch.sparse import to_sparse_semi_structured
 model.linear.weight = to_sparse_semi_structured(model.linear.weight)
 
-# Step 4: 推理时自动使用 Sparse Tensor Core
-output = model(input)  # 透明加速
+# 推理时透明使用 Sparse Tensor Core
+output = model(input)
 ```
 
 **精度损失分析：**
 
-2:4 稀疏要求每 4 个权重中恰好 2 个为零，这个约束比自由剪枝更严格，因此精度损失来源于：
+2:4 约束比自由剪枝更严格：全局最优的 50% 剪枝可选择任意位置，而 2:4 限制每 4 个中必须剪 2 个，即使某组 4 个权重都重要也无法回避。
 
-**① 剪枝误差（结构约束导致）：**
+**典型精度损失（Llama-2 7B，WikiText-2 PPL）：**
 
-最优的 50% 非结构化剪枝可以选择全局最不重要的 50% 权重，但 2:4 约束限制了每组 4 个必须剪 2 个，即使某组 4 个权重都很重要也必须剪 2 个。
-
-**② 典型精度损失（以 Llama-2 7B 为例）：**
-
-|精度格式|稀疏度|PPL（WikiText-2）|精度损失|
+|方案|稀疏度|PPL|损失|
 |---|---|---|---|
-|FP16 Dense|0%|5.47|基准|
-|FP16 + 2:4（SparseGPT）|50%|5.98|+0.51|
+|FP16 Dense（基准）|0%|5.47|—|
+|FP16 + 2:4（幅值剪枝）|50%|5.98|+0.51|
+|FP16 + 2:4（SparseGPT）|50%|5.78|+0.31|
+|FP16 + 2:4（ASP 稀疏感知训练）|50%|5.61|+0.14|
 |INT8 Dense|0%|5.53|+0.06|
 |INT8 + 2:4|50%|6.34|+0.87|
-|**FP16 + 2:4（ASP 微调）**|**50%**|**5.61**|**+0.14**|
 
-**缓解精度损失的关键——Sparse-Aware 训练（ASP）：**
+**缓解精度损失的关键：Sparse-Aware 训练（ASP）**
 
-在训练中引入 2:4 稀疏约束，模型权重主动学习在约束下表达能力：
+在训练过程中引入 2:4 稀疏约束，模型主动学习在约束下表达信息：
 
 ```
 Phase 1: 正常 Dense 训练（或加载预训练权重）
-Phase 2: 施加 2:4 掩码，继续训练 10–20% 步数（权重自适应稀疏模式）
+Phase 2: 施加 2:4 掩码，以原始学习率的 10% 继续训练 10–20% 的总步数
 Phase 3: 固定掩码，转换为压缩格式部署
 ```
 
-ASP 训练后精度损失从 +0.51 PPL 降至 +0.14 PPL，工业可接受。
+ASP 训练后精度损失从 +0.51 PPL 降至 +0.14 PPL，工业上可接受。
 
-**实际 GPU 加速（A100 实测）：**
+**GPU 端到端加速（A100 SXM4 实测）：**
 
-- 理论峰值：2×
-- GEMM 密集计算实测加速：**1.5–1.8×**（受内存延迟和非 GEMM 算子影响）
-- 端到端推理加速：**1.2–1.5×**（非 GEMM 算子如 LayerNorm、Attention 不受益）
+|维度|数值|
+|---|---|
+|理论峰值提升|2×|
+|GEMM 密集计算实测加速|1.5–1.8×|
+|端到端推理加速|1.2–1.5×|
+
+端到端加速低于 GEMM 加速的原因：LayerNorm、RoPE、Attention Softmax 等非 GEMM 算子不受 2:4 稀疏影响，占整体计算时间的约 20–30%（Amdahl 定律）。
 
 ---
 
-### 16.3 模型架构设计题
+#### 2.4 Q112-b. 2:4 稀疏与量化的组合方案
+
+**硬件支持情况：**
+
+A100 和 H100 均支持 2:4 结构化稀疏，但两者对稀疏+量化组合的原生硬件支持不同：
+
+|方案|A100|H100|
+|---|---|---|
+|2:4 Sparse + FP16|原生支持|原生支持|
+|2:4 Sparse + INT8|原生支持|原生支持|
+|2:4 Sparse + FP8|不支持（无 FP8 TC）|原生支持|
+
+**精度损失的累积规律：**
+
+2:4 稀疏与量化的误差来源不同（稀疏引入结构化截断，量化引入舍入误差），两者叠加后误差通常超过线性叠加：
+
+以 Llama-2 7B 的近似估算为例：
+
+$$\Delta\text{PPL}_{\text{combined}} \approx \Delta\text{PPL}_{\text{sparse}} + \Delta\text{PPL}_{\text{quant}} + \Delta\text{PPL}_{\text{interaction}}$$
+
+其中 interaction 项（交叉误差）约为前两项之和的 10–30%，在低 bit（INT4、FP8）时更显著。
+
+**工程结论：**
+
+- **FP8 + 2:4（H100）** 是当前精度/性能最优组合，精度损失约 +0.4–0.6 PPL（Llama-2 7B），吞吐可达 Dense FP16 的约 3–4×。
+- **INT8 + 2:4** 在 A100 上可用，但 INT8 量化对激活值要求较高，建议配合 SmoothQuant 预处理。
+- **INT4 + 2:4** 精度损失通常不可接受（+2% MMLU 以上），不推荐直接叠加。
 
 ---
 
-**Q113. 给定延迟 SLA = 50ms / Token，如何在 7B 模型的基础上通过蒸馏 + 量化组合达到目标，说明决策链？**
+#### 2.5 Q112-c. SparseGPT 核心思路
+
+**背景与动机：**
+
+标准幅值剪枝将绝对值最小的权重置零，但不对剩余权重进行补偿。GPTQ 展示了可以用逐列误差补偿进行量化，SparseGPT（Frantar & Alistarh, NeurIPS 2022）将类似的 Hessian 补偿框架推广至结构化稀疏（包括 2:4 稀疏）。
+
+**核心思路：逐列 Hessian 误差补偿**
+
+对于权重矩阵 $\mathbf{W} \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$，SparseGPT 的目标是找到稀疏矩阵 $\hat{\mathbf{W}}$，使输出误差最小：
+
+$$\min_{\hat{\mathbf{W}}} |\mathbf{W}\mathbf{X} - \hat{\mathbf{W}}\mathbf{X}|_F^2$$
+
+其中 $\mathbf{X}$ 为校准数据的激活（通常 128–512 个样本）。令 $\mathbf{H} = \mathbf{X}\mathbf{X}^T / |\mathcal{D}|$ 为输入的 Hessian 矩阵，上式等价于：
+
+$$\min_{\hat{\mathbf{w}}} (\mathbf{w} - \hat{\mathbf{w}})^T \mathbf{H} (\mathbf{w} - \hat{\mathbf{w}})$$
+
+对每行独立求解。SparseGPT 逐列处理：剪去第 $j$ 列权重后，用 Hessian 信息更新后续列的权重以补偿误差，即：
+
+$$\delta \mathbf{w}_{j'} = -\frac{\hat{w}_j}{\left[\mathbf{H}^{-1}\right]_{jj}} \cdot \left[\mathbf{H}^{-1}\right]_{:,j}\bigg|_{j'} \quad (j' > j)$$
+
+**与 GPTQ 的异同：**
+
+|维度|GPTQ|SparseGPT|
+|---|---|---|
+|目标|权重量化（低比特化）|权重剪枝（结构化稀疏）|
+|误差补偿框架|相同（逐列 Hessian 更新）|相同|
+|支持的稀疏模式|不适用|非结构化 + 2:4 结构化|
+|计算复杂度|$O(d_{\text{in}}^2)$|$O(d_{\text{in}}^2)$|
+|单次完成|是|是|
+
+SparseGPT 与 GPTQ 的本质差异在于**决策变量**：GPTQ 决定将权重量化到哪个离散值，SparseGPT 决定哪些权重被置零。两者均基于逐列 Hessian 补偿，在大型 LLM 上均可在 A100 上数小时内完成校准（无需重新训练）。
+
+---
+
+### 3. 模型架构设计题
+
+---
+
+#### 3.1 Q113. 给定延迟 SLA = 50ms / Token，通过蒸馏 + 量化组合达到目标的决策链
 
 **Step 1：建立基线，评估当前延迟**
 
 ```
 模型: Llama-3 7B（FP16）
-硬件: H100 SXM × 1
-Decode 延迟基线（Batch=1）:
+硬件: H100 SXM4 × 1（HBM3 带宽 3.35 TB/s，FP16 Tensor Core 989 TFLOPS）
 
-单步理论下界 = 模型权重读取时间
-  = 7B × 2 Bytes(FP16) / 3.35 TB/s
-  = 14 GB / 3.35 TB/s ≈ 4.2 ms/Token
+单步 Decode 理论下界（Memory-bound 假设）：
+  权重数据量 = 7B × 2 Bytes = 14 GB
+  理论最短时间 = 14 GB / 3.35 TB/s ≈ 4.2 ms/Token
 
-实测（含 Kernel Launch、LayerNorm 等开销）≈ 8–12 ms/Token
-
-→ 基线已满足 50ms SLA（8–12ms << 50ms）
-→ 需要确认 SLA 是在什么 Batch Size 下的要求
+实测（Batch=1，含 Kernel Launch / LayerNorm / RoPE 开销）: ≈ 8–12 ms/Token
+→ Batch=1 时基线已满足 50ms SLA
+→ 需明确 SLA 在什么 Batch Size 下的要求
 ```
 
-**实际场景假设（Batch=64，P99 < 50ms）：**
+**实际场景假设（Batch=64，P99 TPOT < 50ms）：**
 
 ```
-Batch=64 时，权重读取 + GEMM 计算：
-  GEMM FLOPs = 2 × 64 × 7B ≈ 9 × 10¹¹ FLOPs
-  H100 峰值（FP16）= 989 TFLOPS
-  GEMM 计算时间 = 9×10¹¹ / 989×10¹² ≈ 0.91 ms（Compute-bound）
-  实测（含所有开销）≈ 30–45 ms/Token（Batch=64）
-→ P99 可能超过 50ms SLA，需要优化
+Batch=64 时 Decode 进入 Compute-bound 区域：
+  每步 FLOPs ≈ 2 × Batch × N_params = 2 × 64 × 7×10⁹ ≈ 9×10¹¹ FLOPs
+  H100 FP16 Tensor Core 峰值 = 989 TFLOPS
+  GEMM 理论时间 ≈ 9×10¹¹ / 989×10¹² ≈ 0.91 ms（偏乐观）
+  实测（含所有非 GEMM 算子开销）≈ 25–45 ms/Token（Batch=64）
+→ P99 可能超过 50ms SLA，需优化
 ```
 
-**Step 2：决策链（按收益/代价排序逐步尝试）**
+Decode 阶段的内存墙-计算墙过渡（脊点 Batch Size）估算：
+
+$$B^* \approx \frac{\text{HBM Bandwidth}}{\text{FLOP per Byte}} = \frac{3.35 \times 10^{12}}{2} \approx 1675 \text{ tokens (per 1B params)}$$
+
+对 7B 模型：$B^* \approx 1675 / 7 \approx 240$ 对于 FP16，实际考虑到访存与计算的重叠效率，脊点 Batch Size 约为 **100–200**，Batch=64 仍在 Memory-bound 侧，但接近分界处。
+
+**Step 2：决策链（按收益/代价排序）**
 
 ```
-优化 Level 1：量化（零精度损失代价，快速部署）
-├─ W8A8 INT8（SmoothQuant）
-│   收益: 权重读取减半（14 GB → 7 GB），GEMM 加速 ~1.5×
-│   Decode 延迟: 30ms → ~20ms ✅（满足 50ms SLA，余量充足）
-│   精度损失: < 1%（MMLU）
-│   部署成本: 低（SmoothQuant 校准约 1 小时）
-│   → 若此步已满足，停止优化
-│
-优化 Level 2：量化进一步（若 W8A8 不足）
-├─ W4A16（AWQ/GPTQ）
-│   收益: 权重读取降至 3.5 GB（4× 压缩），Decode 延迟 ~10ms
-│   精度损失: ~1–2%（PPL +0.5）
-│   → 延迟极低，但 Prefill 吞吐下降（需解压）
-│
-优化 Level 3：蒸馏（若量化精度损失不可接受）
-├─ 蒸馏为 3B 模型（Logit 蒸馏 + RLVR）
-│   收益: 模型大小减半，Decode 延迟 ~15ms（vs 7B 30ms）
-│   精度损失: ~5–10%（视任务而定）
-│   部署成本: 高（需 GPU 蒸馏训练，数天）
-│   → 适合精度要求严格但硬件资源有限的场景
-│
-优化 Level 4：蒸馏 + 量化组合（最优组合）
-└─ 3B 模型（蒸馏）+ W8A8 量化
-    收益: 模型 1.5 GB，Decode 延迟 ~7ms（Batch=64）
-    精度损失: ~8–12%（蒸馏损失为主）
-    → 适合吞吐优先、精度可牺牲的场景（如实时推荐、摘要）
+Level 1：量化（零训练成本，快速部署）
+
+  ▸ W8A8 INT8（SmoothQuant）
+    显存减半（14 GB → 7 GB），Memory-bound 下带宽需求减半
+    理论 Decode 下界：7 GB / 3.35 TB/s ≈ 2.1 ms
+    实测 Decode 延迟（Batch=64）：~15–25 ms  ✅ 满足 50ms
+    精度损失：< 1%（MMLU）
+    校准成本：约 1–2 小时
+    → 若此步满足，停止优化
+
+  ▸ W4A16（AWQ / GPTQ），若 W8A8 不足
+    权重量化至 4-bit，存储 ~3.5 GB，Memory-bound 进一步缓解
+    代价：每步 Decode 前需 Dequant（约增加 1–2 ms），Prefill 阶段无法利用
+    精度损失：~1–2%（PPL +0.5）
+    → 延迟极低，但注意 Prefill 吞吐下降
+
+Level 2：蒸馏（若量化精度损失不可接受）
+
+  ▸ 蒸馏为 3B（Logit 蒸馏 + 可选 RLVR）
+    权重 ~6 GB（FP16），Decode 延迟约 15–20 ms（Batch=64）
+    精度损失：5–10%（视任务而定）
+    训练成本：数天
+    → 适合精度要求严格但硬件资源有限的场景
+
+Level 3：蒸馏 + 量化（最优组合）
+
+  ▸ 3B 蒸馏 + W8A8
+    存储约 3 GB，Decode 延迟 ~8–12 ms（Batch=64）  ✅
+    精度损失：8–12%（蒸馏为主要误差来源）
+    → 吞吐优先、精度可牺牲的场景（实时推荐、摘要等）
 ```
 
-**Step 3：选型决策（最终推荐）**
+**Step 3：推荐方案（精度损失 < 2%，P99 TPOT < 50ms）**
 
 ```
-目标: Batch=64，P99 TPOT < 50ms，精度损失 < 2%
+推荐：Llama-3 7B + W8A8（SmoothQuant）
+  ✅ Decode 延迟（Batch=64）：~20ms（满足 50ms，余量充足）
+  ✅ 精度损失：< 1%
+  ✅ 部署周期：1–2 天
+  ✅ 无蒸馏训练成本
 
-推荐方案: 7B + W8A8（SmoothQuant）
-  ✅ Decode 延迟: ~20ms（远满足 50ms）
-  ✅ 精度损失: < 1%
-  ✅ 部署周期: 1–2 天
-  ✅ 无需蒸馏（避免训练成本）
+若 Batch 扩大至 256 后延迟压力增大：
+  升级方案：7B + W4A16（AWQ）
+  ✅ 带宽瓶颈进一步缓解，Decode 维持 < 30ms
+  ⚠️ 精度损失约 2%，需业务验证
 
-若未来 Batch 增大至 256（延迟压力增加）:
-  升级方案: 7B + W4A16（AWQ）
-  ✅ 带宽瓶颈缓解，Decode 延迟维持 < 30ms
-  ⚠️ 精度损失 ~2%，需业务侧验证
-
-若业务对精度要求极高（损失 < 0.5%）且延迟不满足:
-  升级硬件: 1 × H100 → 2 × H100（TP=2）
-  代价: 硬件成本翻倍，延迟降至 ~15ms
+若精度约束极严（损失 < 0.5%）且延迟不满足：
+  扩展硬件：1 × H100 → 2 × H100（TP=2），AllReduce 开销约 0.5–1ms
+  代价：硬件成本翻倍，延迟降至 ~15ms
 ```
 
 **Step 4：验证流程**
 
 ```bash
-# 1. 量化校准（SmoothQuant，~1小时）
-python smooth_quant.py --model llama3-7b --calib-data pile --output llama3-7b-w8a8
+# 量化校准（SmoothQuant，约 1 小时）
+python smooth_quant.py --model llama3-7b \
+    --calib-data pile --output llama3-7b-w8a8
 
-# 2. 精度验证
-lm_eval --model llama3-7b-w8a8 --tasks mmlu,hellaswag --batch-size 32
+# 精度验证（MMLU 为主要参考指标）
+lm_eval --model llama3-7b-w8a8 \
+    --tasks mmlu,hellaswag --batch-size 32
 
-# 3. 延迟 Benchmark
-python benchmark_serving.py --model llama3-7b-w8a8 --batch-size 64 \
-    --num-prompts 1000 --request-rate 10 --percentile 99
+# 延迟 Benchmark（P99 TPOT）
+python benchmark_serving.py \
+    --model llama3-7b-w8a8 --batch-size 64 \
+    --num-prompts 1000 --request-rate 10 \
+    --percentile 99
 ```
+
+---
+
+#### 3.2 Q113-b. 多目标约束下的轻量化决策
+
+**约束设定：**
+
+同时满足 TTFT < 200ms（P99）、TPOT < 30ms（P99）、精度损失 < 1%（MMLU）三重约束。
+
+**分析约束的优化顺序：**
+
+TTFT 主要受 Prefill 阶段计算量决定，TPOT 受 Decode 阶段带宽/计算量决定，精度损失受量化方案的量化误差决定。三者的优化方向部分正交，需逐步评估：
+
+```
+优化顺序分析：
+  1. 精度约束（< 1% MMLU）是硬约束，先排除不可行方案
+     → 排除：INT4 量化（通常 2–3% MMLU 损失）、激进蒸馏（7B→1.5B 损失 > 10%）
+     → 可行：W8A8、FP8、W4A16（AWQ 精调后）
+
+  2. TPOT < 30ms：Memory-bound 约束，需减少每步权重读取量
+     → W8A8：14 GB → 7 GB，理论 TPOT ≈ 7 GB / 3.35 TB/s ≈ 2.1 ms（下界）
+     → 实测 Batch=64：约 15–20 ms  ✅
+
+  3. TTFT < 200ms：Compute-bound 约束，2048 Tokens Prefill 的时间
+     FLOPs = 2 × 2048 × 7×10⁹ ≈ 2.9×10¹³
+     H100 FP16 峰值 = 989 TFLOPS
+     理论 Prefill ≈ 2.9×10¹³ / 989×10¹² ≈ 29 ms  ✅（远小于 200ms）
+     实测约 40–80ms（含 Flash Attention、Batching 开销）✅
+```
+
+**Pareto 前沿评估框架：**
+
+当精度、TPOT、TTFT 三者存在 Trade-off 时，定义综合目标函数：
+
+$$\text{Score} = w_1 \cdot \frac{\text{TTFT\_target}}{\text{TTFT\_actual}} + w_2 \cdot \frac{\text{TPOT\_target}}{\text{TPOT\_actual}} + w_3 \cdot (1 - \Delta\text{ACC})$$
+
+权重 $w_1, w_2, w_3$ 由业务优先级决定（延迟敏感服务通常 $w_1 = w_2 = 0.4, w_3 = 0.2$）。通过对候选方案（W8A8、FP8、W4A16+AWQ、3B蒸馏+W8A8）的实测结果，绘制三维 Pareto 前沿，选择满足所有硬约束且综合分最高的方案。
+
+**推荐决策（三重约束下）：**
+
+```
+推荐：7B + FP8（H100 原生支持）
+  TPOT（Batch=64）：约 12–15 ms  ✅
+  TTFT（2048 tokens）：约 40 ms   ✅
+  精度损失（MMLU）：< 0.5%       ✅
+  部署成本：较低（H100 原生 FP8 无需软件 Dequant）
+  额外优势：FP8 Tensor Core 吞吐 ≈ FP16 的 2×，Prefill 也受益
+```
+
+---
 
 ## 第 17 章·参考答案：多模态推理（VLM/MLM）
 

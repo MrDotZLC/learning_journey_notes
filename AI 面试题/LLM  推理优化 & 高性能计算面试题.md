@@ -404,9 +404,28 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ## 17. 多模态推理（VLM/MLM）
 
-- **Q114.** Vision Encoder（如 ViT）的输出 Token 数量对 Prefill 显存和计算的影响（典型值：每张 224×224 图片 = 196 ~ 256 Image Tokens）？
-- **Q115.** Image Token 的 KV Cache 是否应与 Text Token 区别对待（不同 Eviction 策略）？
-- **Q116.** 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size？
+### 17.1 Vision Encoder 与 Token 化
+
+- **Q114.** Vision Encoder（如 ViT）的输出 Token 数量对 Prefill 显存和计算的影响：标准 ViT-L/14 对 224×224 图片输出 256 个 Image Token（含 CLS Token）；现代高分辨率 VLM（LLaVA-NeXT、InternVL2、Qwen2-VL）如何通过动态分辨率（Dynamic Resolution）和图像切片（Image Tiling）将单张图片的 Image Token 数提升至 2880+；Image Token 数量对 Prefill 阶段 TTFT 和显存的量化影响推导？
+- **Q114-b.** 动态分辨率（Dynamic Resolution / Naive Dynamic Resolution）的工程实现：Qwen2-VL 的 NaViT 风格变长 Token 如何在 Batch 中 Padding 或 Packing？不同分辨率输入在同一 Batch 内的效率差异？ViT 前向的计算量如何随分辨率平方增长，并对 TTFT 产生前期瓶颈？
+- **Q114-c.** 视觉编码器（ViT）本身在 VLM 推理中的 TTFT 占比：在高分辨率（如 4096² 的文档图像）场景下 ViT 前向耗时可占总 TTFT 的 80% 以上（Apple FastVLM 实测数据）；ViT 计算量如何与 LLM Prefill 计算量解耦？轻量化 ViT（ConvNeXT、FastViT、SigLIP）替换 ViT-L/G 的精度-速度权衡？
+
+### 17.2 Image Token KV Cache 管理
+
+- **Q115.** Image Token 的 KV Cache 是否应与 Text Token 区别对待：Image Token 在 LLM 层的注意力行为（浅层 Attention 权重集中、深层逐渐被 Text Token 主导）是否支持差异化 Eviction？FastV（ECCV 2024 Oral）的核心机制：在第 2 层之后裁剪 50% Image Token，对大多数任务精度影响 < 1% 但 FLOPs 减少 45%；SparseVLM（ICML 2025）的文本感知（Text-aware）Token 稀疏化策略与 FastV 的差异？
+- **Q115-b.** Image Token 的 Prefix Caching 可行性分析：相同图片被多请求复用时，Image Token 的 KV Cache 是否可跨请求命中（VLCache / SGLang 的实现思路）？RoPE 位置编码对 Image Token 绝对位置的绑定是否破坏 Prefix Cache 跨请求复用（与 Text Token 的一致性）？同一图片被插入不同位置时 KV Cache 是否需要重算？
+- **Q115-c.** 多帧视频 VLM 的 KV Cache 管理：视频理解中逐帧生成的 Image Token 数量（如 64 帧 × 256 Token/帧 = 16384 Token）对 KV Cache 显存的冲击；时序冗余（相邻帧 Token 高度相似）如何支撑跨帧 Token 合并（Token Merging）与帧级 Eviction 策略？
+
+### 17.3 VLM 推理的 Prefill 优化
+
+- **Q116.** 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size：Image Token 不可拆分（跨 Chunk 会破坏 2D 位置编码的空间连续性），导致最小不可分割单元为整张图片的 Token 数；高分辨率图片（2880 Token）远超常规 Chunk Size（512），如何制定"图片感知（Image-aware）Chunking"策略？TTFT 与 Decode TPOT 的双向约束下，包含多张图片的请求如何调度？
+- **Q116-b.** vLLM 对 VLM 的 Chunked Prefill 支持现状（2024-2025）：标准 Chunked Prefill 不能跨 Image Token 边界切分的工程约束；多模态 Prefix Caching（Image KV Block 复用）在 vLLM / SGLang 中的实现状态；Vision Encoder 前向（CPU 或独立 CUDA Stream）与 LLM Prefill 的异步流水线设计？
+- **Q116-c.** Visual Token Compression（视觉 Token 压缩）作为 Prefill 加速的替代路径：Perceiver Resampler / Q-Former 在编码器侧将 ViT 输出压缩至固定 Token 数（如 32~256），LLaVA-style 直接投影 vs. Q-Former 压缩的精度-速度权衡？Token 压缩后 KV Cache 的压缩比如何影响 Decode 阶段 TPOT？
+
+### 17.4 多模态 KV Cache 量化与位置编码
+
+- **Q117-VLM.** 多模态位置编码（M-RoPE）的推理影响：Qwen2-VL 将 RoPE 分解为文本维（1D）、图像高度维、图像宽度维的三维位置编码；与纯文本 RoPE 相比，M-RoPE 对 Prefix Caching 的影响（图片位置信息绑定于绝对坐标）？ViT Patch 坐标与 LLM RoPE 的对齐方式？
+- **Q118-VLM.** VLM 中混合模态批处理的 Attention Mask 结构：Image Token 与 Text Token 之间的双向 / 单向 Attention 策略（图片 Token 相互全注意力、文本 Token 单向 Causal Attention）；Flash Attention 如何高效支持此非标准 Mask？对 PagedAttention Block 分配的影响？
 
 ---
 
