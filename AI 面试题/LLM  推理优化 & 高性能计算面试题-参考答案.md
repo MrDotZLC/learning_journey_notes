@@ -8664,215 +8664,282 @@ $$\text{Score} = w_1 \cdot \frac{\text{TTFT\_target}}{\text{TTFT\_actual}} + w_2
 
 ---
 
-## 第 17 章·参考答案：多模态推理（VLM/MLM）
+## 第 17 章：多模态推理（VLM / MLM）
 
 ---
 
-**Q114. Vision Encoder 的输出 Token 数量对 Prefill 显存和计算的影响？**
+### 17.1 Vision Encoder 与 Token 化
 
-**Vision Encoder 的 Token 化过程：**
+#### Q114. Vision Encoder 输出 Token 数量对 Prefill 显存和计算的影响
 
-主流 VLM（如 LLaVA、Qwen-VL、InternVL）使用 ViT（Vision Transformer）将图像切分为 Patch，每个 Patch 映射为一个 Image Token：
+##### 1. ViT 的 Patch Token 化原理
 
-$$N_{\text{image tokens}} = \frac{H_{\text{img}} \times W_{\text{img}}}{P^2}$$
+Vision Transformer（ViT）将输入图像划分为固定大小的 Patch，每个 Patch 线性投影为一个 Token 向量。
 
-其中 $P$ 为 Patch 大小（像素），$H_{\text{img}}, W_{\text{img}}$ 为图像分辨率。
+**标准 ViT-L/14（CLIP 风格）对 224×224 图片的 Token 数：**
 
-**典型配置：**
+$$N_{\text{patch}} = \left(\frac{H}{p}\right) \times \left(\frac{W}{p}\right) = \frac{224}{14} \times \frac{224}{14} = 16 \times 16 = 256$$
 
-|模型|图像分辨率|Patch 大小|Image Tokens|备注|
-|---|---|---|---|---|
-|LLaVA-1.5|336×336|14|576|单分辨率|
-|Qwen-VL|448×448|14|1024|单分辨率|
-|InternVL-2|448×448 × N|14|256 × N|动态分辨率，N 最大 12|
-|LLaVA-HD|任意|14|最大 2880|高分辨率切片|
+加上 CLS Token 后共 **257 个 ViT 内部 Token**。在 LLaVA-style 架构中，CLS Token 通常被丢弃，MLP Projector 仅将 256 个 Patch Token 映射至 LLM 词嵌入空间，因此注入 LLM 的 Image Token 数 $= 256$。
 
-**对 Prefill 显存的影响：**
+##### 2. 高分辨率 VLM 的 Image Token 膨胀
 
-Image Token 与 Text Token 在 LLM 中一视同仁，均生成 KV Cache。对于 Llama-3 70B（GQA，$H_{\text{KV}}=8, d=128, L=80$，FP16）：
+现代 VLM 通过两种路径大幅增加 Image Token 数以提升细粒度视觉理解能力：
 
-$$M_{\text{KV per image token}} = 2 \times 80 \times 8 \times 128 \times 1 \times 2 = 327{,}680 \text{ Bytes} \approx 320 \text{ KB/token}$$
+**路径一：图像切片（Image Tiling）**
 
-|场景|Image Tokens|KV Cache（单图）|等效文本 Token 数|
-|---|---|---|---|
-|LLaVA-1.5（336×336）|576|~180 MB|576 个词|
-|InternVL-2（高分辨率 N=6）|1536|~480 MB|1536 个词|
-|视频（16 帧，每帧 256 tokens）|4096|~1.28 GB|4096 个词|
+LLaVA-NeXT 将原图按宽高比动态切分为若干 $336 \times 336$ 的子图，每张子图经 ViT-L/14 产生 $\left\lfloor 336/14 \right\rfloor^2 = 576$ 个 Patch Token，再加一张下采样的全局缩略图。最终 Token 数为：
 
-**对 Prefill 计算的影响：**
+$$N_{\text{total}} = N_{\text{tiles}} \times 576 + 576_{\text{thumbnail}}$$
 
-Prefill 的 Attention 计算量为 $O((N_{\text{img}} + N_{\text{text}})^2 \cdot d)$，Image Token 大量增加序列长度，Attention 计算量以**平方增长**：
+以 LLaVA-NeXT 的 $2 \times 2$ 切片方案为例：$4 \times 576 + 576 = 2880$ 个 Image Token。
 
-$$\frac{\text{FLOPs with image}}{\text{FLOPs text only}} \approx \left(\frac{N_{\text{img}} + N_{\text{text}}}{N_{\text{text}}}\right)^2$$
+**路径二：原生动态分辨率（Naive Dynamic Resolution，NaViT 风格）**
 
-**示例（$N_{\text{text}} = 512$，$N_{\text{img}} = 1024$）：**
+Qwen2-VL 直接在原始分辨率下运行 ViT，Token 数与图像像素成正比：
 
-$$\text{计算量比} = \left(\frac{1024 + 512}{512}\right)^2 = 3^2 = 9\times$$
+$$N_{\text{visual}} = \frac{H \times W}{p^2}$$
 
-Attention 计算量激增 **9 倍**，但 FFN 层计算量仅增加 3 倍，整体 Prefill FLOPs 增加约 **3–5×**（视 Attention 在总计算中的占比）。
+Qwen2-VL 使用 $p = 14$，一张 $1344 \times 1344$ 的图片产生 $\left(\frac{1344}{14}\right)^2 = 9216$ 个 Patch Token，再经 $2 \times 2$ Spatial Merge（相当于 $28 \times 28$ 有效 Patch Size）降为 **2304 个 Image Token**。Qwen2-VL 可配置 `min_pixels` 至 `max_pixels`（默认范围 4~16384 Token），提供精度-速度显式权衡。
 
-**动态分辨率的显存管理挑战：**
+##### 3. 对 Prefill 显存的量化推导
 
-不同请求的 Image Token 数差异大（256 到 4096），使用 PagedAttention 的 KV Block 动态分配可有效应对，但调度器需提前估算 Image Token 数（需等 ViT 编码完成后才知道精确值）：
+Image Token 在 LLM 层产生 KV Cache，与文本 Token 无本质差别：
 
-```python
-# VLM 推理流程
-# Step 1: ViT 编码（CPU/GPU，可提前进行）
-image_features = vision_encoder(image)  # [N_img, d_vision]
+$$M_{\text{KV,img}} = 2 \times L \times H_{\text{KV}} \times d \times N_{\text{img}} \times \text{sizeof(dtype)}$$
 
-# Step 2: 投影到 LLM 空间
-image_tokens = projection(image_features)  # [N_img, d_llm]
+以 LLaVA-NeXT + LLaMA-3 8B（$L=32$，GQA $H_{\text{KV}}=8$，$d=128$，BF16）、$N_{\text{img}} = 2880$ 为例：
 
-# Step 3: 与 Text Token 拼接，送入 LLM Prefill
-input_embeds = torch.cat([image_tokens, text_tokens], dim=1)
-```
+$$M_{\text{KV,img}} = 2 \times 32 \times 8 \times 128 \times 2880 \times 2 \approx 750 \text{ MB}$$
+
+若同一请求还有 1024 个文本 Token，图片 KV 已占总 KV Cache 的 $2880 / (2880 + 1024) \approx 74\%$。
+
+##### 4. 对 Prefill 计算量（FLOPs）的影响
+
+Prefill 阶段的 Attention FLOPs 与序列长度 $S$ 满足：
+
+$$\text{FLOPs}_{\text{attn}} \approx 4 \times L \times H \times d \times S^2$$
+
+Image Token 的引入将有效序列长度从 $S_{\text{text}}$ 扩展至 $S_{\text{text}} + N_{\text{img}}$。以 $S_{\text{text}} = 512$、$N_{\text{img}} = 2880$ 为例，序列长度从 512 变为 3392，Attention FLOPs 增长约 44 倍（$(3392/512)^2 \approx 44$）。这是 VLM 推理 TTFT 高于同规模纯文本 LLM 的根本原因。
 
 ---
 
-**Q115. Image Token 的 KV Cache 是否应与 Text Token 区别对待（不同 Eviction 策略）？**
+#### Q114-b. 动态分辨率的工程实现
 
-**Image Token 与 Text Token 的本质差异：**
+##### 1. 变长序列的 Batch 打包（Sequence Packing）
 
-|特征|Text Token|Image Token|
-|---|---|---|
-|语义性|高（每个词有明确含义）|中（Patch 级视觉特征，局部语义）|
-|注意力模式|集中于关键词（Sparse）|分散于整个图像区域（Dense）|
-|可重要性排序|可用 Attention Score 排序|图像区域重要性难量化|
-|丢弃代价|可通过上下文推测|视觉信息不可恢复|
-|复用可能性|高（相同 System Prompt 可复用）|**极高**（相同图像 KV 可跨请求共享）|
+动态分辨率导致同一 Batch 内各请求的 Image Token 数不同。两种处理策略：
 
-**为何需要区别对待：**
+**Padding 策略**：对齐至最长序列，填充 Dummy Token。显存浪费率 $\approx 1 - \bar{N}/N_{\max}$，高分辨率场景可达 50%+，不推荐。
 
-**问题 1：标准 Token Eviction 策略对 Image Token 效果差**
+**Packing 策略（Sequence Packing / Variable Length Attention）**：将多个不等长序列拼接为单个长序列，通过 Attention Mask（Causal Diagonal Block 结构）确保序列间不相互注意。FlashAttention-2 / FlashAttention-3 的 `varlen` 接口（`flash_attn_varlen_func`）原生支持此模式，无需 Padding 开销。
 
-H2O 等方法基于 Attention Score 累积值驱逐 Token，但 Image Token 的注意力往往比较分散（图像的每个区域都会被查询），整体 Score 较低，容易被误判为不重要而提前驱逐，导致视觉信息丢失、幻觉（Hallucination）增加。
+##### 2. ViT 计算量与分辨率的关系
 
-**问题 2：Image Token 的驱逐不可逆性更强**
+ViT 自注意力计算量与 Patch 数 $N_p$ 的关系：
 
-Text Token 被驱逐后，模型可通过上下文语义近似推断；Image Token 被驱逐后，对应的视觉细节（如图中特定区域的颜色、形状）**完全丢失**，无法从 Text 上下文恢复。
+$$\text{FLOPs}_{\text{ViT}} = O(N_p^2 \cdot d_{\text{ViT}}) + O(N_p \cdot d_{\text{ViT}}^2)$$
 
-**推荐的区分策略：**
-
-**策略 1：Image Token 全量保留（保守方案）**
-
-将 Image Token 标记为"不可驱逐"，KV Eviction 仅作用于 Text Token。
-
-```python
-# vLLM / SGLang 的 KV 驱逐掩码（示意）
-eviction_mask = torch.ones(seq_len, dtype=torch.bool)
-eviction_mask[:N_img] = False  # Image Token 不参与驱逐候选
-```
-
-- **适用**：Image Token 数量不大（≤ 1024），显存充裕。
-- **代价**：Image Token 始终占用 KV Cache，长对话中无法释放。
-
-**策略 2：视觉显著性引导的 Image Token 剪枝**
-
-利用 Cross-Attention 中 Text Query 对 Image Token 的注意力权重（反映文本对图像各区域的关注度）来评估 Image Token 重要性：
-
-$$\text{importance}(i) = \sum_{t \in \text{text}} \alpha_{t \to i}$$
-
-高 importance 的 Image Token（被文本频繁查询的视觉区域）予以保留，低 importance 的驱逐。此方法在视觉问答任务上精度损失比盲目驱逐降低约 **30–50%**。
-
-**策略 3：Prefix Sharing 复用 Image KV（最高价值策略）**
-
-同一图像被多个请求共享时（如多轮对话、RAG 召回同一图片），Image Token 的 KV Cache 通过 Prefix Sharing 只存储一份：
-
-```
-请求 A："图中的猫是什么颜色？"
-请求 B："图中有几只动物？"
-请求 C："图中的背景是什么？"
-
-→ Image Token KV 只存 1 份（通过 PagedAttention Block Table 共享）
-→ 3 个请求各自只需存 Text Token KV（几十个 Token）
-```
-
-对于同一图像的多轮问答场景，Prefix Sharing 可将 KV Cache 占用降低 **60–90%**（视 N_img 与 N_text 的比例）。
+当 $N_p$ 较大时，$O(N_p^2)$ 项主导。将图像分辨率从 $224^2$ 提升至 $896^2$（线性 4×），Patch 数从 $256$ 变为 $4096$，ViT Attention FLOPs 增长约 $\left(4096/256\right)^2 = 256$ 倍（不计 FFN 的线性项）。这一爆炸式增长促使高分辨率场景使用轻量化 ViT（ConvNeXT、FastViT）替代标准 ViT-L/G。
 
 ---
 
-**Q116. 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size？**
+#### Q114-c. ViT 在 VLM 推理中的 TTFT 占比
 
-**问题根源：**
+Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$4096^2$），基于 NaViT 的 ViT 编码耗时占整体 TTFT 的 **86%**，LLM Prefill 反而是次要瓶颈。这在低分辨率（$224^2$）场景下截然不同（ViT 占比 < 10%）。
 
-纯文本 Prefill 的 Chunk Size（如 $C = 512$）是为了在 Decode 阶段可接受的 TPOT 中断时间（约 50ms）下设计的。VLM 的 Prefill 包含大量 Image Token，相同 Chunk Size 下单步计算时间更长，需要重新评估。
+**优化路径对比：**
 
-**Chunk Size 的选择原则：**
+| 路径              | 代表方案                         | Token 数变化 | 精度影响         |
+| --------------- | ---------------------------- | --------- | ------------ |
+| 轻量化 ViT         | FastViT-HD、SigLIP-SO400M     | 不变        | < 1% on MMMU |
+| 减少切片数           | 限制 max_tiles                 | 降低        | 细粒度 OCR 任务敏感 |
+| Projector 压缩    | Q-Former、Perceiver Resampler | 大幅减少      | 细节损失显著       |
+| Token 剪枝（ViT 后） | FastV、SparseVLM              | 运行时降低     | 任务依赖         |
 
-$$C = \frac{\text{TPOT 可接受中断时间（ms）}}{\text{每 Token Prefill 时间（ms/token）}}$$
+---
 
-**纯文本 vs VLM 的每 Token Prefill 时间对比：**
+### 17.2 Image Token KV Cache 管理
 
-以 Llama-3 70B（H100×8，TP=8）为例，Prefill 吞吐约 50,000 tokens/s：
+#### Q115. Image Token 与 Text Token 的差异化 KV Cache 策略
 
-- 纯文本：每 Token Prefill 时间 = $1/50000 \approx 0.02$ ms/token
-- VLM（含 Image Attention 开销，图像 N_img = 1024，文本 N_text = 512）：
-    
-    序列总长 $= 1536$，Attention 计算量 $\propto N^2$，相比纯文本 512 tokens：
-    
-    $$\text{时间比} \approx \frac{1536^2}{512^2} \approx 9\times$$
-    
-    有效每 Token 时间 $\approx 0.02 \times 9 / (1536/512) \approx 0.06$ ms/token（因为总 token 数也增加了）
+##### 1. Image Token 在 LLM 层的注意力行为
 
-**Chunk Size 调整策略：**
+实验观察（FastV，ECCV 2024）表明：
 
-**策略 1：按 Token 数固定（统一处理）**
+- **浅层（Layer 0~2）**：Text Token 对 Image Token 的注意力权重较高，图像信息被密集提取；
+- **深层（Layer 2+ 之后）**：Text Token 的注意力权重逐渐向其他 Text Token 集中，大量 Image Token 的注意力分数趋近于零。
 
-保持 $C = 512$（Token 数），但 VLM 中每个 Chunk 的实际计算时间更长（因为序列内 Attention 范围更大），导致 Decode 中断时间超预期。
+这一现象支撑了一个核心判断：**深层的绝大多数 Image Token KV 是冗余的**，可被安全丢弃。
 
-**策略 2：按计算量动态调整（推荐）**
+##### 2. FastV（ECCV 2024 Oral）
 
-将 Chunk Size 从"固定 Token 数"改为"固定 FLOPs"：
+**核心思路**：在第 $K$（典型值 $K=2$）层之后，依据 CLS Token 或 Text Token 对 Image Token 的 Attention Score 排序，保留 Top-$r\%$（典型值 $r=50$）的 Image Token，丢弃其余 Image Token 的 KV，后续层不再计算这些 Token 的注意力。
 
-$$C_{\text{effective}} = \frac{C_{\text{text}} \times N_{\text{text}}^2}{(N_{\text{img}} + N_{\text{text}})^2}$$
+**效果**：FLOPs 减少约 45%，在大多数 VQA / Caption 任务上精度损失 < 1%；在空间定位（Localization）任务上精度下降较明显（细粒度视觉信息丢失）。
 
-**示例（$C_{\text{text}} = 512$，$N_{\text{img}} = 1024$，$N_{\text{text}} = 512$）：**
+**与 KV Cache 的兼容性**：FastV 的动态剪枝需要在每个 Decode 步骤重新计算注意力图以确定保留哪些 Image Token KV，这与静态 KV Cache 存在冲突。静态 KV Pruning 变体（剪枝一次、后续复用）可获得约 8% 的额外显存节省，但会因"Decode 步重用了首次 Prefill 时的剪枝决策"引入轻微精度损失。
 
-$$C_{\text{effective}} = \frac{512 \times 512^2}{1536^2} \approx 57 \text{ tokens}$$
+##### 3. SparseVLM（ICML 2025）
 
-即 VLM 场景下 Chunk Size 应缩小至约 57 tokens，以保持与纯文本相同的单步计算时间。
+**与 FastV 的根本区别**：FastV 使用 CLS Token 或固定层的 Attention Score 进行文本无关（Text-agnostic）剪枝；SparseVLM 从自注意力矩阵中提取**文本 Token 对视觉 Token 的注意力权重**（Text-aware），根据问题 Prompt 的语义动态选择保留哪些 Image Token，使剪枝具有任务感知能力。
 
-**策略 3：Image Token 优先整块处理**
+**效果（LLaVA-1.5-7B）**：FLOPs 减少 54%，CUDA 时间降低 37%，综合基准准确率保留 97%，在 64 Token 保留数下超越 FastV 约 17.3 个百分点。
 
-Image Token 天然构成一个语义完整的单元（一张图像），将 Image Token 作为独立的"Image Chunk"整块处理，Text Token 按标准 $C$ 分块：
+---
 
-```
-VLM Prefill 流程（Chunked）：
-Chunk 0: [Image Token 0~1023]（整图，1 个 Chunk，占 1 步）
-Chunk 1: [Text Token 0~511]（文本第一块）
-Chunk 2: [Text Token 512~1023]（文本第二块）
-...
-```
+#### Q115-b. Image Token 的 Prefix Caching 可行性
 
-- **优点**：Image KV 一次性生成，后续 Text Chunk 可以 Attend 完整的图像 KV，语义连贯。
-- **代价**：Image Chunk 较大时（N_img = 1024），单步计算时间长，对 Decode 阶段中断时间较大。
+##### 1. 理论可行性
 
-**策略 4：Vision Encoder 预计算 + 异步 Prefill**
+对于纯文本 LLM，Prefix Caching 依赖同一 Token 序列在相同绝对位置产生相同的 KV。Image Token 满足此条件当且仅当：
 
-将 ViT 编码（Vision Encoder 的前向）从 LLM Prefill 解耦，提前在 CPU 或独立 GPU 上完成：
+- 图片内容相同（ViT 编码结果相同）；
+- 图片插入位置（绝对位置 offset）相同。
 
-```
-时间轴：
-  请求到达时：立即启动 ViT 编码（异步，独立 CUDA Stream）
-  调度时：ViT 已完成，Image Features 就绪
-  Prefill 时：直接用 Image Features（跳过 ViT 计算），Prefill 时间缩短
+**RoPE 的影响**：LLM 中的 RoPE 将绝对位置信息编码进 Q/K 向量，而非直接编码进 KV Cache 本身（KV = $W_K x$，位置信息通过 $\text{Re}(e^{im\theta})$ 旋转 Q/K 作用于注意力得分而非 V）。因此，对于 LLaMA 风格的 RoPE，**KV Cache 本身不含位置信息**，相同 Image Token 在不同请求中只要绝对位置相同即可复用 KV Block——与纯文本 Prefix Caching 机制完全一致。
 
-  ViT 编码时间（ViT-L，336×336，H100）≈ 15ms
-  若在请求排队期间完成，对 TTFT 无额外影响
-```
+若图片被插入到不同上下文位置（绝对 offset 改变），其 Image Token 的 Q/K 旋转相位不同，KV Cache **不可跨位置复用**（需重算）。动态插入 RAG 文档会导致后续图片 Token 的绝对 offset 整体偏移，使缓存失效——与纯文本场景的影响机制相同。
 
-**实践建议（综合）：**
+##### 2. VLCache（2025）的实现思路
 
-```
-VLM 服务 Chunked Prefill 配置：
-  - 优先用策略 3（Image 整块 + Text 分块）
-  - Image Chunk 过大时（> 2048 tokens），对 Image Token 也分块
-  - Decode 阶段 TPOT 告警时：
-    ├─ 减小 Text Chunk Size（C：512 → 256）
-    └─ 将 ViT 编码移到异步预处理（策略 4）
-  - 高并发同图场景：
-    └─ 启用 Image KV Prefix Sharing（见 Q115 策略 3）
-```
+VLCache 将 ViT 编码输出（Vision Encoder 特征向量）与 LLM 层 KV Cache 分开存储。对于相同图片的多次查询：
+
+- **ViT 阶段**：直接复用已缓存的 ViT 特征，跳过 ViT 前向（最大收益在于节省 ViT 计算）；
+- **LLM Prefill 阶段**：根据位置是否匹配决定是否复用 KV Block，对不匹配的层按层自适应决定部分重算率。
+
+**实测（Qwen3-VL-8B on H20）**：同一图片被多次查询时，TTFT 降低约 50~70%。
+
+---
+
+#### Q115-c. 多帧视频 VLM 的 KV Cache 管理
+
+**显存压力量化**：以 LLaVA-Video 风格、64 帧 × 256 Token/帧 = 16384 Image Token 为例，对 LLaMA-3 8B GQA（$L=32$，$H_{\text{KV}}=8$，$d=128$，BF16）：
+
+$$M_{\text{KV,video}} = 2 \times 32 \times 8 \times 128 \times 16384 \times 2 \approx 4.3 \text{ GB}$$
+
+单请求即消耗 4.3 GB 显存，远超纯文本场景（1024 Token ≈ 268 MB）。
+
+**时序冗余的利用**：相邻视频帧的 Patch Feature 余弦相似度通常 > 0.95，支持跨帧 Token 合并（ToMe、FrameFusion）或帧级 Eviction（保留关键帧、丢弃冗余帧的 KV）。这两类策略均在以"减少 KV Cache 总 Token 数"为目标的视频 VLM 推理优化文献中有广泛讨论（2024-2025）。
+
+---
+
+### 17.3 VLM 推理的 Prefill 优化
+
+#### Q116. Chunked Prefill 的 Chunk Size 调整策略
+
+##### 1. Image Token 不可拆分的根本原因
+
+标准文本 Chunked Prefill 可在任意 Token 边界切分序列。Image Token 存在以下约束：
+
+**2D 位置编码连续性**：ViT 的 2D 空间 Patch 坐标通过 M-RoPE（Qwen2-VL）或绝对位置嵌入（LLaVA）编码。跨 Chunk 切分会导致同一张图片的 Patch 在不同 Chunk 中以不同绝对位置进入 LLM，破坏空间结构。InternVL 系列使用的图像内相对位置嵌入同样要求整张图的 Token 在同一 Forward 中处理。
+
+**实践结论**：以整张图片（或整个图像 Tile）为最小不可分割单元。Chunk Size 约束变为：
+
+$$C \geq N_{\text{img\_tile}} = \left(\frac{H_{\text{tile}}}{p}\right)^2$$
+
+对 LLaVA-NeXT（$336 \times 336$ Tile，$p=14$）：$C \geq 576$。
+
+对 Qwen2-VL 高分辨率输入（单张 2304 Token）：$C \geq 2304$，远超常规推荐值（512）。
+
+##### 2. 图片感知（Image-aware）Chunking 策略
+
+设请求序列为：$[\text{System Prompt}] + [\text{Image}_1: N_1 \text{ Token}] + [\text{Text}_1] + [\text{Image}_2: N_2 \text{ Token}] + [\text{Text}_2]$
+
+Image-aware Chunking 规则：
+
+1. 文本 Token 可在任意位置切分，正常 Chunk；
+2. 单张图片的所有 Image Token 必须在同一个 Chunk 内，若 $N_i > C$，则为该图片单独分配一个超大 Chunk（$C_i = N_i$）；
+3. 图片 Chunk 与文本 Chunk 交错调度，避免单一超大 Chunk 独占 GPU 导致 Decode 请求的 TPOT 大幅波动。
+
+**对调度器的影响**：调度器需感知每个 Chunk 内 Image Token 数量，与纯文本 Chunked Prefill 的等分逻辑不同，需要基于语义单元（Semantic Unit）的 Chunk 划分。
+
+##### 3. TTFT vs. TPOT 的双向约束
+
+设 Decode 吞吐目标为 TPOT SLO $\tau$（毫秒/Token），则每个 Decode Step 可容忍的 Prefill 抢占时间为 $\tau$。一次 Image Chunk 的前向时延 $T_{\text{img}}$ 需满足：
+
+$$T_{\text{img}} \approx \frac{4 \cdot L \cdot H \cdot d \cdot (S_{\text{prev}} + N_{\text{img}}) \cdot N_{\text{img}}}{\text{GPU TFLOPS}} \leq \tau$$
+
+当 $N_{\text{img}} = 2304$、$S_{\text{prev}} = 0$、LLaMA-3 8B 在 H100 上时，$T_{\text{img}} \approx 50\text{ ms}$，对 TPOT SLO = 50ms 的服务已经压线。需要在此场景下对 TPOT SLO 作出让步或限制单请求最大 Image Token 数。
+
+---
+
+#### Q116-b. vLLM 对 VLM Chunked Prefill 的工程支持现状（2024-2025）
+
+vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal input"列为 P0 任务。核心工程约束：
+
+**约束 1：Image Token 边界的 Placeholder 追踪**。vLLM 引入了精确的多模态 Placeholder 追踪机制（PR \#8346），记录每个 Image Token 块在序列中的起止位置，供 Chunked Prefill 调度器识别不可分割边界。
+
+**约束 2：多模态 Prefix Caching 的 Hash 键设计**。Text Token 的 Prefix Cache 以 Token ID 序列的哈希为键；Image Token 需要以 ViT 编码特征（或原始图像像素哈希）为键。SGLang 的 RadixAttention 已支持 Image Token 的 KV Block 复用，vLLM 在 2025 年陆续跟进。
+
+**约束 3：Vision Encoder 与 LLM Prefill 的异步流水线**。ViT 前向通常在独立的 CUDA Stream（或 CPU Preprocessing）上运行，与 LLM Prefill Stream 并行。设计要点：ViT 输出（Image Embeddings）必须在对应 Image Chunk 进入 LLM Prefill 之前就绪，通过 `cudaEvent` 同步两个 Stream。
+
+---
+
+#### Q116-c. Visual Token Compression 作为 Prefill 加速路径
+
+| 压缩方案                | 代表模型            | 输出 Token 数       | 压缩机制                     | KV Cache 节省 |
+| ------------------- | --------------- | ---------------- | ------------------------ | ----------- |
+| LLaVA MLP 直通（无压缩）   | LLaVA-1.5       | 256（14×14 ViT-L） | 无                        | 基准          |
+| Perceiver Resampler | Flamingo、BLIP-2 | 32~64（固定）        | Cross-Attention 学习聚合     | 75~87.5%    |
+| Q-Former            | InstructBLIP    | 32（固定）           | Query 驱动 Cross-Attention | 87.5%       |
+| Spatial Merge（像素合并） | Qwen2-VL        | 256（4:1 压缩自 ViT） | $2\times 2$ Patch 拼接     | 75%         |
+| FastV（运行时剪枝）        | LLaVA + FastV   | 动态（50~75% 保留）    | Attention Score 剪枝       | 25~50%      |
+
+**精度-速度权衡核心矛盾**：Q-Former / Perceiver Resampler 将 Image Token 固定压缩至 32~64，Decode 阶段 KV Cache 显存大幅降低，但细粒度信息（OCR、精确定位）损失明显。LLaVA MLP 直通保留全部空间信息，但 Decode 阶段 KV Cache 持续膨胀。FastV 等运行时剪枝方案在 Prefill 结束后即减少 KV 占用，兼顾了两者，是当前工程实践中的主流思路。
+
+---
+
+### 17.4 多模态 KV Cache 量化与位置编码
+
+#### Q117-VLM. 多模态位置编码（M-RoPE）的推理影响
+
+##### 1. M-RoPE 的分解结构
+
+Qwen2-VL 的 Multimodal Rotary Position Embedding 将标量位置 $m$ 分解为三个独立维度：
+
+$$\text{文本 Token：} (t, t, t)$$ $$\text{图片 Token：} (t_{\text{offset}}, h_i, w_i)$$
+
+其中 $t_{\text{offset}}$ 为图片在序列中的时序起始位置，$(h_i, w_i)$ 为该 Patch 在图片中的 2D 坐标。RoPE 旋转应用于 Query / Key 的不同通道段：
+
+$$\mathbf{q}_m = \text{concat}\!\left[\mathbf{q}^{(t)} e^{i t_m \theta}, \; \mathbf{q}^{(h)} e^{i h_m \theta}, \; \mathbf{q}^{(w)} e^{i w_m \theta}\right]$$
+
+**对 Prefix Caching 的影响**：Image Token 的 KV 向量 $\mathbf{k}_m = W_K \mathbf{x}_m$ 本身**不含位置信息**（位置仅作用于 Q/K 的注意力得分计算），因此 KV Block 的可复用性取决于两点：
+
+1. $\mathbf{x}_m$（ViT 特征）相同；
+2. LLM 层进行 KV 投影时若采用 RoPE-Key 变体（先旋转再做 $W_K$ 投影），则位置信息嵌入 K 向量，此时绝对位置改变将使 K 向量失效，KV Cache 不可复用。
+
+**标准实现（Llama-style）**：RoPE 作用于 $Q = W_Q x \cdot e^{im\theta}$ 和 $K = W_K x \cdot e^{im\theta}$，K 向量因此含有位置信息。Image Token 在不同请求中的位置 offset 变化时，K 向量需要重算，破坏 Prefix Caching 跨位置复用。这与纯文本场景的机制完全一致，并非 M-RoPE 独有问题。
+
+---
+
+#### Q118-VLM. VLM 中混合模态批处理的 Attention Mask 结构
+
+##### 1. 混合 Causal Mask 设计
+
+VLM 的标准 Attention Mask 规则：
+
+- **图片 Token 之间（同张图）**：全注意力（Bidirectional），ViT 编码阶段已处理空间关系，LLM 层允许图片 Token 相互感知；
+- **图片 Token 对文本 Token**：无注意力（图片 Token 不需要"看到"未来的文本 Token）；
+- **文本 Token 对图片 Token**：可注意力（因果 Mask 仅限制文本→文本的方向性，文本 Token 可以看到在其之前出现的图片 Token）；
+- **文本 Token 之间**：标准 Causal Mask。
+
+以图片 Token 序列 $[I_1, I_2, \ldots, I_N]$ 后接文本 Token $[T_1, T_2, \ldots]$ 为例，完整 Mask 形如：
+
+$$M = \begin{pmatrix} \mathbf{1}_{N \times N} & \mathbf{0}_{N \times L_T} \\ \mathbf{1}_{L_T \times N} & \text{Causal}_{L_T \times L_T} \end{pmatrix}$$
+
+其中 $\mathbf{1}_{N \times N}$ 为全 1 矩阵（图片内全注意力），$\mathbf{0}_{N \times L_T}$ 为零矩阵（图片不看未来文本），$\mathbf{1}_{L_T \times N}$ 表示文本 Token 对所有图片 Token 可见，$\text{Causal}_{L_T \times L_T}$ 为下三角矩阵。
+
+##### 2. FlashAttention 对非标准 Mask 的支持
+
+FlashAttention-2 的 `varlen` 接口通过 `cu_seqlens` 参数区分不同子序列的边界，但对图片 Token 内全注意力的支持需要指定 `causal=False` 区段，目前工程实现通常通过以下方式处理：
+
+- **分段执行**：对图片 Token 段使用 `causal=False` 的 FA 调用，对文本 Token 段使用 `causal=True` 的 FA 调用，最终合并输出；
+- **统一 Causal 近似**：部分实现直接对全序列使用 Causal Mask，图片 Token 内的双向注意力丢失，精度下降但工程简单。
+
+**对 PagedAttention 的影响**：图片 Token 块（连续 KV Block）在 Decode 阶段不再被新的 Token 覆盖，属于静态 KV Block，可标记为"只读"，天然适合 Prefix Caching 的引用计数管理（引用计数永不降为 0 直到请求结束）。
+
+---
 
 ## 第 18 章·参考答案：网络通信与互联
 
