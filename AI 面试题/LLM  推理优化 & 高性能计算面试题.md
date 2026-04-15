@@ -429,34 +429,65 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ---
 
-## 18. 网络通信与互联
-
-### 18.1 集合通信
-
-- **Q117.** AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？
-- **Q118.** Ring-AllReduce 的通信量分析：$N$ 个节点、每个节点数据量 $M$，总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？
-
-### 18.2 通信-计算 Overlap
-
-- **Q119.** Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？
-- **Q120.** NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？
-- **Q121.** NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？
+## 第 18 章·题目列表：网络通信与互联
 
 ---
 
-## 19. 新硬件特性
+### 1. 集合通信
 
-### 19.1 Hopper 架构（H100）
+---
 
-- **Q122.** TMA（Tensor Memory Accelerator）的作用：异步批量数据搬运，解放 CUDA Core 的地址计算负担？
-- **Q123.** Warp Specialization 的思路：将 Warp 分为 Producer（负责数据搬运）和 Consumer（负责计算），形成软件流水？
-- **Q124.** H100 的 FP8 Tensor Core：E4M3 vs. E5M2 的精度-范围权衡？
+**Q117.** AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？
 
-### 19.2 Blackwell 架构（B100 / GB200）
+**Q118.** Ring-AllReduce 的通信量分析：总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？
 
-- **Q125.** NVFP4（FP4 with block-scale FP8）的存储格式：每 16 个 FP4 值共享一个 FP8 Scale Factor，有效位宽约 4.5 bits/weight？
-- **Q126.** GB200 NVL72：72 个 Blackwell GPU 通过 NVLink Switch 全互联，单节点聚合 HBM 约 13.5 TB，适合哪类推理场景？
-- **Q127.** Blackwell 的 FP4 Tensor Core 峰值算力相比 H100 FP8 的提升倍数？
+**Q128.** GPUDirect RDMA 的工作原理：P 节点如何零拷贝地将 KV Cache 直接写入 D 节点的 HBM？标准 RDMA 与 GPUDirect RDMA 的数据路径差异，以及内存注册（Memory Registration）和 RDMA Write 的实现要点？
+
+**Q129.** InfiniBand 网络中 ECMP（等价多路径）与自适应路由（Adaptive Routing）对 MoE All-to-All 通信的影响？为何大规模 MoE 推理集群优先启用自适应路由？
+
+---
+
+### 2. 通信-计算 Overlap
+
+---
+
+**Q119.** Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？
+
+**Q120.** NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？
+
+**Q121.** NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？
+
+---
+
+## 第 19 章·题目列表：新硬件特性
+
+---
+
+### 3. H100 新特性
+
+---
+
+**Q122.** TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？
+
+**Q123.** Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？
+
+**Q124.** H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？
+
+**Q130.** H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理，及其在 FlashAttention-3 中的应用？
+
+---
+
+### 4. Blackwell 新特性
+
+---
+
+**Q125.** NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持：数值格式（E2M1）、块级 FP8 Scale 的必要性、实际平均位宽与压缩比，以及 Blackwell FP4 Tensor Core 的数据流？
+
+**Q126.** GB200 NVL72 系统的硬件规格与推理意义？
+
+**Q127.** NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？
+
+**Q131.** Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源，以及对大规模 TP/MoE EP 推理的意义？
 
 ---
 
