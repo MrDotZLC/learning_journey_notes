@@ -34,7 +34,7 @@
 8. 绘图工具：ExcaliDraw
 9. 笔记工具：obsidian
 10. 科学上网：Clash For Windows
-11. VPN：[NaiU地址发布页](https://naiu.369.cyou/)
-12. AI工具：Chatgpt
+11. VPN：[狗狗加速](https://go.dginv.click/#/register?code=ouzwJ6Qk)、[NaiU](https://0416.cdnnaiu.top:9980/#/register?code=k1BsSzHm)
+12. AI工具：Chatgpt、Gemini、Claude
 13. bilibili视频网站
 14. 小红书
