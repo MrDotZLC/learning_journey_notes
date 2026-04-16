@@ -86,7 +86,6 @@
 $$M_{\text{KV}} = 2 \times L \times H \times d \times S \times \text{sizeof(dtype)}$$
 
 - **Q31.** 为什么传统框架的 KV Cache 存在严重的内存碎片？Internal Fragmentation 与 External Fragmentation 分别指什么？
-- **Q30-b.** GQA / MQA 对 KV Cache 显存的节省推导：设 MHA 的 KV 头数为 $H$，GQA 分 $G$ 组，每组共享一对 KV 头，缩减比为 $G/H$；以 LLaMA-3 70B（$H=64$，$G=8$）代入 Q30 的公式，对比 MHA 节省 87.5%，说明 GQA 成为工程默认选择的根本原因。（与 Q27 形成完整闭环）
 - **Q30-c.** MLA（Multi-head Latent Attention）的 KV Cache 压缩比推导：缓存低秩向量 $c$（维度 $d_c$）而非展开的 $K, V$，压缩比为 $d_c / (H \cdot d)$；DeepSeek-V2 中 $d_c = 512$，$H \cdot d = 16384$，压缩比约 $1/32$；与 GQA 路径对比，分析两种方案的工程取舍。（与第 3 章 Q28、Q30 形成闭环）
 - **Q30-d.** Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异：Prefill 阶段 $S_{\text{prompt}}$ 个 Token 的 KV 在单次前向中批量写入，显存在 Prefill 结束时跳变至峰值；Decode 阶段每步追加 1 个 Token，线性递增。两阶段对 Block 分配策略的要求不同，说明此差异如何驱动 Chunked Prefill（Q39）的设计。
 
