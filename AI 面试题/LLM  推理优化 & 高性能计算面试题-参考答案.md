@@ -9448,6 +9448,7 @@ cuTensorMapEncodeTiled(
 
 **Kernel 内的 TMA 加载（单条 PTX 指令加载整个 Tile）：**
 
+{% raw %} `// 解决github-pages中的Liquid 解析错误`
 ```cuda
 __shared__ alignas(128) half smem_tile[Bm][Bk];
 __shared__ uint64_t tma_barrier;
@@ -9473,6 +9474,7 @@ __mbarrier_wait(&tma_barrier, phase);
 // 使用 smem_tile 执行 WGMMA
 wgmma::mma_async(smem_tile, ...);
 ```
+{% endraw %} `// 解决github-pages中的Liquid 解析错误`
 
 **TMA vs `cp.async` 对比：**
 
