@@ -1,13 +1,19 @@
 ---
-tags:
-- LLM
-- 推理优化
-- NLP
-- 深度学习
-- 工程实践 aliases:
-- Decode策略
-- 解码策略
-- LLM推理 created: 2025-03-09 updated: 2025-03-09 status: 完整
+tags:  
+- LLM  
+- 推理优化  
+- NLP  
+- 深度学习  
+- 工程实践  
+  
+aliases:  
+- Decode策略  
+- 解码策略  
+- LLM推理  
+  
+created: 2025-03-09  
+updated: 2025-03-09  
+status: 完整
 ---
 > [!abstract] 概述 本文系统梳理自回归语言模型的解码策略，涵盖核心原理、主流算法、工程优化与前沿研究，适合 LLM 推理工程师与研究者参考。
 ## 目录
