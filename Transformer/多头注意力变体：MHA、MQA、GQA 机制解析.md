@@ -309,7 +309,7 @@ Up-projection 在推理时按需执行，不占用持久化 Cache。
 
 **完整注意力计算**
 
-$$ \text{head}_i = \text{Softmax}!\left(\frac{Q_i K_i^\top}{\sqrt{d_h}}\right) V_i $$
+$$ \text{head}_i = \text{Softmax}\!\left(\frac{Q_i K_i^\top}{\sqrt{d_h}}\right) V_i $$
 
 $$ \text{MLA}(X) = \text{Concat}(\text{head}_1, \ldots, \text{head}_H), W^O $$
 
