@@ -45,7 +45,7 @@ $$E \approx \sum_i h_i ||\epsilon_i||^2$$
 
 ## 三、 核心算法：重参数化与 $\alpha$ 搜索机制
 
-AWQ 不通过梯度下降修改权重，而是通过**等价缩放（Equivalent Scaling）**来优化量化器的动态范围。
+AWQ 不通过梯度下降修改权重，而是通过**等价缩放（Equivalent Scaling）** 来优化量化器的动态范围。
 
 ### 3.1 数学等价性证明
 
