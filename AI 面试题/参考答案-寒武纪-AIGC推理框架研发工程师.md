@@ -234,7 +234,7 @@ $$ N_{\text{GPU}} = N_{TP} \times N_{PP} \times N_{DP} $$
 
 将浮点数 $x \in \mathbb{R}$ 映射到整数 $x_q \in \mathbb{Z}$：
 
-$$ x_q = \text{clamp}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,\ q_{\min},\ q_{\max}\right) $$
+$$ x_q = \text{clamp}\!\left(\left\lfloor \frac{x}{s} \right\rceil + z,\ q_{\min},\ q_{\max}\right) $$
 
 反量化：
 
