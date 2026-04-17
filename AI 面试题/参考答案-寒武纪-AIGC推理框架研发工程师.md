@@ -22,12 +22,12 @@
 
 **差异化要求**（区别于训练框架研发）
 
-| 维度    | 推理框架                   | 训练框架          |
-| ----- | ---------------------- | ------------- |
-| 延迟敏感度 | 极高（TTFT/TPOT SLA）      | 较低（吞吐优先）      |
-| 内存模式  | KV Cache 动态管理          | 梯度/优化器状态静态分配  |
-| 批处理模式 | Dynamic batching       | Static batch  |
-| 主要瓶颈  | Memory bandwidth bound | Compute bound |
+|维度|推理框架|训练框架|
+|---|---|---|
+|延迟敏感度|极高（TTFT/TPOT SLA）|较低（吞吐优先）|
+|内存模式|KV Cache 动态管理|梯度/优化器状态静态分配|
+|批处理模式|Dynamic batching|Static batch|
+|主要瓶颈|Memory bandwidth bound|Compute bound|
 
 ---
 

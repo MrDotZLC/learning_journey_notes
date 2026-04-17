@@ -280,61 +280,224 @@ $$G = \frac{H}{8}, \quad G \bmod P = 0$$
 
 ## 6. MLA（Multi-head Latent Attention）
 
-**论文**：DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model — DeepSeek, 2024
+> **论文**：DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model — DeepSeek, 2024
 
 **背景**：GQA 通过减少头数压缩 Cache，但头数减少直接削弱模型的多头表达能力，在超大规模模型（$H=128$）上质量代价显著。MLA 换一个压缩维度：不减少头数，而是对 K/V 做低秩压缩，缓存低维隐向量，推理时按需还原，在极端压缩比下保留完整头数的表达能力。
 
+---
+
 ### 6.1 压缩与还原流程
 
-**Down-projection（压缩）：**
+**Down-projection（压缩）**
 
-$$c_t^{KV} = W^{DKV} h_t \in \mathbb{R}^{d_c}, \quad d_c \ll d_{\text{model}}$$
+$$ c_t^{KV} = W^{DKV} h_t \in \mathbb{R}^{d_c}, \quad d_c \ll d_{\text{model}} $$
 
-$h_t$：第 $t$ 个 token 的隐状态，$W^{DKV}$：down-projection 矩阵，$d_c$：压缩维度
+- $h_t$：第 $t$ 个 token 的隐状态
+- $W^{DKV} \in \mathbb{R}^{d_c \times d_{\text{model}}}$：down-projection 矩阵
+- $d_c$：压缩维度（KV latent dimension）
 
-**Up-projection（还原）：**
+Cache 中仅存储压缩向量 $c_t^{KV}$，而非完整的 $K_t$、$V_t$，这是 MLA 节省内存的核心。
 
-$$K_t = W^{UK} c_t^{KV} \in \mathbb{R}^{H \cdot d_h}, \quad V_t = W^{UV} c_t^{KV} \in \mathbb{R}^{H \cdot d_h}$$
+**Up-projection（还原）**
 
-完整注意力计算：
+$$ K_t = W^{UK}c_t^{KV} \in \mathbb{R}^{H \cdot d_h} , \quad V_t = W^{UV}c_t^{KV} \in \mathbb{R}^{H \cdot d_h} $$
 
-$$\text{head}_i = \text{softmax}\left(\frac{Q_i K_i^\top}{\sqrt{d_h}}\right) V_i$$
+- $W^{UK},\ W^{UV} \in \mathbb{R}^{(H \cdot d_h) \times d_c}$：up-projection 矩阵
+- $H$：注意力头数，$d_h$：每头维度
 
-### 6.2 Q 侧低秩压缩
+Up-projection 在推理时按需执行，不占用持久化 Cache。
 
-$$c_t^Q = W^{DQ} h_t \in \mathbb{R}^{d_c'}, \quad Q_t = W^{UQ} c_t^Q \in \mathbb{R}^{H \cdot d_h}$$
+**完整注意力计算**
 
-$c_t^Q$ **不需要缓存**，每步重新计算，仅用于减少 Q 投影参数量。
+$$ \text{head}_i = \text{Softmax}!\left(\frac{Q_i K_i^\top}{\sqrt{d_h}}\right) V_i $$
 
-### 6.3 Decoupled RoPE
+$$ \text{MLA}(X) = \text{Concat}(\text{head}_1, \ldots, \text{head}_H), W^O $$
 
-低秩压缩与 RoPE 存在根本冲突：Cache 存压缩向量 $c^{KV}$，还原出的 K 无法正确注入历史位置的 RoPE。解法是引入独立的带位置编码的 K：
-
-$$k_t = [k_t^C;\ k_t^R], \quad k_t^R = \text{RoPE}(W^{KR} h_t,\ t)$$
-
-实际 Cache 存储：
-
-$$\text{Cache per token} = c_t^{KV} \oplus k_t^R$$
-
-### 6.4 Absorption Trick（推理加速）
-
-Up-projection 矩阵 $W^{UK}$、$W^{UV}$ 可与 Q 投影提前合并，注意力在压缩空间中直接计算，无需显式还原完整 K/V：
-
-$$Q_i (W^{UK} C)^\top = (Q_i W_i^{UK,\top}) C^\top = \tilde{Q}_i C^\top$$
-
-### 6.5 Cache 大小对比（DeepSeek-V2，$H=128$，$d_h=128$，$d_c=512$，$d_h^R=64$）
-
-|机制|Cache per token per layer|相对 MHA|
-|---|---|---|
-|MHA|$2 \times 128 \times 128 = 32768$|$1.0\times$|
-|GQA（G=8）|$2 \times 8 \times 128 = 2048$|$1/16$|
-|MLA|$512 + 128 \times 64 = 8704$|$\approx 1/3.8$|
-
-MLA 压缩比不及 GQA，但保留完整 $H=128$ 头表达能力。
+形式上与 MHA 完全一致，差异仅在于 $K_i$、$V_i$ 来自低秩还原而非直接投影。
 
 ---
 
-## 7. 推理实现细节
+### 6.2 Q 侧低秩压缩
+
+类比 KV 侧，Q 的投影同样可做低秩分解以减少参数量：
+
+$$ c_t^Q = W^{DQ}, h_t \in \mathbb{R}^{d_c'}, \quad Q_t = W^{UQ}, c_t^Q \in \mathbb{R}^{H \cdot d_h} $$
+
+- $d_c'$：Q 侧压缩维度（可与 $d_c$ 不同）
+- $W^{DQ} \in \mathbb{R}^{d_c' \times d_{\text{model}}}$，$W^{UQ} \in \mathbb{R}^{(H \cdot d_h) \times d_c'}$
+
+**关键区别**：$c_t^Q$ **不需要缓存**，每个 decode step 重新计算，仅用于减少 Q 投影的参数量（将 $H \cdot d_h \times d_{\text{model}}$ 的矩阵分解为两个小矩阵之积），对 Cache 大小无影响。
+
+---
+
+### 6.3 Decoupled RoPE
+
+#### 6.3.1 冲突根源
+
+RoPE（Rotary Position Embedding）将位置信息注入 Q、K：
+
+$$ \text{RoPE}(x,\ t) = R_t \cdot x $$
+
+其中 $R_t$ 是依赖位置 $t$ 的旋转矩阵。
+
+若将 RoPE 应用于还原后的 $K_t$，则：
+
+$$ K_t^{\text{RoPE}} = R_t \cdot W^{UK}, c_t^{KV} $$
+
+Cache 中存的是 $c_t^{KV}$（与位置无关），历史位置 $t' < t$ 对应的 $R_{t'}$ 无法在当前 step 复现，导致位置编码错误。
+
+**结论**：直接对还原后的 K 注入 RoPE 与低秩 Cache 方案不相容。
+
+#### 6.3.2 解耦方案
+
+引入独立的 RoPE Key 分量 $k_t^R$，与压缩 Key $k_t^C$（还原自 $c_t^{KV}$）拼接：
+
+$$ k_t^C = W^{UK}, c_t^{KV} \in \mathbb{R}^{H \cdot d_h^C} $$
+
+$$ k_t^R = \text{RoPE}(W^{KR}, h_t,\ t) \in \mathbb{R}^{H \cdot d_h^R} $$
+
+$$ k_t = \left[k_t^C;\ k_t^R\right] \in \mathbb{R}^{H \cdot (d_h^C + d_h^R)} $$
+
+对应地，Q 侧也拆分为两部分：
+
+$$ q_t = \left[q_t^C;\ q_t^R\right], \quad q_t^R = \text{RoPE}(W^{QR}, c_t^Q,\ t) $$
+
+注意力计算时：
+
+$$ \text{score}_{t,t'} = \frac{(q_t^C)^\top k_{t'}^C + (q_t^R)^\top k_{t'}^R}{\sqrt{d_h^C + d_h^R}} $$
+
+**实际 Cache 存储**（每个 token）：
+
+$$ \text{Cache per token} = c_t^{KV} \oplus k_t^R $$
+
+即低秩压缩向量 $c_t^{KV} \in \mathbb{R}^{d_c}$ 与 RoPE Key $k_t^R \in \mathbb{R}^{H \cdot d_h^R}$ 的拼接。$k_t^C$ 在每步推理时从 $c_t^{KV}$ 即时还原，无需缓存。
+
+---
+
+### 6.4 Absorption Trick（推理加速）
+
+#### 6.4.1 动机
+
+朴素实现中，每个 decode step 需要对所有历史 token 执行 up-projection：
+
+$$ K_{\text{hist}} = W^{UK}, C_{\text{hist}} \in \mathbb{R}^{T_{\text{hist}} \times H \cdot d_h} $$
+
+当历史长度 $T_{\text{hist}}$ 很大时，这一步计算量和内存访问量显著。
+
+#### 6.4.2 矩阵吸收
+
+注意力得分的计算路径如下（以第 $i$ 个头为例，忽略 RoPE 部分）：
+
+$$ \text{score} = Q_i K_i^\top = (W_i^{UQ}, c_t^Q)(W_i^{UK}, C)^\top $$
+
+调整结合顺序：
+
+$$ = \underbrace{(c_t^Q)^\top (W_i^{UQ})^\top W_i^{UK}}_{\tilde{q}_i^\top \in \mathbb{R}^{1 \times d_c}} C^\top $$
+
+令 $\tilde{W}_i^{QK} = (W_i^{UQ})^\top W_i^{UK} \in \mathbb{R}^{d_c' \times d_c}$，则：
+
+$$ \tilde{q}_i = \tilde{W}_i^{QK}, c_t^Q \in \mathbb{R}^{d_c} $$
+
+$$ \text{score}_i = \tilde{q}_i^\top C^\top $$
+
+注意力直接在压缩空间 $\mathbb{R}^{d_c}$ 中计算，**无需显式还原完整 $K$ 矩阵**。
+
+类似地，输出端：
+
+$$ O_i = \text{Softmax}(\text{score}_i), V_i = \text{Softmax}(\text{score}_i), W_i^{UV}, C $$
+
+令 $\tilde{o}_i = \text{Softmax}(\text{score}_i), C$，再左乘 $W_i^{UV}$，V 的还原同样被吸收入矩阵乘法。
+
+**合并后的矩阵**：
+
+$$ \tilde{W}_i^{QK} = (W_i^{UQ})^\top W_i^{UK}, \quad \tilde{W}_i^{OV} = W_i^{UV} $$
+
+这些矩阵可在**部署前预计算**，推理时不产生额外开销。
+
+#### 6.4.3 加速效果
+
+|实现方式|KV Cache 读取量|注意力计算维度|
+|---|---|---|
+|朴素（先还原）|$T \times H \cdot d_h$|$H \times d_h$|
+|Absorption（直接压缩空间）|$T \times d_c$|$d_c$|
+
+$d_c \ll H \cdot d_h$（DeepSeek-V2 中 $d_c = 512$，$H \cdot d_h = 128 \times 128 = 16384$），内存带宽消耗减少约 $32\times$。
+
+---
+
+### 6.5 Cache 大小对比
+
+以 DeepSeek-V2 参数为例：$H=128$，$d_h=128$，$d_c=512$，$d_h^R=64$，FP16（2 bytes/element）。
+
+#### 6.5.1 各机制 Cache per token per layer
+
+**MHA**
+
+$$ \text{Cache}_{\text{MHA}} = 2 \times H \times d_h \times 2\ \text{bytes} = 2 \times 128 \times 128 \times 2 = 65{,}536\ \text{bytes} $$
+
+（K 和 V 各 $H \times d_h$，FP16）
+
+**GQA（$G=8$ KV heads）**
+
+$$ \text{Cache}_{\text{GQA}} = 2 \times G \times d_h \times 2\ \text{bytes} = 2 \times 8 \times 128 \times 2 = 4{,}096\ \text{bytes} $$
+
+**MLA**
+
+$$ \text{Cache}_{\text{MLA}} = \underbrace{d_c \times 2}_{\text{压缩向量}\ c_t^{KV}} + \underbrace{H \times d_h^R \times 2}_{\text{RoPE Key}\ k_t^R} $$
+
+$$ = 512 \times 2 + 128 \times 64 \times 2 = 1{,}024 + 16{,}384 = 17{,}408\ \text{bytes} $$
+
+#### 6.5.2 对比表
+
+|机制|Cache per token per layer（bytes）|相对 MHA|
+|---|---|---|
+|MHA|65,536|$1.0\times$|
+|GQA（$G=8$）|4,096|$\approx 1/16$|
+|MLA|17,408|$\approx 1/3.8$|
+
+**注**：MLA 的 Cache 压缩比不及 GQA（$1/3.8$ vs $1/16$），但 MLA 保留完整 $H=128$ 头的表达能力，GQA 实际 KV head 数仅为 8；在模型质量与 Cache 效率的 Pareto 前沿上，MLA 处于不同的位置。
+
+#### 6.5.3 DeepSeek-V2 整模型 Cache 估算
+
+DeepSeek-V2 共 60 层（$L=60$），以 MLA Cache per token 估算：
+
+$$ \text{KV Cache per token} = 17{,}408 \times 60 = 1{,}044{,}480\ \text{bytes} \approx 1\ \text{MB/token} $$
+
+与等规模 MHA 模型（$\approx 3.9\ \text{MB/token}$）相比，单 token Cache 降低约 $3.8\times$，可在相同显存下支持约 $3.8\times$ 更长的上下文或更大的并发批量。
+
+---
+
+### 6.6 MLA 与 GQA/MQA 的本质差异
+
+|维度|MHA|GQA|MQA|MLA|
+|---|---|---|---|---|
+|KV head 数|$H$|$G$（$1 < G < H$）|1|$H$（逻辑上）|
+|Cache 压缩方式|无|减少头数|极端减少头数|低秩压缩 KV|
+|Cache 维度|$2 H d_h$|$2 G d_h$|$2 d_h$|$d_c + H d_h^R$|
+|多头表达能力|完整|降低|最低|完整（还原后）|
+|位置编码方式|标准 RoPE|标准 RoPE|标准 RoPE|Decoupled RoPE|
+|推理端需 Up-projection|否|否|否|是（或 Absorption）|
+|训练额外开销|无|无|无|少量（额外投影矩阵）|
+
+---
+
+### 6.7 实现要点（推理引擎视角）
+
+**Cache 布局**
+
+与 MHA/GQA 不同，MLA 的 Cache 存储两类异构数据：压缩向量 $c_t^{KV}$（维度 $d_c$）与 RoPE Key $k_t^R$（维度 $H d_h^R$）。推理框架需为二者分别分配 PagedAttention block，或拼接为统一布局后按偏移索引。
+
+**Absorption 的前提**
+
+Absorption Trick 要求 $W^{UQ}$、$W^{UK}$、$W^{UV}$ 在部署前已合并，且不能与 LoRA 等运行时权重修改方案直接组合（合并后矩阵会失效）。
+
+**FlashAttention 兼容性**
+
+压缩空间注意力（$\tilde{q}_i^\top C^\top$）的 head 维度为 $d_c$（512），大于标准 $d_h$（128），FlashAttention kernel 的 tile 策略需相应调整；部分实现回退到标准 GEMM 路径。
+
+**Quantization**
+
+$c_t^{KV}$ 的数值分布不同于原始 K/V，FP8/INT8 量化需独立校准；$k_t^R$ 的分布与 RoPE 旋转后的 K 一致，可复用 GQA 量化方案。## 7. 推理实现细节
 
 ### 7.1 GQA 的 KV Expand：naive vs zero-copy
 
