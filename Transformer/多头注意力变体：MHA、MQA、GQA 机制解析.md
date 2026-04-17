@@ -342,7 +342,7 @@ $$ \text{RoPE}(x,\ t) = R_t \cdot x $$
 
 若将 RoPE 应用于还原后的 $K_t$，则：
 
-$$ K_t^{\text{RoPE}} = R_t \cdot W^{UK}, c_t^{KV} $$
+$$ K_t^{\text{RoPE}} = R_t \cdot W^{UK} c_t^{KV} $$
 
 Cache 中存的是 $c_t^{KV}$（与位置无关），历史位置 $t' < t$ 对应的 $R_{t'}$ 无法在当前 step 复现，导致位置编码错误。
 
