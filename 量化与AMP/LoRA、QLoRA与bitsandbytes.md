@@ -4,8 +4,8 @@ Aghajanyan 等人指出，预训练大语言模型（LLM）处于严重的过参
 核心推论：
 $$W \in \mathbb{R}^{d \times k}  
 \quad \Rightarrow \quad  
-\Delta W \approx AB,; r \ll \min(d,k) $$ 
-无需全量更新权重矩阵，仅需学习低秩增量 (\Delta W) 即可逼近全参数微调（Full Finetuning, FFT）效果。
+\Delta W \approx AB,\; r \ll \min(d,k) $$ 
+无需全量更新权重矩阵，仅需学习低秩增量 ($\Delta W$) 即可逼近全参数微调（Full Finetuning, FFT）效果。
 ## **0.2 显存墙 (Memory Wall) 瓶颈**
 FFT 显存占用来源：
 - 模型权重 (Weights)
@@ -14,12 +14,12 @@ FFT 显存占用来源：
 - 前向激活值 (Activations)
 FP16 + AdamW：
 
-|组件|显存|
-|---|---|
-|权重|(P \times 2) bytes|
-|梯度|(P \times 2)|
-|Adam m|(P \times 4)|
-|Adam v|(P \times 4)|
+| 组件     | 显存                   |
+| ------ | -------------------- |
+| 权重     | ($P \times 2$) bytes |
+| 梯度     | ($P \times 2$)       |
+| Adam m | ($P \times 4$)       |
+| Adam v | ($P \times 4$)       |
 $$\mathcal{M}_{total} \approx P \times 12 \text{ bytes}$$
 7B 示例：
 $$7 \times 10^9 \times 12 \approx 84\text{ GB (不含 Activations)}$$
@@ -32,8 +32,8 @@ $$7 \times 10^9 \times 12 \approx 84\text{ GB (不含 Activations)}$$
 $$W_0 \in \mathbb{R}^{d \times k}$$
 低秩增量参数化：
 $$\Delta W = sAB$$
-$$A \in \mathbb{R}^{d \times r},;  
-B \in \mathbb{R}^{r \times k},;  
+$$A \in \mathbb{R}^{d \times r},\;  
+B \in \mathbb{R}^{r \times k},\;  
 r \ll \min(d,k)  $$
 缩放因子：
 $$s = \frac{\alpha}{r}$$
