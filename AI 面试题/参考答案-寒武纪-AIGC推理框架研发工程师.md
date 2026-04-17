@@ -49,7 +49,7 @@
 
 **Prefix Caching / RadixAttention**：对共享前缀的请求复用 KV Cache，减少重复计算。
 
-**MQA / GQA / MLA**：减少 KV head 数量，直接压缩 KV Cache 体积。
+	**MQA / GQA / MLA**：减少 KV head 数量，直接压缩 KV Cache 体积。
 
 ### 2.3 调度与服务优化
 

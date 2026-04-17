@@ -352,7 +352,7 @@ Cache 中存的是 $c_t^{KV}$（与位置无关），历史位置 $t' < t$ 对�
 
 引入独立的 RoPE Key 分量 $k_t^R$，与压缩 Key $k_t^C$（还原自 $c_t^{KV}$）拼接：
 
-$$ k_t^C = W^{UK}, c_t^{KV} \in \mathbb{R}^{H \cdot d_h^C} $$
+$$ k_t^C = W^{UK} c_t^{KV} \in \mathbb{R}^{H \cdot d_h^C} $$
 
 $$ k_t^R = \text{RoPE}(W^{KR}, h_t,\ t) \in \mathbb{R}^{H \cdot d_h^R} $$
 
