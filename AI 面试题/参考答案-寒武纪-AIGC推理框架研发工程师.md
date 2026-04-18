@@ -417,17 +417,17 @@ HTTP 请求到达 `AsyncLLMEngine`，转换为 `SequenceGroup`（含 1 个或多
 
 Transformer 每层存储 K 和 V 各一个向量，对于 GQA 模型：
 
-$$ \text{KV per token per layer} = 2 \times N_{kv_heads} \times d_{head} \times \text{dtype_bytes} $$
+$$ \text{KV per token per layer} = 2 \times N_{kv\_heads} \times d_{head} \times \text{dtype\_bytes} $$
 
 其中：
 
 - $N_{kv_heads}$：KV head 数量（GQA 下 $< N_{heads}$，MQA 下 $= 1$）
 - $d_{head} = d_{model} / N_{heads}$：每个 head 的维度
-- $\text{dtype_bytes}$：FP16 = 2 bytes，FP8 = 1 byte，INT8 = 1 byte
+- $\text{dtype\_bytes}$：FP16 = 2 bytes，FP8 = 1 byte，INT8 = 1 byte
 
 整个模型（$L$ 层）单 token 的 KV Cache：
 
-$$ \text{KV per token} = 2 \times N_{kv_heads} \times d_{head} \times L \times \text{dtype_bytes} $$
+$$ \text{KV per token} = 2 \times N_{kv\_heads} \times d_{head} \times L \times \text{dtype\_bytes} $$
 
 ### 9.2 具体示例：LLaMA-3 8B
 
@@ -452,11 +452,11 @@ $$ \text{Total KV Cache} = B \times S \times 128 \text{ KB} $$
 
 vLLM 将 KV Cache 切分为大小固定的 block（默认 `block_size = 16` tokens）：
 
-$$ \text{block size (bytes)} = 2 \times N_{kv_heads} \times d_{head} \times L \times \text{dtype_bytes} \times \text{block_size_tokens} $$
+$$ \text{block size (bytes)} = 2 \times N_{kv\_heads} \times d_{head} \times L \times \text{dtype\_bytes} \times \text{block\_size\_tokens} $$
 
 GPU KV Cache 总 block 数由启动时根据剩余 GPU 显存自动计算：
 
-$$ N_{\text{blocks}} = \left\lfloor \frac{\text{GPU Memory} \times \text{gpu_memory_utilization} - \text{Model Weights} - \text{Activations}}{\text{block size (bytes)}} \right\rfloor $$
+$$ N_{\text{blocks}} = \left\lfloor \frac{\text{GPU Memory} \times \text{gpu\_memory\_utilization} - \text{Model Weights} - \text{Activations}}{\text{block size (bytes)}} \right\rfloor $$
 
 `gpu_memory_utilization` 默认 0.90，即预留 10% 显存供 activation 等使用。
 
