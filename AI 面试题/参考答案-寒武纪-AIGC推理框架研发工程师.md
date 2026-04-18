@@ -452,7 +452,7 @@ $$ \text{Total KV Cache} = B \times S \times 131{,}072 \text{ bytes} $$
 
 vLLM 将 KV Cache 切分为大小固定的 block（默认 `block_size = 16` tokens）：
 
-$$ \text{block size (bytes)} = 2 \times N_{kv\_heads} \times d_{head} \times L \times \text{dtype\_bytes} \times \text{block\_size\_tokens} $$
+$$ \text{block size (bytes)} = 2 \times N_{kv\_heads} \times d_{head} \times \text{dtype\_bytes} \times \text{block\_size\_tokens} $$
 
 GPU KV Cache 总 block 数由启动时根据剩余 GPU 显存自动计算：
 
