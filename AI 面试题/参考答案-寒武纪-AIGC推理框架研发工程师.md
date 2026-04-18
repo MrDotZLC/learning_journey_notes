@@ -310,7 +310,7 @@ $$ \hat{p}(x_{t+k} \mid x_{<t}) = \text{MTPHead}_k(h_t) $$
 
 DeepSeek-V3 采用的 MTP 方案中，每个额外 head 由独立的 Transformer block 构成，共享 embedding 层，各 head 预测深度递增的 token：
 
-$$ \text{Head}_k: \quad \tilde{h}^{(k)}_t = \text{TransformerBlock}_k!\left(\text{concat}(h_t,\ \text{Emb}(x_{t+k-1}))\right) $$
+$$ \text{Head}_k: \quad \tilde{h}^{(k)}_t = \text{TransformerBlock}_k\!\left(\text{concat}(h_t,\ \text{Emb}(x_{t+k-1}))\right) $$
 
 ### 7.3 训练目标
 
