@@ -440,13 +440,13 @@ $$ \text{KV per token} = 2 \times N_{kv\_heads} \times d_{head} \times L \times 
 |$d_{head}$|128|
 |dtype|FP16（2 bytes）|
 
-$$ \text{KV per token} = 2 \times 8 \times 128 \times 32 \times 2 = 131{,}072 \text{ bytes} = 128 \text{ KB} $$
+$$ \text{KV per token} = 2 \times 8 \times 128 \times 32 \times 2 = 131{,}072 \text{ bytes}$$
 
 若同时服务 $B$ 个请求，每个请求最大序列长度 $S$：
 
-$$ \text{Total KV Cache} = B \times S \times 128 \text{ KB} $$
+$$ \text{Total KV Cache} = B \times S \times 131{,}072 \text{ bytes} $$
 
-例：$B=100$，$S=4096$：$100 \times 4096 \times 128 \text{ KB} = 52{,}428{,}800 \text{ KB} \approx 50 \text{ GB}$
+例：$B=100$，$S=4096$：$\frac{100 \times 4096 \times 131{,}072 \text{ bytes}} {10^9}  \approx 53.69 \text{ GB}$
 
 ### 9.3 vLLM 的 Block 管理
 
