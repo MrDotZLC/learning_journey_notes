@@ -589,7 +589,7 @@ $$ Q_i = Q[\cdot, i \cdot d_h : (i+1) \cdot d_h], \quad d_h = d_{model} / h $$
 
 **单头注意力**：
 
-$$ \text{Attention}(Q_i, K_i, V_i) = \text{Softmax}!\left(\frac{Q_i K_i^T}{\sqrt{d_h}}\right) V_i $$
+$$ \text{Attention}(Q_i, K_i, V_i) = \text{Softmax}\!\left(\frac{Q_i K_i^T}{\sqrt{d_h}}\right) V_i $$
 
 除以 $\sqrt{d_h}$ 是为了防止点积值随维度增大而方差过大，导致 Softmax 进入饱和区梯度消失。
 
