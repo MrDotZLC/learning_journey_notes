@@ -73,6 +73,7 @@ void sgemm_v1_naive(const float *A, const float *B, float *C, int M, int N,
 ---
 
 ### 2.2 sgemm_v1_shared_memory_tile
+#### 2.2.1 方案分析
 
 **Naive 访存：** tile 大小 $T \times T$ 为例，朴素矩阵乘会从全局内存 GM 中读同一元素 $2K$ 次。
 **Shared Memory Tile 共享内存：** block中每个线程搬运 $A$ 和 $B$ 一些元素到共享内存，每个元素只从 GM 中读取 1 次，所有线程共用。假设 Block 有 $T^2$ 个线程，沿 $K$ 轴循环 $K/T$ 次，每次搬一对 Tile。
@@ -84,3 +85,117 @@ $$ \text{Naive：} \quad \text{reads} = 2 \cdot M \cdot N \cdot K $$
 $$ \text{Tiling：} \quad \text{reads} = 2 \cdot M \cdot N \cdot K \cdot \frac{1}{T} \cdot \underbrace{T}_{\text{tile内每元素被}T\text{个线程复用}} = \frac{2MNK}{T} $$
 
 每个元素从 Global Memory 只读一次，但在 smem 里被复用 $T$ 次，Global Memory 访问量降低为原来的 $\dfrac{1}{T}$。
+#### 2.2.2 代码
+
+```CUDA
+#include "gemm.h"
+
+// 策略：block tile = 32x32，每线程计算 C 的一个元素
+//       A/B tile 协作搬入 smem，每元素 Global Memory 只读一次
+//       Global Memory 访问量从 O(MNK) 降至 O(MNK/T)
+
+static constexpr int TILE = 32;
+
+__global__ void sgemm_v2_smem_kernel(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float*       __restrict__ C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    // 全局索引
+    const int block_row = blockIdx.y * TILE;
+    const int block_col = blockIdx.x * TILE;
+
+    // block 内线程索引
+    const int ty = threadIdx.y;
+    const int tx = threadIdx.x;
+
+    // C 的元素索引
+    const int row = block_row + ty;
+    const int col = block_col + tx;
+    
+    __shared__ float smem_A[TILE][TILE];
+    __shared__ float smem_B[TILE][TILE];
+
+    float acc = 0.f;
+
+    // 沿 K 轴分 tile 循环
+    for (int t = 0; t < (K + TILE - 1) / TILE; t++) {
+        // 搬运 A Tile
+        int a_row = block_row + ty;
+        int a_col = t * TILE + tx;
+        smem_A[ty][tx] = (a_row < M && a_col < K) 
+                            ? A[a_row * K + a_col] 
+                            : 0.f;
+
+        // 搬运 B Tile
+        int b_row = t * TILE + ty;
+        int b_col = block_col + tx;
+        smem_B[ty][tx] = (b_row < K && b_col < N) 
+                            ? B[b_row * N + b_col]
+                            : 0.f; 
+
+        __syncthreads();
+
+        // 计算 C Tile 的一个元素
+        #pragma unroll
+        for (int k = 0; k < TILE; k++) {
+            acc += smem_A[ty][k] * smem_B[k][tx];
+        }
+
+        // 防止部分线程先执行后续迭代，导致 smem 被覆盖
+        __syncthreads();
+    }
+
+    // 写回 C
+    if (row < M && col < N) {
+        C[row * N + col] = alpha * acc + beta * C[row * N + col];
+    }
+}
+
+void sgemm_v2_smem(
+    const float* A, const float* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    dim3 block(TILE, TILE);   // 32x32 = 1024 线程/block
+    dim3 grid((N + TILE - 1) / TILE,
+              (M + TILE - 1) / TILE);
+    sgemm_v2_smem_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
+    CUDA_CHECK_LAST();
+}
+```
+
+#### 2.2.3 数据分析
+
+|M=N=K|v1 latency|v2 latency|v2/v1|
+|---|---|---|---|
+|256|0.570ms|0.837ms|1.47x 慢|
+|512|4.181ms|6.098ms|1.46x 慢|
+|1024|38.88ms|81.46ms|2.10x 慢|
+|2048|499.7ms|646.3ms|1.29x 慢|
+|4096|3988ms|5101ms|1.28x 慢|
+
+v2 在所有规模下均慢于 v1，且大矩阵（1024）最严重。**根本原因在于：smem_A 的 Bank Conflict**。
+Shared Memory 有32个 bank，每个 bank 宽度为4 Bytes。
+
+**对于计算过程：**
+
+```
+for (int k = 0; k < TILE; k++) {
+    acc += smem_A[ty][k] * smem_B[k][tx];
+}
+```
+
+**`smem_A[ty][k]`**：同一 warp 内（ty 相同，tx 不同），k 固定时所有线程访问同一个元素 → **broadcast，无 conflict**。
+
+**`smem_B[k][tx]`**：k 固定时，warp 内 32 个线程 `smem_B[k][0]`、`smem_B[k][1]`、...、`smem_B[k][31]`，**访问同一行的数据，无conflict**。
+
+**对于搬运过程：**
+
+```
+// 搬运 B tile
+smem_B[ty][tx] = B[b_row * N + b_col];
+```
+
