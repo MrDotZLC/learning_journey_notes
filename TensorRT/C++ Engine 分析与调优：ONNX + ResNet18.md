@@ -138,6 +138,8 @@ cudaStreamSynchronize(m_stream);
 return std::vector<float>(m_pinned_output,
                           m_pinned_output + batchSize * k_CLS);
 ```
+
+`nsys profile -o my_test_report ./test`
 ![](assets/Pasted%20image%2020260302073817.png)
 ![](assets/Pasted%20image%2020260302073824.png)
 
