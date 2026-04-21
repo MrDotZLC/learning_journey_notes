@@ -43,5 +43,44 @@ $$ t_{\text{compute}} = \frac{2 \times 1024^3}{5.44 \times 10^{12}} \approx 0.39
 两者相差 70 倍——Naive kernel 的瓶颈完全在 Global Memory 访问，计算单元绝大多数时间在等数据。这是 Shared Memory Tiling（v2）存在的根本原因。
 
 ```
+__global__ void sgemm_v1_naive_kernel(const float *A, const float *B, float *C, int M,
+                               int N, int K, float alpha, float beta) {
+    const int row = blockIdx.y * blockDim.y + threadIdx.y;
+    const int col = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if (row >= M || col >= N) {
+        return;
+    }
+
+    // 沿 K 轴累加：每次迭代从 Global Memory 各读一个元素
+    float acc = 0.f;
+    for (int k = 0; k < K; ++k) {
+        acc += A[row * K + k] * B[k * N + col];
+    }
+
+    C[row * N + col] = alpha * acc + beta * C[row * N + col];
+}
+
+// 16x16 block
+void sgemm_v1_naive(const float *A, const float *B, float *C, int M, int N,
+                    int K, float alpha, float beta) {
+    dim3 block(16, 16);
+    dim3 grid((N + 15) / 16, (M + 15) / 16);
+    sgemm_v1_naive_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
+}
 ```
+
+---
+
+### 2.2 sgemm_v1_shared_memory_tile
+
+**Naive 访存：** tile 大小 $T \times T$ 为例，朴素矩阵乘会从全局内存 GM 中读同一元素 $2K$ 次。
+**Shared Memory Tile 共享内存：** block中每个线程搬运 $A$ 和 $B$ 一些元素到共享内存，每个元素只从 GM 中读取 1 次，所有线程共用。假设 Block 有 $T^2$ 个线程，沿 $K$ 轴循环 $K/T$ 次，每次搬一对 Tile。
+
+访存量变化：
+
+$$ \text{Naive：} \quad \text{reads} = 2 \cdot M \cdot N \cdot K $$
+
+$$ \text{Tiling：} \quad \text{reads} = 2 \cdot M \cdot N \cdot K \cdot \frac{1}{T} \cdot \underbrace{T}_{\text{tile内每元素被}T\text{个线程复用}} = \frac{2MNK}{T} $$
+
+每个元素从 Global Memory 只读一次，但在 smem 里被复用 $T$ 次，Global Memory 访问量降低为原来的 $\dfrac{1}{T}$。
