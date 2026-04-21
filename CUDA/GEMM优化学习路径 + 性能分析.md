@@ -191,3 +191,69 @@ v2 在所有规模下均慢于 v1，且大矩阵（1024）最严重。**根本�
 小矩阵时，cuBLAS 的 kernel 选择有启动开销，手写 smem kernel 在这个规模反而占优。
 大矩阵时，当前 v2 每个线程只计算 C 的 1 个元素，寄存器里只有 1 个累加器 `acc`，无法隐藏 smem 读取延迟。线程级别的计算效率成为瓶颈，抵消了 smem tiling 的效果。
 
+#### 2.2.4 性能瓶颈推导
+##### 2.2.4.1 当前 v2 的参数
+	block = (32, 32) = 1024 线程
+	每线程计算 C 的 1×1 个元素
+	寄存器/线程 = 34
+	smem = 8192 bytes（两个 float[32][32]）
+##### 2.2.4.2 SM75 硬件限制
+
+|资源|上限|
+|---|---|
+|每 SM 最大线程数|1024|
+|每 SM 最大 warp 数|32|
+|每 SM 寄存器总量|65536|
+|每 SM smem|65536 bytes|
+|每 SM 最大 block 数|16|
+|每 block 最大线程数|1024|
+
+各资源对驻留 block 数的限制：
+
+$$ \text{寄存器限制：} \left\lfloor \frac{65536}{1024 \times 34} \right\rfloor = \left\lfloor 1.88 \right\rfloor = 1\ \text{block} $$
+
+$$ \text{smem 限制：} \left\lfloor \frac{65536}{8192} \right\rfloor = 8\ \text{blocks} $$
+
+$$ \text{线程数限制：} \left\lfloor \frac{1024}{1024} \right\rfloor = 1\ \text{block} $$
+
+$$ \text{实际驻留：} \min(1, 8, 1) = \boxed{1\ \text{block/SM}} $$
+
+$$ \text{Occupancy} = \frac{1 \times 1024}{1024} = 100\% $$
+
+Occupancy 是 100%，但**只有 1 个 block 在驻留**，意味着：
+
+- 只有 32 个 warp 可调度
+- 没有额外 warp 可以在访存 stall 时切换执行
+- **延迟隐藏能力为零**
+
+##### 2.2.4.3 计算访存比分析
+
+v2 每线程的工作：
+
+$$ \text{计算量} = 2K\ \text{FLOP}\ (\text{K次FMA}) $$
+
+$$ \text{smem 读取量} = 2K \times 4\ \text{Bytes}\ (\text{每次迭代读smem\_A和smem\_B各一次}) $$
+
+$$ I_{v2} = \frac{2K\ \text{FLOP}}{2K \times 4\ \text{Bytes}} = 0.25\ \text{FLOP/Byte} $$
+
+smem 的带宽约为 **19 TB/s**（SM75 理论值），0.25 FLOP/Byte 对应需要的算力：
+
+$$ \text{需要算力} = 0.25 \times 19 \times 10^{12} = 4.75\ \text{TFLOPS} $$
+
+而 SM75 的 FP32 算力只有 5.44 TFLOPS，两者已经非常接近——**v2 的计算和 smem 访问几乎是 1:1 的串行关系，smem 读取无法被计算隐藏**。
+
+##### 2.2.4.4 解决办法：每个线程多干点活Thread Coarsening
+
+每线程计算 $TM \times TN$ 个输出元素（取 $TM = TN = 4$）：
+
+$$ \text{线程数/block} = \frac{64}{4} \times \frac{64}{4} = 256 $$
+
+$$ \text{寄存器限制驻留块数：} \left\lfloor \frac{65536}{256 \times r} \right\rfloor $$
+
+只要 $r < 256$（几乎必然满足），驻留 block 数 $\geq 1$，且线程数减少后每 SM 可驻留更多 block。
+
+每线程每次从 smem 读 $TM + TN = 8$ 个元素，完成 $TM \times TN \times 2 = 32$ 次 FLOP：
+
+$$ I_{v3} = \frac{TM \times TN \times 2}{(TM + TN) \times 4} = \frac{32}{32} = 1\ \text{FLOP/Byte} $$
+
+相比 v2 的 0.25 FLOP/Byte 提升 **4 倍**。
