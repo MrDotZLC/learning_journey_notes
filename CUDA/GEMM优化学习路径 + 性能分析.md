@@ -193,9 +193,19 @@ v2 在所有规模下均慢于 v1，且大矩阵（1024）最严重。**根本�
 
 #### 2.2.4 性能瓶颈推导
 ##### 2.2.4.1 当前 v2 的参数
+```
+nvcc -gencode arch=compute_75,code=sm_75 \
+     -Xptxas=-v -cubin -I./include \
+     ./kernels/gemm/sgemm_v2_smem.cu
+ptxas info    : 0 bytes gmem
+ptxas info    : Compiling entry function '_Z20sgemm_v2_smem_kernelPKfS0_Pfiiiff' for 'sm_75'
+ptxas info    : Function properties for _Z20sgemm_v2_smem_kernelPKfS0_Pfiiiff
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 42 registers, used 1 barriers, 8192 bytes smem, 396 bytes cmem[0]
+```
 	block = (32, 32) = 1024 线程
 	每线程计算 C 的 1×1 个元素
-	寄存器/线程 = 34
+	寄存器/线程 = 42
 	smem = 8192 bytes（两个 float[32][32]）
 ##### 2.2.4.2 SM75 硬件限制
 
@@ -210,7 +220,7 @@ v2 在所有规模下均慢于 v1，且大矩阵（1024）最严重。**根本�
 
 各资源对驻留 block 数的限制：
 
-$$ \text{寄存器限制：} \left\lfloor \frac{65536}{1024 \times 34} \right\rfloor = \left\lfloor 1.88 \right\rfloor = 1\ \text{block} $$
+$$ \text{寄存器限制：} \left\lfloor \frac{65536}{1024 \times 42} \right\rfloor = \left\lfloor 1.52 \right\rfloor = 1\ \text{block} $$
 
 $$ \text{smem 限制：} \left\lfloor \frac{65536}{8192} \right\rfloor = 8\ \text{blocks} $$
 
@@ -242,7 +252,25 @@ $$ \text{需要算力} = 0.25 \times 19 \times 10^{12} = 4.75\ \text{TFLOPS} $$
 
 而 SM75 的 FP32 算力只有 5.44 TFLOPS，两者已经非常接近——**v2 的计算和 smem 访问几乎是 1:1 的串行关系，smem 读取无法被计算隐藏**。
 
-##### 2.2.4.4 解决办法：每个线程多干点活Thread Coarsening
+##### 2.2.4.4 指令级并行度（ILP）分析
+
+v2 内层循环：
+
+```cuda
+for (int k = 0; k < TILE; k++) {
+    acc += smem_A[ty][k] * smem_B[k][tx];
+}
+```
+
+只有**一个累加器** `acc`，每次迭代的 FMA 依赖上一次的结果：
+
+$$\text{acc}^{(k)} = \text{acc}^{(k-1)} + A_k \times B_k$$
+
+这是一条**依赖链**，FMA 的延迟在 SM75 上约为 4 个时钟周期，每次迭代必须等待上一次 FMA 完成才能开始，**ILP = 1，流水线利用率极低**。
+
+##### 2.2.4.5 解决办法：每个线程多干点活Thread Coarsening
+
+**寄存器和线程数**：
 
 每线程计算 $TM \times TN$ 个输出元素（取 $TM = TN = 4$）：
 
@@ -252,8 +280,52 @@ $$ \text{寄存器限制驻留块数：} \left\lfloor \frac{65536}{256 \times r}
 
 只要 $r < 256$（几乎必然满足），驻留 block 数 $\geq 1$，且线程数减少后每 SM 可驻留更多 block。
 
+**计算访存比**：
+
 每线程每次从 smem 读 $TM + TN = 8$ 个元素，完成 $TM \times TN \times 2 = 32$ 次 FLOP：
 
 $$ I_{v3} = \frac{TM \times TN \times 2}{(TM + TN) \times 4} = \frac{32}{32} = 1\ \text{FLOP/Byte} $$
 
 相比 v2 的 0.25 FLOP/Byte 提升 **4 倍**。
+
+**ILP：**
+
+$TM×TN=16$ 个独立累加器，彼此之间无依赖，编译器可以交错调度 FMA 指令填满流水线：
+
+$$\text{ILP} = TM \times TN = 16$$
+
+### 2.3 sgemm_v3_coarsen
+#### 2.3.1 方案分析
+
+**设计参数：**
+
+$$ \text{block tile} = 64 \times 64, \quad \text{线程数/block} = 16 \times 16 = 256 $$
+
+$$ \text{每线程负责} = TM \times TN = 4 \times 4\ \text{个输出元素} $$
+
+$$ \text{smem} = (64 \times 32 + 32 \times 64) \times 4 = 16384\ \text{Bytes} = 16\ \text{KB} $$
+
+$$ \text{smem 限制驻留块数} = \left\lfloor \frac{65536}{16384} \right\rfloor = 4\ \text{blocks/SM} $$
+**线程到输出元素的映射：**
+
+block 内 256 个线程排成 $16 \times 16$，每线程负责 $4 \times 4$ 输出：
+
+$$ \text{thread}(ty, tx) \rightarrow C[block_{row} + ty \times 4 : ty \times 4 + 4, \ block_{col} + tx \times 4 : tx \times 4 + 4] $$
+
+**外积计算原理：**
+
+每次 K 轴迭代，从 smem 读：
+
+- $A$ 的一列切片：$\text{regA}[TM]$，对应当前线程负责的 $TM$ 行
+- $B$ 的一行切片：$\text{regB}[TN]$，对应当前线程负责的 $TN$ 列
+
+外积更新 $TM \times TN$ 个累加器：
+
+$$ \text{acc}[m][n] += \text{regA}[m] \times \text{regB}[n], \quad m \in [0, TM),\ n \in [0, TN) $$
+
+每次 smem 读取 $TM + TN = 8$ 个元素，完成 $TM \times TN = 16$ 次 FMA，**16 个累加器彼此独立，ILP = 16**。
+
+#### 2.3.2 代码
+```cuda
+
+```
