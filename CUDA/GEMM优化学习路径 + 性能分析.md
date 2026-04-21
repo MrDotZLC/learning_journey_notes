@@ -25,5 +25,23 @@ $$I = \frac{2M^3}{3M^2 \times 4} = \frac{M}{6}$$
 |512|85.3 FLOP/Byte|算力瓶颈|
 |1024|170.7 FLOP/Byte|算力瓶颈|
 |4096|682.7 FLOP/Byte|算力瓶颈|
+
 ## 二、SGEMM
 ### 2.1 sgemm_v1_naive
+Naive kernel 每次从 Global Memory 读数据，无复用。
+
+实际访存量（M=N=K=1024）：
+
+$$ \text{每个线程读 K 次 A、K 次 B} \Rightarrow \text{总读取} = M \times N \times 2K \times 4 \ \text{Bytes} $$
+
+$$ = 1024 \times 1024 \times 2048 \times 4 \approx 8 \ \text{GB} $$
+
+在 288 GB/s 下，**仅访存就需要约 27.8ms**，而算力上限对应的时间是：
+
+$$ t_{\text{compute}} = \frac{2 \times 1024^3}{5.44 \times 10^{12}} \approx 0.39 \ \text{ms} $$
+
+两者相差 70 倍——Naive kernel 的瓶颈完全在 Global Memory 访问，计算单元绝大多数时间在等数据。这是 Shared Memory Tiling（v2）存在的根本原因。
+
+```
+
+```
