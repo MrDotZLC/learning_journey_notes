@@ -744,4 +744,7 @@ for (int k_ = 0; k_ < BK; k_++) {
 }
 ```
 
-Warp 内线程访问 Shared Memory 时，同一地址的读取只会发生一次（广播机制）。
+Warp 内线程访问 Shared Memory 时，如果线程 从 smem 中读取的连续数据量超过 128 bytes，该线程需要发起多个事务请求，每个事务请求都覆盖了所有 bank，Warp 收到多个同bank但地址不同的事务请求，则发生串行 Bank Conlict。
+
+解决 bank conflict 的朴素办法是 padding（浪费 Shared Memory）和 swizzle（计算复杂），此外，warp tiling 能够有效利用广播机制消除 bank conflict。
+
