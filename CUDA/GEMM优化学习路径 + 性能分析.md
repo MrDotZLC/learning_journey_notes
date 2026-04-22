@@ -702,7 +702,31 @@ void sgemm_v4_vec(
 |1024|0.33|0.57|1.11|**1.84**|0.43|
 |2048|0.19|0.34|0.67|**1.13**|0.34|
 
-v4 在所有规模下都超过 cuBLAS FP16，**FP32 手写 kernel 达到 cuBLAS FP16 的 3-4x**，这是因为：
+v4 在所有规模下都超过 cuBLAS FP16，这是因为：
 
 1. cuBLAS 选择的 kernel 针对通用场景，不一定对当前矩阵规模最优
 2. GTX 1660 Ti 的 FP16 Tensor Core 路径在这个规模下未必被充分利用
+
+#### 2.4.4 瓶颈分析
+
+v4 在 1024 规模达到 1.84 TFLOPS，与理论峰值 5.44 TFLOPS 的比值：
+
+$$ \frac{1.84}{5.44} = 33.8\% $$
+
+距离峰值仍有 3 倍空间，瓶颈转移到了**计算阶段的 smem 读取延迟**：
+
+外积循环中 `regA` 和 `regB` 从 smem 读取：
+
+```cuda
+for (int k_ = 0; k_ < BK; k_++) {
+    for (int m = 0; m < TM; m++)
+        regA[m] = smem_A[k_][thread_row + m];  // TM次smem读
+    for (int n = 0; n < TN; n++)
+        regB[n] = smem_B[k_][thread_col + n];  // TN次smem读
+    // 16次FMA
+}
+```
+
+每次 K 迭代：$TM + TN = 8$ 次 smem 读，16 次 FMA。smem 读取和 FMA 是串行的，smem 读延迟（约 20-30 cycles）无法被隐藏。
+
+**v5 Double Buffering 解决的正是这个问题**：在计算当前 K slice 的同时，预取下一个 K slice 到另一组寄存器，实现计算和访存的重叠。
