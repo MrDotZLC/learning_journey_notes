@@ -464,8 +464,8 @@ void sgemm_v3_coarsen(
 }
 ```
 
-### 2.3.3 数据分析
-#### 2.3.3.1 v2 vs. v3
+#### 2.3.3 数据分析
+##### 2.3.3.1 v2 vs. v3
 
 | M=N=K | v2 TFLOPS | v3 TFLOPS | 提升倍数  |
 | ----- | --------- | --------- | ----- |
@@ -481,7 +481,7 @@ $$ \text{smem\_A} = BM \times BK = 64 \times 32 = 2048\ \text{元素} $$ $$ \tex
 
 256 个线程各搬 16 个元素，搬运本身占用了相当比例的执行时间，计算阶段的 ILP 提升被搬运开销稀释。
 
-#### 2.3.3.2 v3 vs. cuBLAS
+##### 2.3.3.2 v3 vs. cuBLAS
 
 |M=N=K|vs_cublas|
 |---|---|
@@ -492,4 +492,19 @@ $$ \text{smem\_A} = BM \times BK = 64 \times 32 = 2048\ \text{元素} $$ $$ \tex
 
 小规模下 v3 大幅超过 cuBLAS，原因同 v2：小矩阵时 cuBLAS 的 kernel 选择有启动开销。
 
+### 2.3.4 瓶颈分析
+
+v3 的搬运阶段是当前瓶颈，每线程用标量 `float` 搬运，每次 Global Memory 事务只读 4 bytes。
+
+`float4` 一次读 16 bytes，在相同访存延迟下吞吐量提升 4 倍：
+
+$$ \text{Global Memory 事务数} = \frac{BM \times BK}{4} = \frac{2048}{4} = 512\ \text{次（原来2048次）} $$
+
+要求：**搬运的起始地址必须 16 bytes 对齐**，即 `float4` 的地址需要满足：
+
+$$ \text{addr} \bmod 16 = 0 $$
+
+M、N、K 是 64 的倍数时自动满足（benchmark 的目标规模全部满足）。
+
+### 2.4 sgemm_v4_vec
 
