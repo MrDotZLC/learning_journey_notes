@@ -492,7 +492,7 @@ $$ \text{smem\_A} = BM \times BK = 64 \times 32 = 2048\ \text{元素} $$ $$ \tex
 
 小规模下 v3 大幅超过 cuBLAS，原因同 v2：小矩阵时 cuBLAS 的 kernel 选择有启动开销。
 
-### 2.3.4 瓶颈分析
+#### 2.3.4 瓶颈分析
 
 v3 的搬运阶段是当前瓶颈，每线程用标量 `float` 搬运，每次 Global Memory 事务只读 4 bytes。
 
@@ -507,4 +507,14 @@ $$ \text{addr} \bmod 16 = 0 $$
 M、N、K 是 64 的倍数时自动满足（benchmark 的目标规模全部满足）。
 
 ### 2.4 sgemm_v4_vec
+#### 2.4.1 方案分析
 
+v3 中 Tile A 的元素是逐个写入 SM，不用考虑写入方向，v4 是连续写入 4 个 float，写入方向需要和读取方向保持一致，即沿着 K 轴方向。，索引计算改为：
+
+$$ k_ = i \bmod BK, \quad m = i / BK $$
+
+#### 2.4.2 代码
+
+```cuda
+
+```
