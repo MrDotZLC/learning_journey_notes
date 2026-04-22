@@ -514,6 +514,8 @@ v3 中 Tile A 的元素是逐个写入 SM，不用考虑写入方向，v4 是连
 
 $$ k_ = i \bmod BK, \quad m = i / BK $$
 
+读取到寄存器进行外积计算时，也可使用 Vectorized 加速。
+
 #### 2.4.2 代码
 
 ```cuda
