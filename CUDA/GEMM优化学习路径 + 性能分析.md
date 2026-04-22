@@ -744,4 +744,4 @@ for (int k_ = 0; k_ < BK; k_++) {
 }
 ```
 
-在 block 中，每个 warp 从smem 中加载 $2 \times 2 \times 128 \; {btyes}$，共 4 次事务，是主要的性能瓶颈，
+Warp 内线程访问 Shared Memory 时，同一地址的读取只会发生一次（广播机制）。
