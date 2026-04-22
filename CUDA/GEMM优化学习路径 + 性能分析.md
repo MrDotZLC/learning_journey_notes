@@ -521,7 +521,15 @@ v3 中 Tile A 的元素是逐个写入 SM，不用考虑写入方向，v4 是连
 
 $$ k_ = i \bmod BK, \quad m = i / BK $$
 
-读取到寄存器进行外积计算时，暂不需要 Vectorized，因为 smem → 寄存器的读取**不经过L2事务**，瓶颈不在事务数和指令数，在**bank访问模式**。
+读取到寄存器进行外积计算时，暂不需要 Vectorized，因为 smem → 寄存器的读取**不经过L2事务**，瓶颈不在事务数和指令数，在**bank访问模式**。读取的数据量是固定的，单次读取 float/float4 仅能减少指令数，但会引入更严重的bank conflict。
+
+由于每个线程沿着 K 轴，每次从 smem 取 TM/TN 个元素，bank conflict为：
+
+$$\text{bank\_conflict}_{smem_A} = \frac {32} {TM} = \frac {32} {4} = 8$$
+
+32线程只访问8个bank（bank 0..7） 
+→ 每个bank被4个线程同时访问 
+→ 4-way bank conflict 
 
 #### 2.4.2 代码
 
