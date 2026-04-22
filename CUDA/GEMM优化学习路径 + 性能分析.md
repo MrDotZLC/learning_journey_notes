@@ -334,7 +334,7 @@ $$ \text{acc}[m][n] += \text{regA}[m] \times \text{regB}[n], \quad m \in [0, TM)
 
 static constexpr int BM = 64;   // tile M
 static constexpr int BN = 64;   // tile N
-static constexpr int BK = 64;   // tile K
+static constexpr int BK = 32;   // tile K
 static constexpr int TM = 4;    // 每线程负责的 M 维度元素数量
 static constexpr int TN = 4;    // 每线程负责的 N 维度元素数量
 
@@ -359,7 +359,7 @@ __global__ void sgemm_v3_coarsen_kernel(
     const int thread_row = ty * TM;
     const int thread_col = tx * TN;
 
-    const int tid = ty * blockIdx.x + tx; // 0 ~ 255
+    const int tid = ty * blockDim.x + tx; // 0 ~ 255
 
     // ---- Shared Memory ------------------------------------------
     // smem_A: [BK, BM] = [32, 64]  注意：转置存储，方便列方向读取
@@ -462,6 +462,7 @@ void sgemm_v3_coarsen(
     sgemm_v3_coarsen_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
     CUDA_CHECK_LAST();
 }
+
 ```
 
 #### 2.3.3 数据分析
@@ -516,5 +517,177 @@ $$ k_ = i \bmod BK, \quad m = i / BK $$
 #### 2.4.2 代码
 
 ```cuda
+#include "gemm.h"
 
+// 策略：在 v3 基础上，搬运阶段用 float4 替代标量 float
+//       A tile：float4 读 Global Memory，分散写入转置 smem
+//       B tile：float4 读 Global Memory，float4 写入 smem
+
+static constexpr int BM = 64;
+static constexpr int BN = 64;
+static constexpr int BK = 32;
+static constexpr int TM = 4;
+static constexpr int TN = 4;
+
+static_assert(BK % 4 == 0, "BK must be divisible by 4 for float4"); // 保证 Tile A 能沿 K 轴写入float4
+static_assert(BN % 4 == 0, "BN must be divisible by 4 for float4"); // 保证 Tile B 能沿 N 轴写入float4
+
+__global__ void sgemm_v4_vec_kernel(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float*       __restrict__ C,
+    int M, int N, int K,
+    float alpha, float beta) 
+{
+    // block 对应的起始元素索引
+    const int block_row = blockIdx.y * BM;
+    const int block_col = blockIdx.x * BN;
+
+    // block 内线程索引
+    const int ty = threadIdx.y;
+    const int tx = threadIdx.x;
+
+    // Tile 内线程负责计算的 C 起始元素索引 
+    const int thread_row = ty * TM;
+    const int thread_col = tx * TN;
+
+    const int tid = ty * blockDim.x + tx;
+
+    __shared__ float smem_A[BK][BM];
+    __shared__ float smem_B[BK][BN];
+
+    float acc[TM][TN] = {0.f};
+    float reg_A[TM], reg_B[TN];
+
+    for (int k = 0; k < (K + BK - 1) / BK; ++k) {
+        // ---- 搬运 A tile：float4 读，分散写入转置 smem -----------
+        // 遍历方向：M为外层，K为内层（与Global Memory连续方向一致）
+        // 每线程处理4个元素（float4），步长=256线程*4个元素
+        const int block_A_r = block_row;
+        const int block_A_c = k * BK;
+        for (int i = tid * 4; i < BK * BM; i += blockDim.x * blockDim.y * 4) {
+            int k_ = i % BK;
+            int m = i / BK;
+            int global_r = block_A_r + m;
+            int global_c = block_A_c + k_;
+            float4 val = {0.f, 0.f, 0.f, 0.f};
+
+            if (global_r < M && global_c + 3 < K) {
+                val = *reinterpret_cast<const float4 *>(
+                    &A[global_r * K + global_c]);
+            } else {
+                if (global_r < M) {
+                    val.x = (global_c     < K) ? A[global_r * K + global_c    ] : 0.f;
+                    val.y = (global_c + 1 < K) ? A[global_r * K + global_c + 1] : 0.f;
+                    val.z = (global_c + 2 < K) ? A[global_r * K + global_c + 2] : 0.f;
+                    val.w = (global_c + 3 < K) ? A[global_r * K + global_c + 3] : 0.f;
+                }
+            }
+
+            // 转置写入 semem_A
+            smem_A[k_    ][m] = val.x;
+            smem_A[k_ + 1][m] = val.y;
+            smem_A[k_ + 2][m] = val.z;
+            smem_A[k_ + 3][m] = val.w;
+        }
+
+        // ---- 搬运 B tile：float4 读，float4 写入 smem -----------
+        for (int i = tid * 4; i < BK * BN; i += blockDim.x * blockDim.y * 4) {
+            int n = i % BN;
+            int k_ = i / BN;
+            int global_r = k * BK + k_;
+            int global_c = block_col + n;
+            float4 val = {0.f, 0.f, 0.f, 0.f};
+
+            if (global_r < K && global_c + 3 < N) {
+                val = *reinterpret_cast<const float4 *>(
+                    &B[global_r * N + global_c]);
+            } else {
+                if (global_r < K) {
+                    val.x = (global_c     < N) ? A[global_r * N + global_c    ] : 0.f;
+                    val.y = (global_c + 1 < N) ? A[global_r * N + global_c + 1] : 0.f;
+                    val.z = (global_c + 2 < N) ? A[global_r * N + global_c + 2] : 0.f;
+                    val.w = (global_c + 3 < N) ? A[global_r * N + global_c + 3] : 0.f;
+                }
+            }
+
+            *reinterpret_cast<float4*>(&smem_B[k_][n]) = val;
+        }
+
+        __syncthreads();
+
+        // 计算外积
+        #pragma unroll
+        for (int k_ = 0; k_ < BK; k_++) {
+            #pragma unroll
+            for (int m = 0; m < TM; m++) {
+                reg_A[m] = smem_A[k_][thread_row + m];
+            }
+            #pragma unroll
+            for (int n = 0; n < TN; n++) {
+                reg_B[n] = smem_B[k_][thread_col + n];
+            }
+
+            #pragma unroll
+            for (int m = 0; m < TM; m++) {
+                #pragma unroll
+                for (int n = 0; n < TN; n++) {
+                    acc[m][n] += reg_A[m] * reg_B[n];
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    // 写回 C
+    #pragma unroll
+    for (int m = 0; m < TM; m++) {
+        int global_r = block_row + thread_row + m;
+        int global_c = block_col + thread_col;
+
+        if (global_r < M && global_c + 3 < N) {
+            float4 out = {acc[m][0], acc[m][1], acc[m][2], acc[m][3]};
+            if (beta != 0.f) {
+                float4 old =
+                    *reinterpret_cast<float4 *>(&C[global_r * N + global_c]);
+                out.x = alpha * out.x + beta * old.x;
+                out.y = alpha * out.y + beta * old.y;
+                out.z = alpha * out.z + beta * old.z;
+                out.w = alpha * out.w + beta * old.w;
+            } else {
+                out.x *= alpha;
+                out.y *= alpha;
+                out.z *= alpha;
+                out.w *= alpha;
+            }
+            *reinterpret_cast<float4*>(&C[global_r * N + global_c]) = out;
+        } else {
+            #pragma unroll
+            for (int n = 0; n < TN; n++) {
+                int col = global_c + n;
+                if (global_r < M && col < N) {
+                    C[global_r * N + col] =
+                        alpha * acc[m][n] + beta * C[global_r * N + col];
+                }
+            }
+        }
+    }
+}
+
+void sgemm_v4_vec(
+    const float* A, const float* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    dim3 block(BN / TN, BM / TM);
+    dim3 grid((N + BN - 1) / BN,
+              (M + BM - 1) / BM);
+    sgemm_v4_vec_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
+    CUDA_CHECK_LAST();
+}
 ```
+
+#### 2.4.3 数据分析
+
+
