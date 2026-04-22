@@ -744,6 +744,4 @@ for (int k_ = 0; k_ < BK; k_++) {
 }
 ```
 
-每次 K 迭代：$TM + TN = 8$ 次 smem 读，16 次 FMA。smem 读取和 FMA 是串行的，smem 读延迟（约 20-30 cycles）无法被隐藏。
-
-**v5 Double Buffering 解决的正是这个问题**：在计算当前 K slice 的同时，预取下一个 K slice 到另一组寄存器，实现计算和访存的重叠。
+在 block 中，每个 warp 从smem 中加载 $2 \times 2 \times 128 \; {btyes}$，共 4 次事务，是主要的性能瓶颈，
