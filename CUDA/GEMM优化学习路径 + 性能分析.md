@@ -327,5 +327,141 @@ $$ \text{acc}[m][n] += \text{regA}[m] \times \text{regB}[n], \quad m \in [0, TM)
 
 #### 2.3.2 代码
 ```cuda
+#include "gemm.h"
 
+// 策略：block tile=64×64，每线程算4×4输出元素
+//       寄存器缓存regA[4]/regB[4]，外积展开16个独立FMA
+
+static constexpr int BM = 64;   // tile M
+static constexpr int BN = 64;   // tile N
+static constexpr int BK = 64;   // tile K
+static constexpr int TM = 4;    // 每线程负责的 M 维度元素数量
+static constexpr int TN = 4;    // 每线程负责的 N 维度元素数量
+
+static_assert(BM / TM * BN / TN == 256, "block must have 256 threads");
+
+__global__ void sgemm_v3_coarsen_kernel(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float*       __restrict__ C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    // block 起始位置索引
+    const int block_row = blockIdx.y * BM;
+    const int block_col = blockIdx.x * BN;
+
+    // block 内线程索引
+    const int ty = threadIdx.y;
+    const int tx = threadIdx.x;
+
+    // 当前线程负责的输出元素起始坐标
+    const int thread_row = ty * TM;
+    const int thread_col = tx * TN;
+
+    const int tid = ty * blockIdx.x + tx; // 0 ~ 255
+
+    // ---- Shared Memory ------------------------------------------
+    // smem_A: [BK, BM] = [32, 64]  注意：转置存储，方便列方向读取
+    // smem_B: [BK, BN] = [32, 64]
+    // 转置smem_A的原因：
+    //   计算时读 smem_A 的列（M方向），若按[BM,BK]存储，
+    //   同warp内不同线程读同列不同行 → bank conflict
+    //   转置为[BK,BM]后，读同一K位置的不同M元素 → 连续行访问 → 无conflict
+
+    __shared__ float smem_A[BK][BM]; // 转置存储，列方向读取
+    __shared__ float smem_B[BK][BN];
+
+    // 寄存器累加器
+    float acc[TM][TN] = {0.f};
+
+    // 搬运 A：smem_A[BK][BM]，按行主序，每线程负责连续8个元素
+    // 搬运 B：smem_B[BK][BN]，按行主序，每线程负责连续8个元素
+    // 每线程搬运的起始索引（步长256，共搬8次）
+    // 2048 / 256 = 8，用循环处理
+
+    for (int k = 0; k < (K + BK - 1) / BK; k++) {
+        // ---- 协作搬运 A tile → smem_A[BK][BM]（转置存入）--------
+        // A tile 原始形状：[BM, BK] = A[block_row:block_row+BM, k*BK:k*BK+BK]
+        // 转置后存入 smem_A[BK][BM]：smem_A[k'][m'] = A[block_row+m'][k*BK+k']
+        for (int i = tid; i < BM * BK; i += 256) {
+            int m = i % BM;
+            int k_ = i / BM;
+            int global_r = block_row + m;
+            int global_c = k * BK + k_;
+            smem_A[k_][m] = (global_r < M && global_c < K)
+                            ? A[global_r * K + global_c]
+                            : 0.f;
+        }
+
+        // ---- 协作搬运 B tile → smem_B[BK][BN]（正常存入）--------
+        for (int i = tid; i < BK * BN; i+= 256) {
+            int n = i % BN;
+            int k_ = i / BN;
+            int global_r = k * BK + k_;
+            int global_c = block_col + n;
+            smem_B[k_][n] = (global_r < K && global_c < N)
+                            ? B[global_r * N + global_c]
+                            : 0.f;
+        }
+
+        __syncthreads();
+
+        // ---- 外积累加 -------------------------------------------
+        // 对当前 K slice 的每个 k' 位置：
+        // 从当前线程负责的输出元素起始坐标，连续读取 TM/TN 个元素，进行外积累加
+        float reg_A[TM], reg_B[TN];
+
+        #pragma unroll
+        for (int k_ = 0; k_ < BK; k_++) {
+            #pragma unroll
+            for (int m = 0; m < TM; m++) {
+                reg_A[m] = smem_A[k_][thread_row + m];
+            }
+            #pragma unroll
+            for (int n = 0; n < TN; n++) {
+                reg_B[n] = smem_B[k_][thread_col + n];
+            }
+
+            // 外积更新 acc[TM][TN] += reg_A[TM] * reg_B[TN]
+            #pragma unroll
+            for (int m = 0; m < TM; m++) {
+                #pragma unroll
+                for (int n = 0; n < TN; n++) {
+                    acc[m][n] += reg_A[m] * reg_B[n];
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    // ---- 写回全局内存 C --------------------------------------
+    #pragma unroll
+    for (int m = 0; m < TM; m++) {
+        #pragma unroll
+        for (int n = 0; n < TN; n++) {
+            int global_r = block_row + thread_row + m;
+            int global_c = block_col + thread_col + n;
+            if (global_r < M && global_c < N) {
+                C[global_r * N + global_c] =
+                    alpha * acc[m][n] + beta * C[global_r * N + global_c];
+            }
+        }
+    }
+}
+
+void sgemm_v3_coarsen(
+    const float* A, const float* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    dim3 block(BN / TN, BM / TM);   // (16, 16) = 256 线程
+    dim3 grid((N + BN - 1) / BN,
+              (M + BM - 1) / BM);
+    sgemm_v3_coarsen_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
+    CUDA_CHECK_LAST();
+}
 ```
+
+### 2.3.3 数据分析
