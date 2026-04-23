@@ -746,7 +746,7 @@ for (int k_ = 0; k_ < BK; k_++) {
 
 v4 外积计算阶段，每次 k_ 迭代读 `smem_B[k_][thread_col + n]`。
 
-warp0 内 tid=0..15 的 thread_col（tx=0..15，TN=4）：
+v4 的线程分配方式（block=16×16），warp0 内 tid=0..15 的 thread_col（tx=0..15，TN=4）：
 
 $$ \text{thread\_col} = 0, 4, 8, \ldots, 60 \quad \text{（16个不同值）} $$
 
@@ -755,3 +755,10 @@ $$ \text{thread\_col} = 0, 4, 8, \ldots, 60 \quad \text{（16个不同值）} $$
 bank 0..28 各被两个线程访问，地址不同：
 
 $$ \rightarrow \text{2-way bank conflict} \rightarrow \text{每次 smem 读需要 2 个串行周期} $$
+
+
+$$ \lfloor 60 / 32 \rfloor = 1 \Rightarrow \text{bank 0..28 各被访问 2 次} \Rightarrow \text{2-way conflict} $$
+
+消除方法：**将 warp 内不同地址数控制在 32 以内，且 index < 32**。
+
+### 2.5 sgemm_v5_warp
