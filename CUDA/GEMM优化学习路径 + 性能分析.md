@@ -325,6 +325,10 @@ $$ \text{acc}[m][n] += \text{regA}[m] \times \text{regB}[n], \quad m \in [0, TM)
 
 每次 smem 读取 $TM + TN = 8$ 个元素，完成 $TM \times TN = 16$ 次 FMA，**16 个累加器彼此独立，ILP = 16**。
 
+**外积计算带来的问题**：
+
+外积计算的循环中，smem_A 要按列读取，导致大量等待“气泡“，将数据存入转置后的 smem_A ，虽然写入时会有 4 路 bank conflict，但能够提升 4 倍读取效率。
+
 #### 2.3.2 代码
 ```cuda
 #include "gemm.h"
@@ -366,7 +370,7 @@ __global__ void sgemm_v3_coarsen_kernel(
     // smem_B: [BK, BN] = [32, 64]
     // 转置smem_A的原因：
     //   计算时读 smem_A 的列（M方向），若按[BM,BK]存储，
-    //   同warp内不同线程读同列不同行 → bank conflict
+    //   同warp内不同线程读同列不同行 → 4 路 bank conflict
     //   转置为[BK,BM]后，读同一K位置的不同M元素 → 连续行访问 → 无conflict
 
     __shared__ float smem_A[BK][BM]; // 转置存储，列方向读取
@@ -517,19 +521,11 @@ v3 的搬运阶段是当前瓶颈，每线程用标量 `float` 搬运，每次 G
 ### 2.4 sgemm_v4_vec
 #### 2.4.1 方案分析
 
-v3 中 Tile A 的元素是逐个写入 SM，不用考虑写入方向，v4 是连续写入 4 个 float，写入方向需要和读取方向保持一致，即沿着 K 轴方向。，索引计算改为：
+v3 中 Tile A 的元素是逐个写入 SM，不用考虑写入方向，v4 是连续写入 4 个 float，减少 4 倍指令数，写入方向需要和读取方向保持一致，即沿着 K 轴方向。索引计算改为：
 
-$$ k_ = i \bmod BK, \quad m = i / BK $$
+$$ k\_ = i \bmod BK, \quad m = i / BK $$
 
-读取到寄存器进行外积计算时，暂不需要 Vectorized，因为 smem → 寄存器的读取**不经过L2事务**，瓶颈不在事务数和指令数，在**bank访问模式**。读取的数据量是固定的，单次读取 float/float4 仅能减少指令数，但会引入更严重的bank conflict。
-
-由于每个线程沿着 K 轴，每次从 smem 取 TM/TN 个元素，bank conflict为：
-
-$$\text{bank\_conflict}_{smem_A} = \frac {32} {TM} = \frac {32} {4} = 8$$
-
-32线程只访问8个bank（bank 0..7） 
-→ 每个bank被4个线程同时访问 
-→ 4-way bank conflict 
+读取到寄存器进行外积计算时，暂不需要 Vectorized，因为 smem → 寄存器的读取**不经过L2事务**，瓶颈不在事务数和指令数，在**bank访问模式**。
 
 #### 2.4.2 代码
 
