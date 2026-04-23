@@ -798,7 +798,9 @@ reg_B[n] = smem_B[k_][thread_col + n];
 |**Tile B 读取**|`reg_B`|**2 路冲突**|线程间步长为 4 个 float，32 线程循环命中 Bank|
 
 ##### 2.4.4.6 解决方案
-- padding：将 `smem_A` 声明为 `smem_A[BK][BM + 4]`
+- padding：
+	- 将 `smem_A` 声明为 `smem_A[BK][BM + 1]`
+	- 将 `smem_B` 声明为 `smem_A[BN][BK + 1]`（不推荐，需修改较多逻辑）
 - swizzle
 
 ### 2.5 sgemm_v5_warp
