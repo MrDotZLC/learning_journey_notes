@@ -730,6 +730,10 @@ $$ \frac{1.84}{5.44} = 33.8\% $$
 
 ##### 2.4.4.1 Tile A 写入阶段
 
+`smem_A` 的列宽 $BM = 64$。
+
+$$\text{Bank}(k\_, m) = (k\_ \times 64 + m) \pmod{32} = m \pmod{32}$$
+
 
 外积循环中 `regA` 和 `regB` 从 smem 读取：
 
