@@ -744,16 +744,14 @@ for (int k_ = 0; k_ < BK; k_++) {
 }
 ```
 
-  warp 内 16 个不同地址，index=0..60，跨越 bank 0..28 两次（index=0和index=32同属bank 0，地址不同）
-    → 2-way bank conflict → 每次 smem 读需要 2 个串行周期
+v4 外积计算阶段，每次 k_ 迭代读 `smem_B[k_][thread_col + n]`。
 
-Warp Tiling 的解决方式：
-  显式划分 warp 负责的输出子块，使 warp 内不同地址数从 16 个减少到 8 个所有地址的 index < 32，每个 bank 最多对应 1 个地址
-  → bank conflict 消除 → 每次 smem 读恢复为 1 个周期
+warp0 内 tid=0..15 的 thread_col（tx=0..15，TN=4）：
 
-附带效果：
-  lane_row 不同但 lane_col 相同的线程访问相同地址
-  → broadcast 范围从 16 个线程扩大到 24 个线程
+$$ \text{thread\_col} = 0, 4, 8, \ldots, 60 \quad \text{（16个不同值）} $$
 
+对应 smem_B 的 index = 0..60，bank_id = index % 32：
 
+bank 0..28 各被两个线程访问，地址不同：
 
+$$ \rightarrow \text{2-way bank conflict} \rightarrow \text{每次 smem 读需要 2 个串行周期} $$
