@@ -729,39 +729,77 @@ $$ \frac{1.84}{5.44} = 33.8\% $$
 距离峰值仍有 3 倍空间，瓶颈转移到了**计算阶段的 smem 读取延迟**：
 
 ##### 2.4.4.1 Tile A 写入阶段
+```
+// 转置写入 semem_A
+smem_A[k_    ][m] = val.x;
+smem_A[k_ + 1][m] = val.y;
+smem_A[k_ + 2][m] = val.z;
+smem_A[k_ + 3][m] = val.w;
+```
 
 `smem_A` 的列宽 $BM = 64$。
 
 $$\text{Bank}(k\_, m) = (k\_ \times 64 + m) \pmod{32} = m \pmod{32}$$
+$$m = i / BK$$
+- **核心变量**：由于 `BK = 32`，对于第一个 Warp ($tid \in [0, 31]$)，每个线程处理 `i = tid * 4`。
+    - $T_0: i=0 \Rightarrow m=0, k\_=0$。写入 `smem_A[0,1,2,3][0]`。
+    - $T_1: i=4 \Rightarrow m=0, k\_=4$。写入 `smem_A[4,5,6,7][0]`。
+    - ...
+    - $T_7: i=28 \Rightarrow m=0, k\_=28$。写入 `smem_A[28,29,30,31][0]`。
+    - $T_8: i=32 \Rightarrow m=1, k\_=0$。写入 `smem_A[0,1,2,3][1]`。
+-  **计算结果**：$T_0$ 到 $T_7$ 这 8 个线程的 $m$ 全部等于 0。因此，这 8 个线程在执行 `smem_A[k_][m] = val.x` 时，全部指向 `Bank 0`。
+- **结论**：**8 路 Bank Conflict**。
 
+##### 2.4.4.2 计算阶段加载 `reg_A` 冲突分析
 
-外积循环中 `regA` 和 `regB` 从 smem 读取：
-
-```cuda
-for (int k_ = 0; k_ < BK; k_++) {
-    for (int m = 0; m < TM; m++)
-        regA[m] = smem_A[k_][thread_row + m];  // TM次smem读
-    for (int n = 0; n < TN; n++)
-        regB[n] = smem_B[k_][thread_col + n];  // TN次smem读
-    // 16次FMA
-}
+```
+reg_A[m] = smem_A[k_][thread_row + m];
 ```
 
-v4 外积计算阶段，每次 k_ 迭代读 `smem_B[k_][thread_col + n]`。
+- **线程分布**：Warp 内线程的 `thread_row` 取决于 `ty`。
+- **参数**：`blockDim.x = 16` (BN/TN)，意味着 Warp 前 16 个线程的 `ty = 0`，后 16 个线程的 `ty = 1`。
+- **地址计算**：
+    - $T_0 \dots T_{15}$: `thread_row = 0 * 4 = 0`。访问 `smem_A[k_][0+m]`。
+    - $T_{16} \dots T_{31}$: `thread_row = 1 * 4 = 4`。访问 `smem_A[k_][4+m]`。
+- **Bank 映射**：
+    $$ \text{Bank} = (\text{Base} + \text{thread\_row} + m) \pmod{32}$$
+    
+	- 前 16 个线程全部访问同一个地址（同一 Bank 的同一位置），触发 **Broadcast（广播）** 机制，无冲突。
+	- 后 16 个线程全部访问另一个相同地址，触发 **Broadcast**，无冲突。
+- **结论**：**无冲突**。现代架构（Maxwell 之后）对于 Warp 内不同线程访问同一地址具有极好的广播支持。
 
-v4 的线程分配方式（block=16×16），warp0 内 tid=0..15 的 thread_col（tx=0..15，TN=4）：
+##### 2.4.4.3 计算阶段加载 `reg_B` 冲突分析
 
-$$ \text{thread\_col} = 0, 4, 8, \ldots, 60 \quad \text{（16个不同值）} $$
+```
+reg_B[n] = smem_B[k_][thread_col + n];
+```
 
-对应 smem_B 的 index = 0..60，bank_id = index % 32：
+- **线程分布**：`thread_col = tx * 4`。在一个 Warp 中，前 16 个线程的 `tx` 为 $0 \dots 15$，后 16 个线程的 `tx` 也是 $0 \dots 15$（假设 `blockDim.x = 16`）。
+- **Bank 映射**：
+    
+    $$ \text{Bank}(tx) = (k\_ \times 64 + tx \times 4 + n) \pmod{32}$$
+    
+    - $T_0 (tx=0) \Rightarrow \text{Bank } 0$
+    - $T_1 (tx=1) \Rightarrow \text{Bank } 4$
+    - $T_2 (tx=2) \Rightarrow \text{Bank } 8$
+    - ...
+    - $T_7 (tx=7) \Rightarrow \text{Bank } 28$
+    - $T_8 (tx=8) \Rightarrow \text{Bank } (32) \pmod{32} = 0$
+- **冲突判定**：在同一个 Warp 的前 16 个线程中，$T_0$ 和 $T_8$ 都访问了 Bank 0。但注意，它们访问的是 **Bank 0 的不同地址**（$T_0$ 访问偏移 0，$T_8$ 访问偏移 32）。
+- **结论**：**2 路 Bank Conflict**。由于 16 个线程就覆盖了一次 32 个 Banks 的循环（步长为 4），整个 Warp（32 线程）会请求同一个 Bank 4 次，但在每个半 Warp（Half-Warp）执行周期内是 2 路冲突。
 
-bank 0..28 各被两个线程访问，地址不同：
+##### 2.4.4.5 总结
 
-$$ \rightarrow \text{2-way bank conflict} \rightarrow \text{每次 smem 读需要 2 个串行周期} $$
+|**阶段**|**涉及变量**|**冲突情况**|**原因简述**|
+|---|---|---|---|
+|**Tile A 写入**|`smem_A`|**8 路冲突**|8 个线程拥有相同的 $m$，映射到同一 Bank|
+|**Tile B 写入**|`smem_B`|**无冲突**|`float4` 对齐写入且 $BN$ 是 32 倍数|
+|**Tile A 读取**|`reg_A`|**无冲突**|同 Warp 内线程访问相同地址，触发 Broadcast|
+|**Tile B 读取**|`reg_B`|**2 路冲突**|线程间步长为 4 个 float，32 线程循环命中 Bank|
 
-$$ \lfloor 60 / 32 \rfloor = 1 \Rightarrow \text{bank 0..28 各被访问 2 次} \Rightarrow \text{2-way conflict} $$
-
-消除方法：**将 warp 内不同地址数控制在 32 以内，且 index < 32**。
+##### 2.4.4.6 解决方案
+- padding：将 `smem_A` 声明为 `smem_A[BK][BM + 4]`
+- swizzle
 
 ### 2.5 sgemm_v5_warp
 #### 2.5.1 方案分析
