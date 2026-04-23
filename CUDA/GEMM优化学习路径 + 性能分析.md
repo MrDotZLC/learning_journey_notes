@@ -802,8 +802,15 @@ reg_B[n] = smem_B[k_][thread_col + n];
 	- 将 `smem_A` 声明为 `smem_A[BK][BM + 1]`
 	- 将 `smem_B` 声明为 `smem_A[BN][BK + 1]`（不推荐，需修改较多逻辑）
 - swizzle
+  对第 $r$ 行施加列偏移 $\delta(r) = r \times 4$，用 XOR 代替加法（无进位，单周期）。写入 smem_A 时 $k\_$ 步长为 4，令 $r = k_ / 4$，偏移即为 $k\_$ 本身。为防止 XOR 影响列索引 bit[5]（控制 0/32 段的选择，影响 smem_B 等其他访问模式），屏蔽 $k\_$ 的无关位，只保留 bit[4:2]：
+$$\text{col\_swz} = m \oplus \left(k\_ \mathbin{\&} \text{0x1C}\right)$$
+读取时施加相同变换即可无损还原逻辑索引。
 
-### 2.5 sgemm_v5_warp
+### 2.5 sgemm_v5_swizzle
+
+
+
+### 2.5 sgemm_v5_swizzle
 #### 2.5.1 方案分析
 
 消除 v4 的 smem bank conflict，将每次 smem 读取从 2 个串行周期降至 1 个周期。即将 warp 单次处理数据减半，调度次数翻倍。
