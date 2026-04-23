@@ -756,9 +756,12 @@ bank 0..28 各被两个线程访问，地址不同：
 
 $$ \rightarrow \text{2-way bank conflict} \rightarrow \text{每次 smem 读需要 2 个串行周期} $$
 
-
 $$ \lfloor 60 / 32 \rfloor = 1 \Rightarrow \text{bank 0..28 各被访问 2 次} \Rightarrow \text{2-way conflict} $$
 
 消除方法：**将 warp 内不同地址数控制在 32 以内，且 index < 32**。
 
 ### 2.5 sgemm_v5_warp
+#### 2.5.1 方案分析
+
+消除 v4 的 smem bank conflict，将每次 smem 读取从 2 个串行周期降至 1 个周期。即将 warp 单次处理数据减半，调度次数翻倍。
+
