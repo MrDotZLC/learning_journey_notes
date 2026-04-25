@@ -722,13 +722,54 @@ v4 在所有规模下都超过 cuBLAS FP16，这是因为：
 
 #### 2.4.4 瓶颈分析
 
-v4 在 1024 规模达到 1.84 TFLOPS，与理论峰值 5.44 TFLOPS 的比值：
+##### 2.4.3.1 理论峰值与实际效率
 
-$$ \frac{1.84}{5.44} = 33.8\% $$
+v4 在 1024 规模达到 1.8914 TFLOPS，与理论峰值 5.44 TFLOPS 的比值：
 
-距离峰值仍有 3 倍空间，瓶颈转移到了**计算阶段的 smem 读取延迟**：
+$$ \eta = \frac{\text{实际 TFLOPS}}{\text{理论峰值 TFLOPS}} = \frac{1.8914}{5.44} = 34.8\% $$
 
-##### 2.4.4.1 Tile A 写入阶段
+距离峰值仍有 3 倍空间。
+
+##### 2.4.4.2 Roofline 定位
+
+v4 的算术强度（M=N=K=1024）：
+
+$$ I = \frac{2MNK}{(MK + KN + MN) \times 4\ \text{bytes}} = \frac{2 \times 1024^3}{3 \times 1024^2 \times 4} = \frac{2 \times 1024}{12} \approx 170.7\ \text{FLOP/Byte} $$
+
+Ridge Point：
+
+$$ I^* = \frac{5.44 \times 10^{12}}{288 \times 10^9} = 18.9\ \text{FLOP/Byte} $$
+
+$I = 170.7 \gg I^* = 18.9$，**v4 深度处于计算瓶颈区**，理论上带宽不是限制因素。
+
+但实际只达到 34.8% 峰值，说明瓶颈在**计算单元内部**，而非访存。
+
+##### 2.4.4.3 Occupancy 分析
+
+每个 block 的资源占用：
+
+$$ \text{寄存器} = 59 \times 256 = 15104 $$
+
+$$ \text{smem} = 16384\ \text{bytes} $$
+
+SM75 限制：
+
+- 寄存器/SM：65536，可容纳 $\lfloor 65536 / 15104 \rfloor = 4$ 个 block
+- smem/SM：65536 bytes，可容纳 $\lfloor 65536 / 16384 \rfloor = 4$ 个 block
+- 最大 block/SM：16
+- 最大线程/SM：1024，每 block 256 线程，4 block = 1024 线程 ✓
+
+实际 Occupancy：
+
+$$ \text{warp/SM} = 4\ \text{block} \times \frac{256}{32}\ \text{warp/block} = 32\ \text{warp} $$
+
+$$ \text{Occupancy} = \frac{32}{32} = 100\% $$
+
+Occupancy 满载，SM 有足够的 warp 切换来掩盖延迟。**Occupancy 不是瓶颈。** 但效率仅 34.8%，说明瓶颈在**计算单元内部的指令执行**。
+
+##### 2.4.4.4 bank conflict 分析
+
+###### Tile A 写入阶段
 ```
 // 转置写入 semem_A
 smem_A[k_    ][m] = val.x;
@@ -750,7 +791,7 @@ $$m = i / BK$$
 -  **计算结果**：$T_0$ 到 $T_7$ 这 8 个线程的 $m$ 全部等于 0。因此，这 8 个线程在执行 `smem_A[k_][m] = val.x` 时，全部指向 `Bank 0`。
 - **结论**：**8 路 Bank Conflict**。
 
-##### 2.4.4.2 计算阶段加载 `reg_A` 冲突分析
+###### 计算阶段加载 `reg_A` 冲突分析
 
 ```
 reg_A[m] = smem_A[k_][thread_row + m];
@@ -768,7 +809,7 @@ reg_A[m] = smem_A[k_][thread_row + m];
 	- 后 16 个线程全部访问另一个相同地址，触发 **Broadcast**，无冲突。
 - **结论**：**无冲突**。现代架构（Maxwell 之后）对于 Warp 内不同线程访问同一地址具有极好的广播支持。
 
-##### 2.4.4.3 计算阶段加载 `reg_B` 冲突分析
+###### 计算阶段加载 `reg_B` 冲突分析
 
 ```
 reg_B[n] = smem_B[k_][thread_col + n];
@@ -788,7 +829,7 @@ reg_B[n] = smem_B[k_][thread_col + n];
 - **冲突判定**：在同一个 Warp 的前 16 个线程中，$T_0$ 和 $T_8$ 都访问了 Bank 0。但注意，它们访问的是 **Bank 0 的不同地址**（$T_0$ 访问偏移 0，$T_8$ 访问偏移 32）。
 - **结论**：**2 路 Bank Conflict**。由于 16 个线程就覆盖了一次 32 个 Banks 的循环（步长为 4），整个 Warp（32 线程）会请求同一个 Bank 4 次，但在每个半 Warp（Half-Warp）执行周期内是 2 路冲突。
 
-##### 2.4.4.5 总结
+###### 总结
 
 |**阶段**|**涉及变量**|**冲突情况**|**原因简述**|
 |---|---|---|---|
@@ -797,7 +838,7 @@ reg_B[n] = smem_B[k_][thread_col + n];
 |**Tile A 读取**|`reg_A`|**无冲突**|同 Warp 内线程访问相同地址，触发 Broadcast|
 |**Tile B 读取**|`reg_B`|**2 路冲突**|线程间步长为 4 个 float，32 线程循环命中 Bank|
 
-##### 2.4.4.6 解决方案
+###### 解决方案
 - padding：
 	- 将 `smem_A` 声明为 `smem_A[BK][BM + 1]`
 	- 将 `smem_B` 声明为 `smem_A[BN][BK + 1]`（不推荐，需修改较多逻辑）
@@ -805,6 +846,46 @@ reg_B[n] = smem_B[k_][thread_col + n];
   对第 $r$ 行施加列偏移 $\delta(r) = r \times 4$，用 XOR 代替加法（无进位，单周期）。写入 smem_A 时 $k\_$ 步长为 4，令 $r = k_ / 4$，偏移即为 $k\_$ 本身。为防止 XOR 影响列索引 bit[5]（控制 0/32 段的选择，影响 smem_B 等其他访问模式），屏蔽 $k\_$ 的无关位，只保留 bit[4:2]：
 $$\text{col\_swz} = m \oplus \left(k\_ \mathbin{\&} \text{0x1C}\right)$$
 读取时施加相同变换即可无损还原逻辑索引。
+
+##### 2.4.4.4 计算阶段的指令级分析
+
+v4 计算外积的核心循环：
+
+```cpp
+for (int k_ = 0; k_ < BK; k_++) {       // 32次
+    for (int m = 0; m < TM; m++)         // 4次：读 smem_A → reg_A
+        reg_A[m] = smem_A[k_][...];
+    for (int n = 0; n < TN; n++)         // 4次：读 smem_B → reg_B
+        reg_B[n] = smem_B[k_][...];
+    for (int m = 0; m < TM; m++)
+        for (int n = 0; n < TN; n++)     // 16次 FMA
+            acc[m][n] += reg_A[m] * reg_B[n];
+}
+```
+
+每次 k_ 迭代的指令构成：
+
+|指令类型|数量|延迟（SM75）|
+|---|---|---|
+|smem load（reg_A）|4|约 20 cycle|
+|smem load（reg_B）|4|约 20 cycle|
+|FFMA|16|4 cycle（throughput）|
+
+smem load 到 FFMA 的依赖链：
+
+```
+reg_A[m] = smem_A[...]     ← 20 cycle latency
+                    ↓
+acc[m][n] += reg_A[m] * reg_B[n]   ← 必须等 reg_A 就绪
+```
+
+隐藏 smem load 延迟需要足够的独立指令填充。每次 k_ 迭代只有 16 个 FFMA 可用于掩盖 4 次 smem load 的延迟，**ILP 不足以完全掩盖 smem 读取延迟**。
+
+由此可知，可优化方向有 2 处：
+1. smem_A 的8 路写入 bank conflict
+2. 提升 
+
+
 
 ### 2.5 sgemm_v5_swizzle
 #### 2.5.1 方案分析
@@ -831,7 +912,6 @@ $k_ \in {0,4,8,12,16,20,24,28}$，mask = $k_ \mathbin{\&} 0\text{x}1\text{C}$ = 
 ```cuda
 
 ```
-
 
 ### 2.5 sgemm_v5_warp（废弃）
 #### 2.5.1 方案分析
