@@ -809,8 +809,10 @@ $$\text{col\_swz} = m \oplus \left(k\_ \mathbin{\&} \text{0x1C}\right)$$
 ### 2.5 sgemm_v5_swizzle
 #### 2.5.1 方案分析
 
-消除 v4 smem_A 的下入bank conflict，
-
+消除 v4 smem_A 的下入bank conflict，将不同行的同一逻辑列 m 映射到不同 bank，即对每一行施加一个不同的列偏移。
+$$ \text{col\_swz} = m + \delta(r) \pmod{64} $$
+加法的 bank 等价于 $(m + \delta) \bmod 32$，需要 8 行的 $\delta$ 各不相同且步长均匀覆盖 ${0,4,8,...,28}$，硬件上 XOR 无进位，计算更合适，即：
+$$ \text{col\_swz} = m \oplus k\_ $$
 
 ### 2.5 sgemm_v5_swizzle
 #### 2.5.1 方案分析
