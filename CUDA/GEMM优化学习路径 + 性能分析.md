@@ -1162,7 +1162,38 @@ __shared__ float smem_B[BK][BN];
 
 padding 消除了 smem_A 写入的 8-way conflict，但 conflict 本身不在关键路径上，消除它的收益接近零，而引入的非 2 的幂次行宽开销在小规模下反而成为负担。
 
-### 2.6 sgemm_v5_
+### 2.6 sgemm_v5_double_buf
+#### 2.6.1 方案分析
+
+v4 每个 tile 迭代的执行时间线：
+
+```
+[搬运 Global→smem] → [sync] → [计算 smem→reg→FFMA] → [sync]
+      ↑ CUDA core 空闲                ↑ Global Memory 带宽空闲
+```
+
+用两块 smem 交替，将 tile_{k+1} 的 Global Memory 读取与 tile_k 的计算重叠：
+
+```
+预搬运 tile_0 → smem[0]
+k=0: ldg tile_1→寄存器  ||  计算 smem[0]  →  sync  →  寄存器→smem[1]  →  sync
+k=1: ldg tile_2→寄存器  ||  计算 smem[1]  →  sync  →  寄存器→smem[0]  →  sync
+...
+```
+
+SM75 无 `cp.async`，用**寄存器 prefetch** 模拟：`ldg` 发射后不阻塞后续指令，在计算阶段执行期间数据从 Global Memory 到达寄存器，计算结束后再 `sts` 写入 smem。
+
+smem 翻倍后每 SM 可驻留 block 数：
+
+$$ \left\lfloor \frac{65536}{32768} \right\rfloor = 2\ \text{block},\quad \text{Occupancy} = \frac{2 \times 8}{32} = 50\% $$
+
+warp 调度掩盖延迟的能力减半。**净收益取决于 overlap 节省的时间是否覆盖 Occupancy 损失，需实测判断。**
+
+#### 2.6.2 代码
+
+```cuda
+
+```
 
 ### 2.5 sgemm_v5_warp（废弃）
 #### 2.5.1 方案分析
