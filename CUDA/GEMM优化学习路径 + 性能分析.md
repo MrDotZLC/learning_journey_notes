@@ -828,10 +828,12 @@ $k_ \in {0,4,8,12,16,20,24,28}$，mask = $k_ \mathbin{\&} 0\text{x}1\text{C}$ = 
 固定 $k\_$，mask 为常数，col_swz = $m \oplus \text{const}$，相当于对列索引做常数 XOR，不改变同一行内不同 $m$ 之间的 bank 间距，原本无 conflict 的访问模式保持不变，✓。
 
 #### 2.5.2 代码
+```cuda
+
+```
 
 
-
-### 2.5 sgemm_v5_warp（废弃，）
+### 2.5 sgemm_v5_warp（废弃）
 #### 2.5.1 方案分析
 
 消除 v4 的 smem bank conflict，将每次 smem 读取从 2 个串行周期降至 1 个周期。即将 warp 单次处理数据减半，调度次数翻倍。
