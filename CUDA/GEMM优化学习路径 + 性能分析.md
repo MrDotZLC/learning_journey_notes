@@ -813,8 +813,25 @@ $$\text{col\_swz} = m \oplus \left(k\_ \mathbin{\&} \text{0x1C}\right)$$
 $$ \text{col\_swz} = m + \delta(r) \pmod{64} $$
 加法的 bank 等价于 $(m + \delta) \bmod 32$，需要 8 行的 $\delta$ 各不相同且步长均匀覆盖 ${0,4,8,...,28}$，硬件上 XOR 无进位，计算更合适，即：
 $$ \text{col\_swz} = m \oplus k\_ $$
+但 $k\_$ 最大为 28（bit[4:0]），而列索引 $m \in [0,63]$ 占 6 bit，XOR 的有效范围需对齐。$k\_$ 的 bit[1:0] 恒为 0（4 的倍数），bit[4:2] 才是有效变化位，对应列索引的 bit[4:2]：
 
-### 2.5 sgemm_v5_swizzle
+$$ \text{col\_swz} = m \oplus (k\_ \: \mathbin{\&} \underbrace{0\text{x}1\text{C}}_{0001\ 1100_2}) $$
+
+`& 0x1C` 的作用是**屏蔽 $k\_$ 的 bit[1:0] 和 bit[7:5]**，只保留 bit[4:2]，防止 XOR 影响列索引的高位（bit[5]，对应 0/32 的选择），避免引入新的 conflict。
+
+**验证 8 行互不碰撞**：
+
+$k_ \in {0,4,8,12,16,20,24,28}$，mask = $k_ \mathbin{\&} 0\text{x}1\text{C}$ = ${0,4,8,12,16,20,24,28}$，$m=0$ 时 col_swz = mask，bank = mask，8 个不同值，✓。
+
+**验证同一行内不引入新 conflict**：
+
+固定 $k\_$，mask 为常数，col_swz = $m \oplus \text{const}$，相当于对列索引做常数 XOR，不改变同一行内不同 $m$ 之间的 bank 间距，原本无 conflict 的访问模式保持不变，✓。
+
+#### 2.5.2 代码
+
+
+
+### 2.5 sgemm_v5_warp（废弃，）
 #### 2.5.1 方案分析
 
 消除 v4 的 smem bank conflict，将每次 smem 读取从 2 个串行周期降至 1 个周期。即将 warp 单次处理数据减半，调度次数翻倍。
