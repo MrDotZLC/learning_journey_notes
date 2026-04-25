@@ -1183,6 +1183,15 @@ k=1: ldg tile_2→寄存器  ||  计算 smem[1]  →  sync  →  寄存器→sme
 
 SM75 无 `cp.async`，用**寄存器 prefetch** 模拟：`ldg` 发射后不阻塞后续指令，在计算阶段执行期间数据从 Global Memory 到达寄存器，计算结束后再 `sts` 写入 smem。
 
+**`ldg` 的作用**：
+1. **只读缓存访问**
+    - `ldg` 是 Load Global (read-only cache) 指令，数据会先尝试载入 **L1 只读缓存** 或 **L2**。
+    - 对于重复访问的只读数据（如矩阵 A/B 的元素），可减少 L1/Shared Memory 的占用。
+2. **寄存器直接载入**
+    - 和普通 `global memory load` 类似，`ldg` 会将数据加载到寄存器，但**不会污染 Shared Memory 或 L1 写回缓存**。
+3. **潜在的延迟隐藏**
+    - 在某些 GPU 架构上（Kepler 及之后），`ldg` 可以和计算部分重叠，但这并不是严格的异步，只是对缓存访问延迟的优化。
+
 smem 翻倍后每 SM 可驻留 block 数：
 
 $$ \left\lfloor \frac{65536}{32768} \right\rfloor = 2\ \text{block},\quad \text{Occupancy} = \frac{2 \times 8}{32} = 50\% $$
