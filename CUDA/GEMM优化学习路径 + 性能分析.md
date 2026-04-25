@@ -807,7 +807,9 @@ $$\text{col\_swz} = m \oplus \left(k\_ \mathbin{\&} \text{0x1C}\right)$$
 读取时施加相同变换即可无损还原逻辑索引。
 
 ### 2.5 sgemm_v5_swizzle
+#### 2.5.1 方案分析
 
+消除 v4 smem_A 的下入bank conflict，
 
 
 ### 2.5 sgemm_v5_swizzle
