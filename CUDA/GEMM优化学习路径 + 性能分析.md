@@ -880,12 +880,14 @@ acc[m][n] += reg_A[m] * reg_B[n]   ← 必须等 reg_A 就绪
 ```
 
 隐藏 smem load 延迟需要足够的独立指令填充。每次 k_ 迭代只有 16 个 FFMA 可用于掩盖 4 次 smem load 的延迟，**ILP 不足以完全掩盖 smem 读取延迟**。
+搬运与计算**完全串行**，两段时间均存在资源空闲。这是比指令级 ILP 更上层的结构性浪费。
 
-由此可知，可优化方向有 2 处：
-1. smem_A 的8 路写入 bank conflict
-2. 提升 
+##### 2.4.4.6 方案分析
 
-
+由分析可知，现有bank conflict 和 smem load 延迟问题，有如下 3 个方案：
+- **swizzle** 解决 bank conflict
+- **padding** 解决 bank conflict 
+- **double buffering** 解决 smem load 延迟
 
 ### 2.5 sgemm_v5_swizzle
 #### 2.5.1 方案分析
@@ -910,8 +912,257 @@ $k_ \in {0,4,8,12,16,20,24,28}$，mask = $k_ \mathbin{\&} 0\text{x}1\text{C}$ = 
 
 #### 2.5.2 代码
 ```cuda
+#include "gemm.h"
 
+// v5_swizzle：在 v4 基础上，对 smem_A 写入/读取施加 swizzle
+//   消除 smem_A 写入的 8-way bank conflict
+//   smem_B 的 2-way conflict 在不转置条件下不可消除，保持原样
+//
+// Swizzle 公式：col_swz = m ^ (k_ & 0x1C)
+//   作用：让不同 k_ 行的相同逻辑列映射到不同 bank
+//   & 0x1C：只保留 k_ 的 bit[4:2]，防止影响列索引 bit[5]
+
+static constexpr int BM = 64;
+static constexpr int BN = 64;
+static constexpr int BK = 32;
+static constexpr int TM = 4;
+static constexpr int TN = 4;
+
+static_assert(BK % 4 == 0, "BK must be divisible by 4 for float4");
+static_assert(BN % 4 == 0, "BN must be divisible by 4 for float4");
+
+__global__ void sgemm_v5_swizzle_kernel(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float*       __restrict__ C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    const int block_row = blockIdx.y * BM;
+    const int block_col = blockIdx.x * BN;
+
+    const int ty = threadIdx.y;
+    const int tx = threadIdx.x;
+
+    const int thread_row = ty * TM;
+    const int thread_col = tx * TN;
+
+    const int tid = ty * blockDim.x + tx;
+
+    __shared__ float smem_A[BK][BM];
+    __shared__ float smem_B[BK][BN];
+
+    float acc[TM][TN] = {0.f};
+    float reg_A[TM], reg_B[TN];
+
+    for (int k = 0; k < (K + BK - 1) / BK; k++) {
+
+        const int block_A_r = block_row;
+        const int block_A_c = k * BK;
+        for (int i = tid * 4; i < BK * BM; i += blockDim.x * blockDim.y * 4) {
+            int k_ = i % BK;
+            int m  = i / BK;
+            int global_r = block_A_r + m;
+            int global_c = block_A_c + k_;
+
+            float4 val = {0.f, 0.f, 0.f, 0.f};
+            if (global_r < M && global_c + 3 < K) {
+                val = *reinterpret_cast<const float4 *>(
+                    &A[global_r * K + global_c]);
+            } else if (global_r < M) {
+                val.x = (global_c     < K) ? A[global_r * K + global_c    ] : 0.f;
+                val.y = (global_c + 1 < K) ? A[global_r * K + global_c + 1] : 0.f;
+                val.z = (global_c + 2 < K) ? A[global_r * K + global_c + 2] : 0.f;
+                val.w = (global_c + 3 < K) ? A[global_r * K + global_c + 3] : 0.f;
+            }
+
+            // swizzle
+            smem_A[k_    ][m ^ ((k_    ) & 0x1C)] = val.x;
+            smem_A[k_ + 1][m ^ ((k_ + 1) & 0x1C)] = val.y;
+            smem_A[k_ + 2][m ^ ((k_ + 2) & 0x1C)] = val.z;
+            smem_A[k_ + 3][m ^ ((k_ + 3) & 0x1C)] = val.w;
+        }
+
+        const int block_B_r = k * BK;
+        const int block_B_c = block_col;
+        for (int i = tid * 4; i < BK * BN; i += blockDim.x * blockDim.y * 4) {
+            int n  = i % BN;
+            int k_ = i / BN;
+            int global_r = block_B_r + k_;
+            int global_c = block_B_c + n;
+
+            float4 val = {0.f, 0.f, 0.f, 0.f};
+            if (global_r < K && global_c + 3 < N) {
+                val = *reinterpret_cast<const float4 *>(
+                    &B[global_r * N + global_c]);
+            } else if (global_r < K) {
+                val.x = (global_c     < N) ? B[global_r * N + global_c    ] : 0.f;
+                val.y = (global_c + 1 < N) ? B[global_r * N + global_c + 1] : 0.f;
+                val.z = (global_c + 2 < N) ? B[global_r * N + global_c + 2] : 0.f;
+                val.w = (global_c + 3 < N) ? B[global_r * N + global_c + 3] : 0.f;
+            }
+            *reinterpret_cast<float4 *>(&smem_B[k_][n]) = val;
+        }
+
+        __syncthreads();
+
+        // 计算外积
+        #pragma unroll
+        for (int k_ = 0; k_ < BK; k_++) {
+            const int swz = k_ & 0x1C;
+
+            #pragma unroll
+            for (int m = 0; m < TM; m++) {
+                reg_A[m] = smem_A[k_][(thread_row + m) ^ swz];
+            }
+            #pragma unroll
+            for (int n = 0; n < TN; n++) {
+                reg_B[n] = smem_B[k_][thread_col + n];
+            }
+
+            #pragma unroll
+            for (int m = 0; m < TM; m++) {
+                #pragma unroll
+                for (int n = 0; n < TN; n++) {
+                    acc[m][n] += reg_A[m] * reg_B[n];
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int m = 0; m < TM; m++) {
+        int global_r = block_row + thread_row + m;
+        int global_c = block_col + thread_col;
+
+        if (global_r < M && global_c + 3 < N) {
+            float4 out = {acc[m][0], acc[m][1], acc[m][2], acc[m][3]};
+            if (beta != 0.f) {
+                float4 old = *reinterpret_cast<float4 *>(
+                    &C[global_r * N + global_c]);
+                out.x = alpha * out.x + beta * old.x;
+                out.y = alpha * out.y + beta * old.y;
+                out.z = alpha * out.z + beta * old.z;
+                out.w = alpha * out.w + beta * old.w;
+            } else {
+                out.x *= alpha;
+                out.y *= alpha;
+                out.z *= alpha;
+                out.w *= alpha;
+            }
+            *reinterpret_cast<float4 *>(&C[global_r * N + global_c]) = out;
+        } else {
+            #pragma unroll
+            for (int n = 0; n < TN; n++) {
+                int col = global_c + n;
+                if (global_r < M && col < N) {
+                    C[global_r * N + col] =
+                        alpha * acc[m][n] + beta * C[global_r * N + col];
+                }
+            }
+        }
+    }
+}
+
+void sgemm_v5_swizzle(
+    const float* A, const float* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    dim3 block(BN / TN, BM / TM);   // (16, 16)
+    dim3 grid((N + BN - 1) / BN, 
+              (M + BM - 1) / BM);
+    sgemm_v5_swizzle_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
+    CUDA_CHECK_LAST();
+}   
 ```
+
+#### 2.5.3 数据分析
+
+|M=N=K|v4 TFLOPS|v5 TFLOPS|v5 vs v4|
+|---|---|---|---|
+|256|1.0661|0.9384|**-12.0%**|
+|512|1.5767|1.6023|+1.6%|
+|1024|1.8914|1.8636|-1.5%|
+|2048|1.1081|1.1161|+0.7%|
+
+swizzle 的收益在误差范围内（±2%），**对整体性能无显著影响**。
+
+#### 2.5.4 优化无效的原因分析
+
+**smem_A 写入的 8-way conflict 本身权重低。** 写入 smem_A 发生在搬运阶段，每个 tile 迭代只执行一次，而计算阶段的 smem 读取执行 BK=32 次。搬运占总执行时间的比例本身就小，消除其 conflict 的绝对收益有限。
+
+**SM75 的 warp 调度掩盖了部分 conflict 延迟。** 8-way conflict 理论上需要 8 轮串行内存事务，但 SM 内其他 warp 的指令可以填充这段等待，实际暴露的延迟低于理论值。
+
+**256 规模的回退（-12%）** 是小矩阵下 L2/L1 cache 命中率高，smem 路径本身占比下降，swizzle 引入的额外 XOR 指令和索引计算反而成为相对开销。
+
+### 2.6 sgemm_v5_padding
+
+#### 2.6.1 方案分析
+
+根据前面的分析：
+
+- **smem_A 写入 8-way conflict**：跨行访问，行宽 64 是 32 的整数倍，padding +1 有效
+- **smem_B 读取 2-way conflict**：同行内 tx 与 tx+8 碰撞，padding 对同行内冲突无效（§3.3 已证）
+
+所以 padding 方案只处理 smem_A，smem_B 保持原样。
+
+---
+
+**方案**：`smem_A[BK][BM + 1]` = `smem_A[32][65]`
+
+验证 padding +1 后 tid=0..7 的 bank：
+
+$$ \text{addr}(k_, m) = k_ \times 65 + m $$
+
+| tid | $k\_$ | $m$ | addr | bank |
+| --- | ----- | --- | ---- | ---- |
+| 0   | 0     | 0   | 0    | 0    |
+| 1   | 4     | 0   | 260  | 4    |
+| 2   | 8     | 0   | 520  | 8    |
+| 3   | 12    | 0   | 780  | 12   |
+| 4   | 16    | 0   | 1040 | 16   |
+| 5   | 20    | 0   | 1300 | 20   |
+| 6   | 24    | 0   | 1540 | 24   |
+| 7   | 28    | 0   | 1820 | 28   |
+
+8 个线程分散到 8 个不同 bank，无 conflict。smem 增量：
+
+$$ 32 \times 1 \times 4 = 128\ \text{bytes},\quad \text{total} = 16384 + 128 = 16512\ \text{bytes} < 65536\ \text{bytes} $$
+
+#### 2.6.2 代码
+
+只改一行
+```cuda
+__shared__ float smem_A[BK][BM + 1]; // padding 1 行避免 bank conflict
+__shared__ float smem_B[BK][BN];
+```
+
+#### 2.6.3 数据分析
+
+|M=N=K|v4 TFLOPS|padding TFLOPS|delta|
+|---|---|---|---|
+|256|1.0625|0.9844|**-7.4%**|
+|512|1.5733|1.5835|+0.6%|
+|1024|1.8920|1.8533|-2.0%|
+|2048|1.1428|1.1349|-0.7%|
+
+两个现象需要解释：
+
+1. **512 及以上**：与 v4 差异在 ±2% 以内，在测量噪声范围内，**无显著收益**
+2. **256 规模**：明确退步 -7.4%
+
+#### 2.6.4 优化无效的原因分析
+
+256 规模下 grid 只有 $4 \times 4 = 16$ 个 block，SM75 共 24 个 SM，**大量 SM 空闲，每个活跃 SM 驻留的 warp 数远低于 32**，warp 切换掩盖延迟的能力大幅下降，conflict 的实际停顿开始暴露。
+
+与此同时 padding 引入了新的开销：smem_A 行宽从 64 变为 65，**不再是 2 的幂次**，编译器无法用移位替代乘法计算行地址，地址计算指令数增加。这个额外开销在大规模下被 FFMA 计算掩盖，在 256 规模下无法被掩盖，导致明确退步。
+
+padding 消除了 smem_A 写入的 8-way conflict，但 conflict 本身不在关键路径上，消除它的收益接近零，而引入的非 2 的幂次行宽开销在小规模下反而成为负担。
+
+### 2.6 sgemm_v5_
 
 ### 2.5 sgemm_v5_warp（废弃）
 #### 2.5.1 方案分析
