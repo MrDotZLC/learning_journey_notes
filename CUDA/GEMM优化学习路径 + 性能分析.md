@@ -1473,18 +1473,252 @@ Ridge Point = 18.9 FLOP/B，v5 的 AI 低于 Ridge Point，**仍处于 memory-bo
 
 优化方向2：增强 double buffering 掩盖效果 → 增大计算窗口 → 增大 BK、TM×TN
 
+三个方向的调整受 smem 和寄存器两个硬约束：
+
+**smem 约束（SM75，64 KB/SM，目标 ≥2 blocks/SM）：**
+
+$$ \text{smem\_per\_block} = 2 \times (BK \times BM + BK \times BN) \times 4 \leq \frac{64\text{ KB}}{2} = 32\text{ KB} $$
+
+$$ BK \times (BM + BN) \leq 4096 $$
+
+在 $BM = BN = 128$ 下：
+
+$$ BK \leq \frac{4096}{256} = 16 $$
+
+BK 最大取 16，smem = $2 \times 16 \times 256 \times 4 = 32\text{ KB}$，恰好满足 2 blocks/SM。
+
+**寄存器约束（目标 2 blocks/SM，256 线程/block）：**
+
+$$ \text{reg/thread} \leq \frac{65536}{256 \times 2} = 128 $$
+
+`acc[TM][TN] = acc[8][8]` 占 64 个寄存器，加上 `reg_A[8]`、`reg_B[8]`、prefetch 寄存器，总计约 85–90 个，**满足 128 的上限**。
+
 #### 2.7.2 代码
+```cuda
+#include "gemm.h"
+
+static constexpr int BM = 128;
+static constexpr int BN = 128;
+static constexpr int BK = 16;
+static constexpr int TM = 8;
+static constexpr int TN = 8;
+
+static_assert(BK % 4 == 0);
+static_assert(BN % 4 == 0);
+
+// 每线程 LDG 次数
+static constexpr int LDG_A = (BK * BM) / (256 * 4);  // = 2
+static constexpr int LDG_B = (BK * BN) / (256 * 4);  // = 2
+
+__device__ __forceinline__ float4 ldg128_safe(
+    const float* ptr, int r, int c, int rows, int cols)
+{
+    float4 val = {0.f, 0.f, 0.f, 0.f};
+    if (r >= rows) return val;
+    if (c + 3 < cols) {
+        val = __ldg(reinterpret_cast<const float4*>(&ptr[r * cols + c]));
+    } else {
+        val.x = (c     < cols) ? ptr[r * cols + c    ] : 0.f;
+        val.y = (c + 1 < cols) ? ptr[r * cols + c + 1] : 0.f;
+        val.z = (c + 2 < cols) ? ptr[r * cols + c + 2] : 0.f;
+        val.w = (c + 3 < cols) ? ptr[r * cols + c + 3] : 0.f;
+    }
+    return val;
+}
+
+// 256 线程/block，smem=16KB → 4 blocks/SM（SM75 64KB smem 下）
+__global__ __launch_bounds__(256, 2)
+void sgemm_v6_large_tile_kernel(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float*       __restrict__ C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    const int block_row = blockIdx.y * BM;
+    const int block_col = blockIdx.x * BN;
+    const int tx  = threadIdx.x;   // [0, BN/TN) = [0, 16)
+    const int ty  = threadIdx.y;   // [0, BM/TM) = [0, 16)
+    const int tid = ty * blockDim.x + tx;
+
+    const int thread_row = ty * TM;
+    const int thread_col = tx * TN;
+
+    __shared__ float smem_A[2][BK][BM];
+    __shared__ float smem_B[2][BK][BN];
+
+    float acc[TM][TN] = {};
+    float reg_A[TM], reg_B[TN];
+    // 故意填充非零垃圾值
+#pragma unroll
+    for (int i = 0; i < TM; i++) reg_A[i] = 99999.f;
+#pragma unroll
+    for (int i = 0; i < TN; i++) reg_B[i] = 99999.f;
+
+    // prefetch 寄存器：每线程 2 次 float4 × A/B
+    // BK*BM / (256*4) = 16*128/1024 = 2
+    float4 p_A[LDG_A], p_B[LDG_B];
+
+    const int num_tiles  = (K + BK - 1) / BK;
+
+    // ---- 预加载第 0 个 tile 到 smem[0] ----
+#pragma unroll
+    for (int i = 0, idx = tid * 4; i < LDG_A; i++, idx += 256 * 4) {
+        int k_ = idx % BK, m = idx / BK;
+        p_A[i] = ldg128_safe(A, block_row + m, 0 * BK + k_, M, K);
+        smem_A[0][k_    ][m] = p_A[i].x;
+        smem_A[0][k_ + 1][m] = p_A[i].y;
+        smem_A[0][k_ + 2][m] = p_A[i].z;
+        smem_A[0][k_ + 3][m] = p_A[i].w;
+    }
+#pragma unroll
+    for (int i = 0, idx = tid * 4; i < LDG_B; i++, idx += 256 * 4) {
+        int n = idx % BN, k_ = idx / BN;
+        p_B[i] = ldg128_safe(B, 0 * BK + k_, block_col + n, K, N);
+        *reinterpret_cast<float4*>(&smem_B[0][k_][n]) = p_B[i];
+    }
+    __syncthreads();
+
+// 主循环
+#pragma unroll
+    for (int k = 0; k < num_tiles; k++) {
+        const int cur     = k & 1;
+        const int next    = cur ^ 1;
+        const bool has_next = (k + 1 < num_tiles);
+
+        // ---- 发射 ldg，prefetch tile_{k+1} 到寄存器 ----
+        if (has_next) {
+#pragma unroll
+            for (int i = 0, idx = tid * 4; i < 2;
+                    i++, idx += 256 * 4) {
+                int k_ = idx % BK, m = idx / BK;
+                p_A[i] = ldg128_safe(
+                    A, block_row + m, (k+1) * BK + k_, M, K);
+            }
+#pragma unroll
+            for (int i = 0, idx = tid * 4; i < 2;
+                    i++, idx += 256 * 4) {
+                int n = idx % BN, k_ = idx / BN;
+                p_B[i] = ldg128_safe(
+                    B, (k+1) * BK + k_, block_col + n, K, N);
+            }
+        }
+
+        // ---- FMA（掩盖上方 ldg 的 latency）----
+#pragma unroll
+        for (int k_ = 0; k_ < BK; k_++) {
+#pragma unroll
+            for (int m = 0; m < TM; m++)
+                reg_A[m] = smem_A[cur][k_][thread_row + m];
+#pragma unroll
+            for (int n = 0; n < TN; n++)
+                reg_B[n] = smem_B[cur][k_][thread_col + n];
+#pragma unroll
+            for (int m = 0; m < TM; m++)
+#pragma unroll
+                for (int n = 0; n < TN; n++)
+                    acc[m][n] += reg_A[m] * reg_B[n];
+        }
+
+        // ---- sync + sts：此时 ldg 数据已就绪 ----
+        if (has_next) {
+            __syncthreads();
+#pragma unroll
+            for (int i = 0, idx = tid * 4; i < 2;
+                 i++, idx += 256 * 4) {
+                int k_ = idx % BK, m = idx / BK;
+                smem_A[next][k_  ][m] = p_A[i].x;
+                smem_A[next][k_+1][m] = p_A[i].y;
+                smem_A[next][k_+2][m] = p_A[i].z;
+                smem_A[next][k_+3][m] = p_A[i].w;
+            }
+#pragma unroll
+            for (int i = 0, idx = tid * 4; i < 2;
+                 i++, idx += 256 * 4) {
+                int n = idx % BN, k_ = idx / BN;
+                *reinterpret_cast<float4*>(&smem_B[next][k_][n]) = p_B[i];
+            }
+            __syncthreads();
+        }
+    }
+
+    // ---- 写回 C ----
+#pragma unroll
+    for (int m = 0; m < TM; m++) {
+        const int gr = block_row + thread_row + m;
+        const int gc = block_col + thread_col;
+        if (gr >= M) continue;
+
+        int remaining_cols = N - gc;
+
+        if (remaining_cols >= 8) {
+            // 拆成两个 float4 写回
+            float4 out0 = {acc[m][0], acc[m][1], acc[m][2], acc[m][3]};
+            float4 out1 = {acc[m][4], acc[m][5], acc[m][6], acc[m][7]};
+
+            if (beta != 0.f) {
+                float4 old0 = __ldg(reinterpret_cast<const float4*>(&C[gr * N + gc + 0]));
+                float4 old1 = __ldg(reinterpret_cast<const float4*>(&C[gr * N + gc + 4]));
+
+                out0.x = alpha*out0.x + beta*old0.x;
+                out0.y = alpha*out0.y + beta*old0.y;
+                out0.z = alpha*out0.z + beta*old0.z;
+                out0.w = alpha*out0.w + beta*old0.w;
+
+                out1.x = alpha*out1.x + beta*old1.x;
+                out1.y = alpha*out1.y + beta*old1.y;
+                out1.z = alpha*out1.z + beta*old1.z;
+                out1.w = alpha*out1.w + beta*old1.w;
+            } else {
+                out0.x *= alpha; 
+                out0.y *= alpha; 
+                out0.z *= alpha; 
+                out0.w *= alpha;
+                out1.x *= alpha; 
+                out1.y *= alpha; 
+                out1.z *= alpha; 
+                out1.w *= alpha;
+            }
+
+            *reinterpret_cast<float4*>(&C[gr * N + gc + 0]) = out0;
+            *reinterpret_cast<float4*>(&C[gr * N + gc + 4]) = out1;
+
+        } else {
+            // 边界列不足 8，逐列写回
+#pragma unroll
+            for (int n = 0; n < TN && n < remaining_cols; n++) {
+                C[gr * N + gc + n] =
+                    alpha * acc[m][n] + beta * C[gr * N + gc + n];
+            }
+        }
+    }
+}
+
+void sgemm_v6_large_tile(
+    const float* A, const float* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    // cudaFuncSetAttribute(
+    //     sgemm_v6_large_tile_kernel,
+    //     cudaFuncAttributePreferredSharedMemoryCarveout,
+    //     cudaSharedmemCarveoutMaxShared);
+
+    dim3 block(BN / TN, BM / TM);  // 16×16 = 256
+    dim3 grid((N + BN - 1) / BN, (M + BM - 1) / BM);
+    sgemm_v6_large_tile_kernel<<<grid, block>>>(A, B, C, M, N, K, alpha, beta);
+    CUDA_CHECK_LAST();
+}
+```
 
 #### 2.7.3 数据分析
 
-![](assets/Pasted%20image%2020260427042912.png)
-
-|M=N=K|v4_vec|v5_double_buf|v6_large_tile|v0_test|峰值利用率 (v6)|
-|---|---|---|---|---|---|
-|256|1.0638|1.0670|0.5049|0.5096|9.3%|
-|512|1.6309|1.6061|1.6471|1.5759|30.3%|
-|1024|1.8906|1.9253|**2.4807**|2.4584|**45.6%**|
-|2048|1.1422|1.1466|1.6140|1.6216|29.7%|
+| M=N=K | v4_vec | v5_double_buf | v6_large_tile (BK=8) | 峰值利用率 (v6) |
+| ----- | ------ | ------------- | -------------------- | ---------- |
+| 256   | 1.0646 | 1.1393        | 0.4863               | 8.9%       |
+| 512   | 1.5742 | 1.5833        | 1.6696               | 30.7%      |
+| 1024  | 1.8965 | 1.9170        | **2.5081**           | **46.1%**  |
+| 2048  | 1.1406 | 1.1476        | 1.6329               | 30.0%      |
 
 ### 2.5 sgemm_v5_warp（废弃）
 #### 2.5.1 方案分析
