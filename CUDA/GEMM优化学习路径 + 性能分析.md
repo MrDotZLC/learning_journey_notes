@@ -1713,12 +1713,158 @@ void sgemm_v6_large_tile(
 
 #### 2.7.3 数据分析
 
-| M=N=K | v4_vec | v5_double_buf | v6_large_tile (BK=8) | 峰值利用率 (v6) |
-| ----- | ------ | ------------- | -------------------- | ---------- |
-| 256   | 1.0646 | 1.1393        | 0.4863               | 8.9%       |
-| 512   | 1.5742 | 1.5833        | 1.6696               | 30.7%      |
-| 1024  | 1.8965 | 1.9170        | **2.5081**           | **46.1%**  |
-| 2048  | 1.1406 | 1.1476        | 1.6329               | 30.0%      |
+|M=N=K|v4_vec|v5_double_buf|v6 (BK=16)|峰值利用率|vs v4|
+|---|---|---|---|---|---|
+|256|1.0695|0.9347|0.5369|9.9%|−49.8%|
+|512|1.5688|1.6267|1.6994|31.2%|+8.3%|
+|1024|1.8902|1.9050|**2.5315**|**46.5%**|**+33.9%**|
+|2048|1.1435|1.1473|1.6317|30.0%|+42.8%|
+
+- **M=N=K=256：wave quantization 主导**
+
+$$ \text{grid}_{v6} = \left\lceil\frac{256}{128}\right\rceil^2 = 4\ \text{blocks},\quad \text{grid}_{v4} = \left\lceil\frac{256}{64}\right\rceil^2 = 16\ \text{blocks} $$
+
+SM75 共 24 SM，v6 仅 4 blocks，SM 利用率 $4/24 \approx 17\%$。v4 的 16 blocks 利用率 $67\%$，因此 v6 在此规模的性能（0.4863）不及 v4（1.0646）的一半。
+
+- **M=N=K=512：v6 首次超越 v4**
+
+$$ \text{grid}_{v6} = 16\ \text{blocks},\quad \text{SM 利用率} = 67\% $$
+
+v6（1.6696）> v4（1.5742），差距 +6.1%。AI 提升（32 vs 16 FLOP/B）开始发挥作用，但 SM 利用率仍未饱和，收益有限。
+
+- **M=N=K=1024：性能峰值**
+
+$$ \text{grid}_{v6} = 64\ \text{blocks},\quad \text{blocks/SM} \approx 2\text{–}3,\quad \text{SM 利用率} = 100\% $$
+
+v6（2.5081）vs v4（1.8965），提升 **+32.2%**。AI 超过 Ridge Point：
+
+$$ \text{AI}_{v6} = 32.0\ \text{FLOP/B} > 18.9\ \text{FLOP/B (Ridge Point)} $$
+
+Roofline 上界切换到 compute-bound：
+
+$$ \text{上界} = \min(5.44,\ 0.288 \times 32.0) = \min(5.44,\ 9.22) = 5.44\ \text{TFLOPS} $$
+
+实测 2.508 TFLOPS，利用率 46.1%，剩余损失来自 smem_B bank conflict（2-way，TN=8）。
+
+- **M=N=K=2048：性能回落**
+
+v6（1.6329）相比 1024 的 2.5081 下降 **-34.9%**，但仍比 v4（1.1406）高 +43.2%。回落原因：
+
+working set 超出 L2：
+
+$$ (A + B + C) = 3 \times 2048^2 \times 4\ \text{B} = 48\ \text{MB} \gg 1.5\ \text{MB (L2)} $$
+
+每次 LDG 均为 DRAM miss，实际带宽受 288 GB/s 限制。此时 AI=32 的优势部分被 DRAM 延迟抵消，但大 tile 减少了 block 总数（256 blocks vs v4 的 1024 blocks），**总 LDG 次数降低 4 倍**，仍保留显著优势。
+
+#### 2.7.4 瓶颈分析
+##### 2.7.4.1 理论上限
+
+SM75（GTX 1660 Ti）的硬件参数：
+
+$$ \text{Peak FP32} = 5.44\ \text{TFLOPS},\quad \text{BW} = 288\ \text{GB/s},\quad \text{Ridge Point} = 18.9\ \text{FLOP/B} $$
+
+v6 的 AI：
+
+$$ \text{AI} = \frac{2 \times BM \times BN}{(BM + BN) \times 4} = \frac{2 \times 128 \times 128}{256 \times 4} = 32.0\ \text{FLOP/B} $$
+
+AI > Ridge Point，Roofline 上界为 compute-bound：
+
+$$ \text{Roofline} = 5.44\ \text{TFLOPS} $$
+
+实测 1024 规模 2.5315 TFLOPS，利用率 **46.5%**，损失 **53.5%**。
+
+损失来自四个层次，从硬件到算法依次剥离：
+
+$$ \underbrace{5.44}_{\text{Peak}} \xrightarrow{-\text{occupancy}} \xrightarrow{-\text{bank conflict}} \xrightarrow{-\text{loop overhead}} \xrightarrow{-\text{其他}} 2.53 $$
+
+##### 2.7.4.2 Occupancy 损失
+
+SM75 资源上限：65536 寄存器/SM，64 KB smem/SM，32 warps/SM，1024 线程/SM。
+
+v6 每 block：256 线程（8 warps），smem = 32 KB。
+
+smem 约束：
+
+$$ \left\lfloor \frac{64\ \text{KB}}{32\ \text{KB}} \right\rfloor = 2\ \text{blocks/SM} \Rightarrow 16\ \text{warps/SM} $$
+
+寄存器约束（`__launch_bounds__(256, 2)` 限定上限 128/thread）：
+
+$$ \left\lfloor \frac{65536}{256 \times 96} \right\rfloor = 2\ \text{blocks/SM} \Rightarrow 16\ \text{warps/SM} $$
+
+实际寄存器数（`acc[64] + reg_A[8] + reg_B[8] + p_A[8] + p_B[8]` ≈ 96）与 smem 约束吻合，两者均限定为 **2 blocks/SM = 16 warps/SM**。
+
+理论 warp occupancy：
+
+$$ \frac{16}{32} = 50\% $$
+
+occupancy = 50% 对应的 TFLOPS 上界（假设其他完美）：
+
+$$ 5.44 \times 50\% = 2.72\ \text{TFLOPS} $$
+
+实测 2.53，说明 **occupancy 是主导损失**，将上界从 5.44 压缩到 2.72。
+
+##### 2.7.4.3 bank conflict 
+
+smem_A 布局 `[2][BK][BN] = [2][16][128]`。
+写入阶段：按列写入，4 路冲突；
+读取阶段：warp 前 16 个线程访问同一个 bank $(ty \times 8) \: mod \: 32$，后 16 个访问另一个$((ty + 1) \times 8) \: mod \: 32$，Broadcast，无冲突。
+
+smem_B 布局 `[2][BK][BN] = [2][16][128]`：
+写入阶段：`n = idx % BN, k_ = idx / BN`，同一 warp 所有线程访问同一行，无冲突。
+读取阶段：同一列 $tx$ 读取相同 bank $(tx \times 8 + n) \: mod \: 32$，Broadcast；同一行读取不同列，无冲突。
+
+同一 warp 内 32 个线程，但 block 为 16×16，warp 按行优先排列（tx 方向），实际一个 warp 内 tx ∈ [0,15]（前 16 线程）或 tx ∈ [0,15]（后 16 线程共享同一 ty），一行线程有 4 路冲突，一个 warp 则有 8 路冲突。
+
+smem 读基本被 FMA 掩盖，bank conflict 对 TFLOPS 几乎无影响。
+
+##### 2.7.4.4 Loop Overhead 损失
+
+每次迭代两次 `__syncthreads()`，共 $K/BK = 64$ 次迭代：
+
+$$ \text{sync overhead} = 64 \times 2 \times 20\ \text{cycles} = 2560\ \text{cycles（估算）} $$
+
+FMA 总周期（理想）：
+
+$$ \frac{2 \times 1024^3}{5.44 \times 10^{12}} \times 1.8 \times 10^9 \approx 700{,}000\ \text{cycles/block} $$
+
+overhead 占比 $\approx 0.4\%$，可忽略。
+
+##### 2.7.4.5 Wave quantization（1024 规模）
+
+$$ \text{grid} = \frac{1024}{128} \times \frac{1024}{128} = 64\ \text{blocks} $$
+
+$$ 64 / 24\ \text{SM} = 2.67\ \text{blocks/SM（非整数）} $$
+
+64 blocks 在 24 SM 上的分配：$24 \times 2 = 48$ blocks 第一波，$64 - 48 = 16$ blocks 第二波。第二波只占 $16/24 \approx 67\%$ 的 SM，产生 tail effect。
+
+有效利用率修正：
+
+$$ \frac{64}{3 \times 24} \times 3 = \frac{64}{72} \approx 88.9\%\ \text{的时间 SM 满负荷} $$
+
+最后一波 16 blocks 在 16 个 SM 上运行时，另外 8 个 SM 空闲，等效损失约 $\frac{8}{24} \times \frac{T_{\text{last\_wave}}}{T_{\text{total}}}$。tail wave 占总时间的比例约 $1/3$，损失：
+
+$$ \frac{8}{24} \times \frac{1}{3} \approx 11\%\ \text{的 SM 利用率损失} $$
+
+这是 2.72 → 2.5315 之间 7.2% 损失的主要来源。
+
+##### 2.7.4.5 总结
+
+| 瓶颈                   | 当前损失     | 可解决性  | 解决方案                      |
+| -------------------- | -------- | ----- | ------------------------- |
+| Occupancy 50%        | 主导（~50%） | 部分可解  | 减小 smem（降 BK）或切换 WMMA     |
+| smem_B bank conflict | ~0%      | 基本不可解 | 已被 FMA 掩盖                 |
+| Loop overhead        | ~0.4%    | 基本不可解 | BK 已是约束下最大值，overhead 不可避免 |
+| Wave quantization    | ~6.8%    | 基本不可解 | SM 7.5下，已经拉满了             |
+
+occupancy 是主导瓶颈，提升路径只有两条：
+
+**路径 A：降低 smem 占用，换取更高 occupancy**
+
+降低BK，减少smem，但是occupancy 提升被 BK 减小带来的其他代价（loop overhead 翻倍、double buf 窗口缩小）完全抵消。**路径 A 在当前框架内已无空间。**
+
+**路径 B：切换 Tensor Core（WMMA）**
+
+将 acc 寄存器存入 Tensor Core 的 fragment 中，缓解寄存器压力。
 
 ### 2.5 sgemm_v5_warp（废弃）
 #### 2.5.1 方案分析
