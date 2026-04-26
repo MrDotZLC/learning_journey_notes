@@ -1454,11 +1454,24 @@ loop k:
 在 M=N=K=1024 时，v5 达到 1.9253 TFLOPS，对应峰值利用率 35.4%，主要瓶颈：
 
 1. **smem_B 的 2-way bank conflict**（继承自 v4，未解决）
-2. **寄存器压力升高**：`pA[2]/pB[2]` 额外占用 8 个寄存器，`--launch_bounds__(256,2)` 约束上限 64 个，marginal occupancy 不改善
-3. **M=2048 性能断崖**：1.1466 TFLOPS，远低于 1024 规模的 1.9253，推测 L2 cache 失效（BM=64 的 block tile 数量增大，L2 working set 超出 2MB）
+2. **double buffering 掩盖失效：** LDG 延迟（L2 miss）约 200–400 cycles，计算窗口不足以完全掩盖 LDG 延迟。
+3. **寄存器压力升高**：`pA[2]/pB[2]` 额外占用 8 个寄存器，`--launch_bounds__(256,2)` 约束上限 64 个，marginal occupancy 不改善
+4. **M=2048 性能断崖**：1.1466 TFLOPS，远低于 1024 规模的 1.9253，推测 L2 cache 失效（BM=64 的 block tile 数量增大，L2 working set 超出 2MB）
 
 ### 2.7 sgemm_v6_large_tile
 #### 2.7.1 方案分析
+
+v5（BM=BN=64, BK=32, TM=TN=4）在 M=N=K=1024 达到 1.9253 TFLOPS，占峰值 35.4%。剩余 64.6% 的损失来源需要逐层定位。
+
+**计算访存比（tile 级）：**
+
+$$ \text{AI}_{v5} = \frac{2 \times 64 \times 64}{(64 + 64) \times 4} = 16.0\ \text{FLOP/B} $$
+
+Ridge Point = 18.9 FLOP/B，v5 的 AI 低于 Ridge Point，**仍处于 memory-bound 区间**。这是根本瓶颈——在 smem 复用率不足的情况下，无论如何优化计算侧（ILP、warp tiling）都无法突破带宽天花板。
+
+优化方向1：提升 AI  → 增大 BM、BN
+
+优化方向2：增强 double buffering 掩盖效果 → 增大计算窗口 → 增大 BK、TM×TN
 
 #### 2.7.2 代码
 
