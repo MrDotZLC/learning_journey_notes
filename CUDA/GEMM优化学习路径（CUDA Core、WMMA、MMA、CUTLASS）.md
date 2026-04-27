@@ -1866,7 +1866,7 @@ occupancy 是主导瓶颈，提升路径只有两条：
 
 将 acc 寄存器存入 Tensor Core 的 fragment 中，缓解寄存器压力。
 
-## 三、WMMA SGEMM（Tensor Core MMA）
+## 三、WMMA HGEMM（Tensor Core MMA）
 
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
 ### 3.1  wmma_v1_naive
