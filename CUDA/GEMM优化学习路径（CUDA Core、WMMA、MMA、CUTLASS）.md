@@ -1854,8 +1854,6 @@ occupancy 是主导瓶颈，提升路径只有两条：
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
 ### 3.1  wmma_v1_naive
 
-
-
 ### 3.2 
 
 ## 四、MMA PTX SGEMM
