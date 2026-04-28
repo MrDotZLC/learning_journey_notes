@@ -27,7 +27,7 @@ $$I = \frac{2M^3}{3M^2 \times 4} = \frac{M}{6}$$
 |4096|682.7 FLOP/Byte|算力瓶颈|
 
 ## 二、CUDA Core SGEMM
-### 2.1 sgemm_v1_naive
+### 2.1 cuda_core_sgemm_v1_naive
 Naive kernel 每次从 Global Memory 读数据，无复用。
 
 实际访存量（M=N=K=1024）：
@@ -72,7 +72,7 @@ void sgemm_v1_naive(const float *A, const float *B, float *C, int M, int N,
 
 ---
 
-### 2.2 sgemm_v1_shared_memory_tile
+### 2.2 cuda_core_sgemm_v2_shared_memory_tile
 #### 2.2.1 方案分析
 
 **Naive 访存：** tile 大小 $T \times T$ 为例，朴素矩阵乘会从全局内存 GM 中读同一元素 $2K$ 次。
@@ -293,7 +293,7 @@ $TM×TN=16$ 个独立累加器，彼此之间无依赖，编译器可以交错�
 
 $$\text{ILP} = TM \times TN = 16$$
 
-### 2.3 sgemm_v3_coarsen
+### 2.3 cuda_core_sgemm_v3_coarsen
 #### 2.3.1 方案分析
 
 **设计参数：**
@@ -506,7 +506,7 @@ v3 的搬运阶段是当前瓶颈，每线程用标量 `float` 搬运，每次 G
 - 总事务数：相同（128次），带宽利用率不变
 - 总指令数：减少 **4倍**（128→32条）
 
-### 2.4 sgemm_v4_vec
+### 2.4 cuda_core_sgemm_v4_vec
 #### 2.4.1 方案分析
 
 v3 中 Tile A 的元素是逐个写入 SM，不用考虑写入方向，v4 是连续写入 4 个 float，减少 4 倍指令数，写入方向需要和读取方向保持一致，即沿着 K 轴方向。索引计算改为：
@@ -872,7 +872,7 @@ acc[m][n] += reg_A[m] * reg_B[n]   ← 必须等 reg_A 就绪
 - **padding** 解决 bank conflict 
 - **double buffering** 解决 smem load 延迟
 
-### 2.5 sgemm_v5_swizzle
+### 2.5 cuda_core_sgemm_v5_swizzle
 #### 2.5.1 方案分析
 
 消除 v4 smem_A 的下入bank conflict，将不同行的同一逻辑列 m 映射到不同 bank，即对每一行施加一个不同的列偏移。
@@ -1081,7 +1081,7 @@ swizzle 的收益在误差范围内（±2%），**对整体性能无显著影响
 
 **256 规模的回退（-12%）** 是小矩阵下 L2/L1 cache 命中率高，smem 路径本身占比下降，swizzle 引入的额外 XOR 指令和索引计算反而成为相对开销。
 
-### 2.6 sgemm_v5_padding
+### 2.6 cuda_core_sgemm_v5_padding
 
 #### 2.6.1 方案分析
 
@@ -1145,7 +1145,7 @@ __shared__ float smem_B[BK][BN];
 
 padding 消除了 smem_A 写入的 8-way conflict，但 conflict 本身不在关键路径上，消除它的收益接近零，而引入的非 2 的幂次行宽开销在小规模下反而成为负担。
 
-### 2.6 sgemm_v5_double_buf
+### 2.6 cuda_core_sgemm_v5_double_buf
 #### 2.6.1 方案分析
 
 v4 每个 tile 迭代的执行时间线：
@@ -1441,7 +1441,7 @@ loop k:
 3. **寄存器压力升高**：`pA[2]/pB[2]` 额外占用 8 个寄存器，`--launch_bounds__(256,2)` 约束上限 64 个，marginal occupancy 不改善
 4. **M=2048 性能断崖**：1.1466 TFLOPS，远低于 1024 规模的 1.9253，推测 L2 cache 失效（BM=64 的 block tile 数量增大，L2 working set 超出 2MB）
 
-### 2.7 sgemm_v6_large_tile
+### 2.7 cuda_core_sgemm_v6_large_tile
 #### 2.7.1 方案分析
 
 v5（BM=BN=64, BK=32, TM=TN=4）在 M=N=K=1024 达到 1.9253 TFLOPS，占峰值 35.4%。剩余 64.6% 的损失来源需要逐层定位。
@@ -1852,7 +1852,7 @@ occupancy 是主导瓶颈，提升路径只有两条：
 ## 三、WMMA HGEMM（Tensor Core MMA）
 
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
-### 3.1  wmma_v1_naive
+### 3.1  wmma_hgemm_v1_naive
 
 #### 3.1.1 参数设计
 SM75 Tensor Core 唯一支持的 fragment 尺寸，三个参数均由硬件固定，无设计空间：
@@ -1955,7 +1955,7 @@ void wmma_hgemm_v1_naive(
 
 ```
 
-### 3.2 wmma_v2_smem
+### 3.2  wmma_hgemm_v2_smem
 #### 3.2.1 参数设计
 
 在 v1 基础上引入 smem，block 内所有 warp 共享复用 A、B tile。
@@ -1986,8 +1986,128 @@ smem_B 同理。
 
 #### 3.2.2 代码
 ```cuda
+#include "gemm.h"
+#include <mma.h>
+using namespace nvcuda;
+
+// WMMA v2：smem tiling，block 内 warp 共享复用 A、B tile
+// 相比 v1：消除 Global Memory 重复读取
+
+static constexpr int BM = 64;
+static constexpr int BN = 64;
+static constexpr int BK = 16;
+static constexpr int WM = 16;
+static constexpr int WN = 16;
+static constexpr int WARP_NUM_X = BN / WN;   // 4
+static constexpr int WARP_NUM_Y = BM / WM;   // 4
+
+__global__ void wmma_hgemm_v2_smem_kernel(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    float*        __restrict__ C,
+    int M, int N, int K)
+{
+    __shared__ __half smem_A[BM][BK]; // 64x16
+    __shared__ __half smem_B[BK][BN]; // 16x64
+
+    // warp 坐标
+    const int warp_x = threadIdx.x / 32;
+    const int warp_y = threadIdx.y;
+
+    // ---- 该 warp 负责的 C tile 左上角 ----
+    const int c_row = blockIdx.y * BM + warp_y * WM;
+    const int c_col = blockIdx.x * BN + warp_x * WN;
+    
+    // ---- fragment 声明 ----
+    wmma::fragment<wmma::matrix_a, WM, WN, BK, half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, WM, WN, BK, half, wmma::row_major> b_frag;
+    wmma::fragment<wmma::accumulator, WM, WN, BK, float> c_frag;
+    
+    wmma::fill_fragment(c_frag, 0.f);
+
+    const int tid = threadIdx.y * blockDim.x + threadIdx.x;
+
+    for (int bk = 0; bk < K; bk += BK) {
+        // 512 线程，每个加载 2 个half
+        {
+            int row = tid / (BK / 2);
+            int col = (tid % (BK / 2)) * 2;
+
+            *reinterpret_cast<half2 *>(&smem_A[row][col]) =
+                *reinterpret_cast<const half2 *>(A + (blockIdx.y * BM + row) * K +
+                                                bk + col);
+        }
+        {
+            int row = tid / (BN / 2);
+            int col = (tid % (BN / 2)) * 2;
+            *reinterpret_cast<half2 *>(&smem_B[row][col]) =
+                *reinterpret_cast<const half2 *>(B + (bk + row) * N +
+                                                 blockIdx.x * BN + col);
+        }
+        __syncthreads();
+
+        wmma::load_matrix_sync(a_frag, &smem_A[warp_y * WM][0], BK);
+        wmma::load_matrix_sync(b_frag, &smem_B[0][warp_x * WN], BN);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+
+        __syncthreads();
+    }
+
+    // 写回
+    if (c_row < M && c_col < N) {
+        wmma::store_matrix_sync(C + c_row * N + c_col, c_frag, N,
+                                wmma::mem_row_major);
+    }
+}
+
+void wmma_hgemm_v2_smem(
+    const __half* A, const __half* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta) 
+{
+    dim3 block(WARP_NUM_X * 32, WARP_NUM_Y);
+    dim3 grid((N + BN - 1) / BN, (M + BM - 1) / BM);
+
+    wmma_hgemm_v2_smem_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    CUDA_CHECK_LAST();
+}
 
 ```
+
+### 3.3  wmma_hgemm_v3_warp_tile
+#### 3.3.1 参数设计
+
+每个 warp 负责 `TM × TN` 个 fragment（v1/v2 中每 warp 只有 1×1 个 fragment），同时扩大 block tile。
+
+**从约束反推参数：**
+
+smem 上限 32 KB（为 v4 double buffering 预留空间，v3 占 16 KB）：
+
+$$ (BM \times BK + BK \times BN) \times 2 \leq 16384\ \text{Bytes} $$
+
+选 `TM = TN = 2`，`WARP_NUM_X = WARP_NUM_Y = 4`：
+
+$$ BM = \text{WARP\_NUM\_Y} \times TM \times WM = 4 \times 2 \times 16 = 128 $$
+
+$$ BN = \text{WARP\_NUM\_X} \times TN \times WN = 4 \times 2 \times 16 = 128 $$
+
+选 `BK = 16`：
+
+$$ \text{smem} = (128 \times 16 + 16 \times 128) \times 2 = 8192\ \text{Bytes} = 8\ \text{KB} $$
+
+occupancy 验证：
+
+$$ \text{blocks/SM} = \lfloor 64\ \text{KB} / 8\ \text{KB} \rfloor = 8,\quad \text{warps/SM} = 8 \times 16 = 128 > 32 $$
+
+受 warp 上限约束：$\lfloor 32 / 16 \rfloor = 2$ blocks/SM，occupancy = 100%。
+
+block = `(128, 4)` = 512 线程，smem_A `[BM][BK]` = `[128][16]` = 2048 个 `half`：
+
+$$ \text{每线程加载量} = \frac{2048}{512} = 4\ \text{halfs} = \text{一个 float4（128-bit）} $$
+
+smem_B `[BK][BN]` = `[16][128]` = 2048 个 `half`，同理每线程加载 4 个 `half`（float4）。
+
+v2 用 `half2`，v3 升级为 `float4`，向量化宽度翻倍。
 
 ## 四、MMA PTX SGEMM
 
