@@ -1879,10 +1879,9 @@ $$ BM = \text{WARP\_NUM\_Y} \times WM = 4 \times 16 = 64 $$
 
 $$ BN = \text{WARP\_NUM\_X} \times WN = 4 \times 16 = 64 $$
 
-### 3.2 代码
+#### 3.1.2 代码
 
 ```cuda
-
 
 ```
 
