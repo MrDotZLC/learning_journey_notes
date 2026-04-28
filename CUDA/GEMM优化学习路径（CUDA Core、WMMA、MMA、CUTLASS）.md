@@ -1882,6 +1882,110 @@ $$ BN = \text{WARP\_NUM\_X} \times WN = 4 \times 16 = 64 $$
 #### 3.1.2 代码
 
 ```cuda
+// kernels/gemm/wmma_v1.cu
+// WMMA v1：每个 warp 直接从 Global Memory 读取，无 smem 复用
+// 每个 warp 负责输出 C 的一个 16×16 tile
+// block = (WARPS_X * 32, WARPS_Y)，每 block 共 WARPS_X * WARPS_Y 个 warp
+
+#include "gemm.h"
+#include <mma.h>
+using namespace nvcuda;
+
+// ---- tile 参数 ----
+static constexpr int BM = 64;   // block tile 行数 = WARP_NUM_Y * WM
+static constexpr int BN = 64;   // block tile 列数 = WARP_NUM_X * WN
+static constexpr int BK = 16;   // K 维步长，等于 WMMA fragment K 尺寸
+
+static constexpr int WM = 16;   // warp tile 行数，固定为 WMMA_M
+static constexpr int WN = 16;   // warp tile 列数，固定为 WMMA_N
+
+static constexpr int WARP_NUM_X = BN / WN;   // = 4，block 内 x 方向 warp 数
+static constexpr int WARP_NUM_Y = BM / WM;   // = 4，block 内 y 方向 warp 数
+
+__global__ void wmma_hgemm_v1_naive_kernel(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    float*       __restrict__ C,
+    int M, int N, int K) 
+{
+    // ---- warp 在 block 内的 2D 坐标 ----
+    const int warp_x = threadIdx.x / 32;
+    const int warp_y = threadIdx.y;
+
+    // 该 warp 负责的 C tile 左上角（全局行列坐标）
+    const int c_row = blockIdx.y * BM + warp_y * WM;
+    const int c_col = blockIdx.x * BN + warp_x * WN;
+
+    if (c_row >= M || c_col >= N) {
+        return;
+    }
+
+    // ---- fragment 声明 ----
+    wmma::fragment<wmma::matrix_a, WM, WN, BK, half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, WM, WN, BK, half, wmma::row_major> b_frag;
+    wmma::fragment<wmma::accumulator, WM, WN, BK, float>              c_frag;
+
+    wmma::fill_fragment(c_frag, 0.f);
+
+    // ---- K 维循环，步长 BK ----
+    for (int bk = 0; bk < K; bk += BK) {
+        const __half* a_ptr = A + c_row * K + bk;
+        const __half* b_ptr = B + bk * N + c_col;
+
+        wmma::load_matrix_sync(a_frag, a_ptr, K);
+        wmma::load_matrix_sync(b_frag, b_ptr, N);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+    }
+
+    // 写回 C
+    wmma::store_matrix_sync(C + c_row * N + c_col, c_frag, N, wmma::mem_row_major);
+}
+
+void wmma_hgemm_v1_naive(
+    const __half* A, const __half* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta) 
+{
+    dim3 block(WARP_NUM_X * 32, WARP_NUM_Y);
+    dim3 grid((N + BN - 1) / BN, (M + BM - 1) / BM);
+
+    wmma_hgemm_v1_naive_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    CUDA_CHECK_LAST();
+}
+
+```
+
+### 3.2 wmma_v2_smem
+#### 3.2.1 参数设计
+
+在 v1 基础上引入 smem，block 内所有 warp 共享复用 A、B tile。
+
+**smem 尺寸约束（SM75，64 KB/SM）：**
+
+$$ \text{smem} = (BM \times BK + BK \times BN) \times 2\ \text{Bytes} $$
+
+保持 `BM = BN = 64`，`BK = 16`：
+
+$$ \text{smem} = (64 \times 16 + 16 \times 64) \times 2 = 4096\ \text{Bytes} = 4\ \text{KB} $$
+
+每 SM 可驻留：$64 / 4 = 16$ blocks，受 warp 上限约束实际为 $\lfloor 32 / 16 \rfloor = 2$ blocks，occupancy = $2 \times 16 / 32 = 100\%$。
+
+block 共 512 线程，smem_A `[BM][BK]` = `[64][16]` = 1024 个 `half`。
+
+每线程用 `float4`（128-bit）加载 8 个 `half`：
+
+$$ \text{每线程加载量} = \frac{1024}{512} = 2\ \text{halfs（不够一个 float4）} $$
+
+改用 128 线程（`WARP_NUM_X=4, WARP_NUM_Y=1`）？不合适，会改变 warp 布局。
+
+实际做法：**512 线程各加载 2 个 half（`half2`，32-bit）**：
+
+$$ \text{smem\_A 总量} = 64 \times 16 \times 2 = 2048\ \text{Bytes},\quad 512 \times 4\ \text{Bytes} = 2048\ \text{Bytes}\ \checkmark $$
+
+smem_B 同理。
+
+#### 3.2.2 代码
+```cuda
 
 ```
 
