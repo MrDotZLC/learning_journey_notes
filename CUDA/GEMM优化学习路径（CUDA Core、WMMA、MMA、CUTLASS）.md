@@ -1854,7 +1854,37 @@ occupancy 是主导瓶颈，提升路径只有两条：
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
 ### 3.1  wmma_v1_naive
 
-### 3.2 
+#### 3.1.1 参数设计
+SM75 Tensor Core 唯一支持的 fragment 尺寸，三个参数均由硬件固定，无设计空间：
+
+$$ (WM,\ WN,\ BK) = (16,\ 16,\ 16) $$
+
+v1 无 smem，K 维每步直接调用一次 `mma_sync`，步长必须与 fragment K 尺寸对齐：
+
+$$ BK = WK = 16 $$
+
+SM75 硬性上限：
+
+$$ \text{warps/block} \leq 32\ \Rightarrow\ \text{WARP\_NUM\_X} \times \text{WARP\_NUM\_Y} \leq 32 $$
+
+v1 无 smem，寄存器消耗极低，选取：
+
+$$ \text{WARP\_NUM\_X} = \text{WARP\_NUM\_Y} = 4\ \Rightarrow\ 16\ \text{warps/block} = 512\ \text{threads/block} $$
+
+选 16 而非 32 的原因：保留余量，避免后续版本引入 smem 后触发 occupancy 硬降。
+
+由 warp 数与 fragment 尺寸直接推导：
+
+$$ BM = \text{WARP\_NUM\_Y} \times WM = 4 \times 16 = 64 $$
+
+$$ BN = \text{WARP\_NUM\_X} \times WN = 4 \times 16 = 64 $$
+
+### 3.2 代码
+
+```cuda
+
+
+```
 
 ## 四、MMA PTX SGEMM
 
