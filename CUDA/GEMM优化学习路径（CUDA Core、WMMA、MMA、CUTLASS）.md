@@ -2109,6 +2109,143 @@ smem_B `[BK][BN]` = `[16][128]` = 2048 个 `half`，同理每线程加载 4 个 
 
 v2 用 `half2`，v3 升级为 `float4`，向量化宽度翻倍。
 
+### 3.4 wmma_hgemm_v4_double_buf
+#### 3.4.1 设计思路
+
+参考 2.6.1。
+
+#### 3.4.2 代码
+```cuda
+#include "gemm.h"
+#include <mma.h>
+using namespace nvcuda;
+
+// 相比 v3：将下一轮 smem 加载与当前轮 MMA 重叠，减少同步等待
+// SM75 无 cp.async，重叠依赖编译器调度，预期收益 < 5%
+
+static constexpr int WMMA_M = 16;   // fragment M 尺寸，SM75 硬件固定
+static constexpr int WMMA_N = 16;   // fragment N 尺寸，SM75 硬件固定
+static constexpr int WMMA_K = 16;   // fragment K 尺寸，SM75 硬件固定
+static constexpr int BM = 128;      // block tile 行数
+static constexpr int BN = 128;      // block tile 列数
+static constexpr int BK = WMMA_K;   // K 维 tile 步长，等于 fragment K 尺寸
+static constexpr int WARP_TILE_M = 2;   // 每 warp y 方向持有的 fragment 数
+static constexpr int WARP_TILE_N = 2;   // 每 warp x 方向持有的 fragment 数
+static constexpr int WARP_NUM_X = BN / (WARP_TILE_N * WMMA_N);   // 4
+static constexpr int WARP_NUM_Y = BM / (WARP_TILE_M * WMMA_M);   // 4
+
+__global__ void wmma_hgemm_v4_double_buf_kernel(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    float*        __restrict__ C,
+    int M, int N, int K)
+{
+    // 双缓冲
+    __shared__ __half smem_A[2][BM][BK]; // (2, 128, 16)
+    __shared__ __half smem_B[2][BK][BN]; // (2, 16, 128)
+
+    const int warp_x = threadIdx.x / 32;
+    const int warp_y = threadIdx.y;
+
+    const int tid = threadIdx.y * blockDim.x + threadIdx.x;
+
+    const int warp_row = blockIdx.y * BM + warp_y * WARP_TILE_M * WMMA_M;
+    const int warp_col = blockIdx.x * BN + warp_x * WARP_TILE_N * WMMA_N;
+
+    // fragment
+    wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag[WARP_TILE_M];
+    wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> b_frag[WARP_TILE_N];
+    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag[WARP_TILE_M][WARP_TILE_N];
+    
+    for (int m = 0; m < WARP_TILE_M; m++) {
+        for (int n = 0; n < WARP_TILE_N; n++) {
+            wmma::fill_fragment(c_frag[m][n], 0.f);
+        }
+    }
+
+    auto load_smem = [&](int buf, int bk) {
+        const int THREADS_PER_ROW_A = BK / 4;
+        const int load_row_A = tid / THREADS_PER_ROW_A;
+        const int load_col_A = (tid % THREADS_PER_ROW_A) * 4;
+        *reinterpret_cast<float2 *>(&smem_A[buf][load_row_A][load_col_A]) =
+            *reinterpret_cast<const float2 *>(
+                A + (blockIdx.y * BM + load_row_A) * K + bk + load_col_A);
+
+        const int THREADS_PER_ROW_B = BN / 4;
+        const int load_row_B = tid / THREADS_PER_ROW_B;
+        const int load_col_B = (tid % THREADS_PER_ROW_B) * 4;
+        *reinterpret_cast<float2*>(&smem_B[buf][load_row_B][load_col_B]) =
+            *reinterpret_cast<const float2*>(
+                B + (bk + load_row_B) * N + blockIdx.x * BN + load_col_B);
+    };
+
+    auto do_mma = [&](int buf) {
+        const int warp_smem_A_row = warp_y * WMMA_M * WARP_TILE_M;
+        const int warp_smem_A_col = warp_x * WMMA_N * WARP_TILE_N;
+
+        for (int m = 0; m < WARP_TILE_M; m++) {
+            wmma::load_matrix_sync(
+                a_frag[m], &smem_A[buf][warp_smem_A_row + m * WMMA_M][0],
+                BK);
+        }
+        for (int n = 0; n < WARP_TILE_N; n++) {
+            wmma::load_matrix_sync(
+                b_frag[n], &smem_B[buf][0][warp_smem_A_col + n * WMMA_N],
+                BN);
+        }
+        for (int m = 0; m < WARP_TILE_M; m++) {
+            for (int n = 0; n < WARP_TILE_N; n++) {
+                wmma::mma_sync(c_frag[m][n], a_frag[m], b_frag[n], c_frag[m][n]);
+            }
+        }
+    };
+
+    // 预加载第 0 块
+    int cur = 0;
+    load_smem(cur, 0);
+    __syncthreads();
+
+    for (int bk = 0; bk < K - BK; bk += BK) {
+        int next = 1 - cur;
+        // 加载下一块
+        load_smem(next, bk + BK);
+
+        // 计算当前块
+        do_mma(cur);
+        __syncthreads(); // 确保 next 加载完毕，cur mma 计算完成
+
+        cur = next;
+    }
+
+    // 计算最后一块
+    do_mma(cur);
+
+    // 写回
+    for (int m = 0; m < WARP_TILE_M; m++) {
+        for (int n = 0; n < WARP_TILE_N; n++) {
+            int c_row = warp_row + m * WMMA_M;
+            int c_col = warp_col + n * WMMA_N;
+            if (c_row < M && c_col < N) {
+                wmma::store_matrix_sync(C + c_row * N + c_col, c_frag[m][n], N,
+                                        wmma::mem_row_major);
+            }
+        }
+    }
+}
+
+void wmma_hgemm_v4_double_buf(
+    const __half *A, const __half *B, float *C,
+    int M, int N, int K, 
+    float alpha, float beta) 
+{
+    dim3 block(WARP_NUM_X * 32, WARP_NUM_Y);
+    dim3 grid((N + BN - 1) / BN, (M + BM - 1) / BM);
+
+    wmma_hgemm_v4_double_buf_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    CUDA_CHECK_LAST();
+}
+```
+
 ## 四、MMA PTX SGEMM
 
 ## 五、CUTLASS SGEMM
