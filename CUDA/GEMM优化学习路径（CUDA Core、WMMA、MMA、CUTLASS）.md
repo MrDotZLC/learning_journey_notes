@@ -2250,4 +2250,23 @@ void wmma_hgemm_v4_double_buf(
 
 [Tensor Core：HGEMM 半精度矩阵乘](Tensor%20Core：HGEMM%20半精度矩阵乘.md)
 
+### 4.1 mma_hgemm_v1_naive
+#### 4.1.1 参数设计
+
+SM75 支持的 FP16 MMA 指令有两种：
+
+|指令|M|N|K|A寄存器|B寄存器|C/D寄存器|
+|---|---|---|---|---|---|---|
+|`m16n8k8`|16|8|8|2×u32|1×u32|4×f32|
+|`m8n8k4`|8|8|4|1×u32|1×u32|2×f32|
+
+选 `m16n8k8`，计算密度更高。
+
+注意：WMMA 用 `m16n16k16`，MMA PTX 的 `m16n8k8` 是更小的原子单元，需要组合使用才能覆盖相同输出区域。
+
+#### 4.1.2 代码
+
+```cuda
+
+```
 ## 五、CUTLASS SGEMM
