@@ -2248,4 +2248,6 @@ void wmma_hgemm_v4_double_buf(
 
 ## 四、MMA PTX SGEMM
 
+[Tensor Core：HGEMM 半精度矩阵乘](Tensor%20Core：HGEMM%20半精度矩阵乘.md)
+
 ## 五、CUTLASS SGEMM
