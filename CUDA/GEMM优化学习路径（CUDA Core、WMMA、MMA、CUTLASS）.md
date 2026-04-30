@@ -2267,6 +2267,201 @@ SM75 支持的 FP16 MMA 指令有两种：
 #### 4.1.2 代码
 
 ```cuda
+#include "gemm.h"
+#include <cuda_fp16.h>
+
+// MMA PTX v1：naive，无 shared memory，直接 Global Memory -> register
+// 使用 mma.sync.aligned.m16n8k8
+// 每 warp 每次 K tile 执行 2 次 MMA
+
+static constexpr int MMA_TILE_M = 16;
+static constexpr int MMA_TILE_N = 8;
+static constexpr int MMA_TILE_K = 8;
+
+static constexpr int BLOCK_TILE_M = 64;
+static constexpr int BLOCK_TILE_N = 64;
+static constexpr int BLOCK_TILE_K = MMA_TILE_K;
+
+// 每 warp 输出区域：16 x 16（由两个 m16n8k8 拼接）
+// WN = 2 * MMA_N = 16，对齐 WMMA m16n16k16 的输出宽度
+// 每个 warp 寄存器存 8 个 FP32，a[2] 还能复用与左右两次 MMA
+static constexpr int WARP_TILE_M = MMA_TILE_M;
+static constexpr int WARP_TILE_N = MMA_TILE_N * 2;
+
+static constexpr int WARPS_PER_BLOCK_X = BLOCK_TILE_N / WARP_TILE_N; // 4
+static constexpr int WARPS_PER_BLOCK_Y = BLOCK_TILE_M / WARP_TILE_M; // 4
+
+// ---- PTX mma 内联汇编封装 ----
+// 执行 D = A * B + C，m16n8k8
+// a[2]：A fragment，b[1]：B fragment，c[4]/d[4]：C/D fragment
+__device__ __forceinline__ void mma_m16k8n8(
+    float* d,           // 输出 d[4]
+    uint32_t* a,        // 输入 a[2]
+    uint32_t* b,        // 输入 b[1]
+    float* c)           // 输入 c[4]
+{
+    asm volatile(
+        "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3},"
+        "{%4, %5},"
+        "{%6},"
+        "{%7, %8, %9, %10};\n"
+        : "=f"(d[0]), "=f"(d[1]), "=f"(d[2]), "=f"(d[3])
+        : "r"(a[0]), "r"(a[1]),
+          "r"(b[0]),
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3])
+    );
+}
+
+__global__ void mma_hgemm_v1_naive_kernel(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    float*        __restrict__ C,
+    int M, int N, int K) 
+{
+    const int lane_id = threadIdx.x % 32;
+    const int warp_x  = threadIdx.x / 32;
+    const int warp_y  = threadIdx.y;
+
+    // 当前 warp 输出 tile 左上角
+    const int tile_row = blockIdx.y * BLOCK_TILE_M + warp_y * WARP_TILE_M;
+    const int tile_col = blockIdx.x * BLOCK_TILE_N + warp_x * WARP_TILE_N;
+
+    if (tile_row >= M || tile_col >= N) {
+        return;
+    }
+
+    // ---- 线程在 warp 内的分组 ----
+    // 矩阵中 1 行 4 线程 8 个 FP16
+    // group 行，tid_in_group 列
+    const int lane_group   = lane_id / 4;
+    const int tid_in_group = lane_id % 4;
+
+    // ---- 寄存器声明 ----
+    uint32_t reg_a[2];
+    uint32_t reg_b[2];
+    float   acc[2][4];
+
+    // 初始化 accumulator
+    #pragma unroll
+    for (int i = 0; i < 2; i++) {
+        #pragma unroll
+        for (int j = 0; j < 4; j++) {
+            acc[i][j] = 0.0f;
+        }
+    }
+    
+    // ---- K 维循环，步长 MMA_K=8 ----
+    for (int bk = 0; bk < K; bk += BLOCK_TILE_K) {
+        // ---- 加载 A fragment ----
+        // 每线程加载 A 的两行各 2 个 FP16
+        // row0 = warp_row + group，row1 = warp_row + group + 8
+        // col  = tid_in_group * 2（连续2个FP16打包为u32）
+        {
+            const int row0 = tile_row + lane_group;
+            const int row1 = tile_row + lane_group + 8;
+            const int col  = bk + tid_in_group * 2;
+
+            reg_a[0] = *reinterpret_cast<const uint32_t *>(A + row0 * K + col);
+            reg_a[1] = *reinterpret_cast<const uint32_t *>(A + row1 * K + col);
+        }
+
+        // ---- 加载 B fragment（左半：col warp_col，右半：col warp_col+8）----
+        // B row_major 存储，但 mma 指令要求 col_major 视角
+        // 等价于：从 B^T 的列加载
+        // b_row = tid_in_group * 2（K 维方向）
+        // b_col = warp_col + group（N 维方向）
+        {
+            const int row0  = bk + tid_in_group * 2;
+            const int row1  = bk + tid_in_group * 2 + 1;
+            const int col0 = tile_col + lane_group;              // 左半 tile 起始列
+            const int col1 = tile_col + MMA_TILE_N + lane_group;          // 右半 tile 起始列
+
+            __half2 b0 = make_half2(B[row0 * N + col0], B[row1 * N + col0]);
+            __half2 b1 = make_half2(B[row0 * N + col1], B[row1 * N + col1]);
+
+            reg_b[0] = *reinterpret_cast<const uint32_t*>(&b0);
+            reg_b[1] = *reinterpret_cast<const uint32_t*>(&b1);
+        }
+
+        // ---- 执行 2 次 MMA ----
+        mma_m16k8n8(acc[0], reg_a, &reg_b[0], acc[0]);
+        mma_m16k8n8(acc[1], reg_a, &reg_b[1], acc[1]);
+    }
+
+    // ---- 写回 C ----
+    // 每线程持有 c[0][0~3] 和 c[1][0~3]，共 8 个 FP32
+    // 对应 C 的坐标由 group、tid_in_group 决定
+    {
+        const int row0 = tile_row + lane_group;
+        const int row1 = tile_row + lane_group + 8;
+        const int col0 = tile_col + tid_in_group * 2;
+        const int col1 = tile_col + MMA_TILE_N + tid_in_group * 2;
+
+        // 左半 tile
+        if (row0 < M && col0 + 1 < N) {
+            C[row0 * N + col0]     = acc[0][0];
+            C[row0 * N + col0 + 1] = acc[0][1];
+        }
+        if (row1 < M && col0 + 1 < N) {
+            C[row1 * N + col0]     = acc[0][2];
+            C[row1 * N + col0 + 1] = acc[0][3];
+        }
+
+        // 右半 tile
+        if (row0 < M && col1 + 1 < N) {
+            C[row0 * N + col1]     = acc[1][0];
+            C[row0 * N + col1 + 1] = acc[1][1];
+        }
+        if (row1 < M && col1 + 1 < N) {
+            C[row1 * N + col1]     = acc[1][2];
+            C[row1 * N + col1 + 1] = acc[1][3];
+        }
+    }
+}
+
+void mma_hgemm_v1_naive(
+    const __half* A,
+    const __half* B,
+    float*        C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    dim3 block(WARPS_PER_BLOCK_X * 32, WARPS_PER_BLOCK_Y);  // (128, 4)
+    dim3 grid(
+        (N + BLOCK_TILE_N - 1) / BLOCK_TILE_N, 
+        (M + BLOCK_TILE_M - 1) / BLOCK_TILE_M
+    );
+
+    mma_hgemm_v1_naive_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    CUDA_CHECK(cudaGetLastError());
+}
+```
+
+### 4.2 mma_hgemm_v2_ldmatrix
+#### 4.2.1 设计思路
+
+**smem 协作加载：** Global Memory → smem，所有 warp 共享。
+
+**ldmatrix 替代手动加载：** smem → register，硬件自动处理地址散集。
+
+**B 的 col_major 问题在 ldmatrix 中如何处理：**
+
+`ldmatrix.sync.aligned.m8n8.x1` 加载一个 $8 \times 8$ 的 FP16 tile，硬件**自动**按 col_major 视角重排寄存器，前提是 smem_B 以 row_major 存储且对齐。因此 v2 中不需要手动打包 `__half2`，ldmatrix 内部完成了这个转换。
+
+每线程提供的 smem_B 地址规则：
+
+$$
+
+\text{smem\_row} = \text{lane\_id} \bmod MMA\_K \quad (0 \sim 7)
+
+$$
+
+lane 0~7 指向第 0~7 行，lane 8~15 重复指向 0~7 行（ldmatrix 内部处理重复）。
+
+#### 4.2.2 代码
+```cuda
 
 ```
+
 ## 五、CUTLASS SGEMM
