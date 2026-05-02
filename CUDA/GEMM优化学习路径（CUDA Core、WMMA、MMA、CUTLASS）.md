@@ -2461,7 +2461,252 @@ lane 0~7 指向第 0~7 行，lane 8~15 重复指向 0~7 行（ldmatrix 内部处
 
 #### 4.2.2 代码
 ```cuda
+#include "gemm.h"
+#include <cuda_fp16.h>
 
+// MMA PTX v2：smem tiling + ldmatrix
+// 相比 v1：
+//   1. 引入 smem，消除 Global Memory 重复读取
+//   2. ldmatrix 替代手动地址计算，硬件处理 col_major 重排
+//   3. 每 warp 持有 TILES_PER_WARP_Y × TILES_PER_WARP_X 个输出 tile（warp coarsening）
+
+static constexpr int MMA_TILE_M = 16;
+static constexpr int MMA_TILE_N = 8;
+static constexpr int MMA_TILE_K = 8;
+
+static constexpr int BLOCK_TILE_M = 128;
+static constexpr int BLOCK_TILE_N = 128;
+static constexpr int BLOCK_TILE_K = MMA_TILE_K;
+
+// 每 warp 输出区域：16 x 16（由两个 m16n8k8 拼接）
+// WN = 2 * MMA_N = 16，对齐 WMMA m16n16k16 的输出宽度
+// 每个 warp 寄存器存 8 个 FP32，a[2] 还能复用与左右两次 MMA
+static constexpr int WARP_TILE_M = MMA_TILE_M;
+static constexpr int WARP_TILE_N = MMA_TILE_N * 2;
+
+static constexpr int TILES_PER_WARP_X = 2;   // 每 warp x 方向 tile 数
+static constexpr int TILES_PER_WARP_Y = 2;   // 每 warp y 方向 tile 数
+
+static constexpr int WARPS_PER_BLOCK_X =
+    BLOCK_TILE_N / (WARP_TILE_N * TILES_PER_WARP_X);  // 4
+static constexpr int WARPS_PER_BLOCK_Y =
+    BLOCK_TILE_M / (WARP_TILE_M * TILES_PER_WARP_Y);  // 4
+
+// ================================================================
+// PTX 工具函数
+// ================================================================
+
+__device__ __forceinline__ uint32_t smem_u32addr(const void* smem_ptr) {
+    uint32_t addr;
+    asm volatile(
+        "{.reg .u64 u64addr;\n"
+        " cvta.to.shared.u64 u64addr, %1;\n"
+        " cvt.u32.u64 %0, u64addr;}\n"
+        : "=r"(addr) : "l"(smem_ptr)
+    );
+    return addr;
+}
+
+__device__ __forceinline__ void mma_m16n8k8(
+    float* d, uint32_t* a, uint32_t* b, float* c)
+{
+    asm volatile(
+        "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3},"
+        "{%4, %5},"
+        "{%6},"
+        "{%7, %8, %9, %10};\n"
+        : "=f"(d[0]), "=f"(d[1]), "=f"(d[2]), "=f"(d[3])
+        : "r"(a[0]), "r"(a[1]),
+          "r"(b[0]),
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3])
+    );
+}
+
+// ldmatrix.x2：加载 2 个 8×8 FP16 tile → 2 个 u32 寄存器
+// 用于 A fragment（m16n8k8 需要 a[2]）
+__device__ __forceinline__ void ldmatrix_x2(
+    uint32_t& r0, uint32_t& r1, uint32_t addr)
+{
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];\n"
+        : "=r"(r0), "=r"(r1) : "r"(addr)
+    );
+}
+
+// ldmatrix.x1：加载 1 个 8×8 FP16 tile → 1 个 u32 寄存器
+// 用于 B fragment（m16n8k8 需要 b[1]）
+__device__ __forceinline__ void ldmatrix_x1(uint32_t& r0, uint32_t addr)
+{
+    asm volatile(
+        "ldmatrix.sync.aligned.trans.m8n8.x1.shared.b16 {%0}, [%1];\n"
+        : "=r"(r0) : "r"(addr)
+    );
+}
+
+// Kernel
+__global__ void mma_hgemm_v2_ldmatrix_kernel(
+    const __half* __restrict__ A,  // [M, K] row_major
+    const __half* __restrict__ B,  // [K, N] row_major
+    float*        __restrict__ C,  // [M, N] row_major
+    int M, int N, int K)
+{
+    __shared__ __half smem_A[BLOCK_TILE_M][BLOCK_TILE_K];  // [128][8]
+    __shared__ __half smem_B[BLOCK_TILE_K][BLOCK_TILE_N];  // [8][128]
+
+    const int lane_id      = threadIdx.x % 32;
+    const int warp_x       = threadIdx.x / 32;
+    const int warp_y       = threadIdx.y;
+    const int tid          = threadIdx.y * blockDim.x + threadIdx.x;
+
+    const int lane_group   = lane_id / 4;
+    const int tid_in_group = lane_id % 4;
+
+    // 该 warp 负责的输出 tile 左上角（全局坐标）
+    const int tile_row =
+        blockIdx.y * BLOCK_TILE_M + warp_y * TILES_PER_WARP_Y * WARP_TILE_M;
+    const int tile_col =
+        blockIdx.x * BLOCK_TILE_N + warp_x * TILES_PER_WARP_X * WARP_TILE_N;
+
+    if (tile_row >= M || tile_col >= N) return;
+
+    // ---- 寄存器声明 ----
+    uint32_t reg_a[TILES_PER_WARP_Y][2];          // A fragment
+    uint32_t reg_b[TILES_PER_WARP_X][2];          // B fragment（左/右各 1）
+    float    acc[TILES_PER_WARP_Y][TILES_PER_WARP_X][2][4];    // accumulator
+
+    #pragma unroll
+    for (int m = 0; m < TILES_PER_WARP_Y; m++)
+        #pragma unroll
+        for (int n = 0; n < TILES_PER_WARP_X; n++)
+            #pragma unroll
+            for (int lr = 0; lr < 2; lr++)
+                #pragma unroll
+                for (int i = 0; i < 4; i++)
+                    acc[m][n][lr][i] = 0.f;
+
+    // ---- 协作加载参数 ----
+    // smem_A [BM][BK] = [128][8]：共 1024 half，512 线程各 2 half（u32）
+    // smem_B [BK][BN] = [8][128]：共 1024 half，512 线程各 2 half（u32）
+    const int THREADS_PER_ROW_A = BLOCK_TILE_K / 2;   // 4
+    const int THREADS_PER_ROW_B = BLOCK_TILE_N / 2;   // 64
+
+    // ---- K 维循环 ----
+    for (int bk = 0; bk < K; bk += BLOCK_TILE_K) {
+        // ---- 协作加载 smem_A ----
+        {
+            const int load_row_A = tid / THREADS_PER_ROW_A;
+            const int load_col_A = (tid % THREADS_PER_ROW_A) * 2;
+            *reinterpret_cast<uint32_t *>(&smem_A[load_row_A][load_col_A]) =
+                *reinterpret_cast<const uint32_t *>(
+                    A + (blockIdx.y * BLOCK_TILE_M + load_row_A) * K + bk +
+                    load_col_A);
+        }
+
+        // ---- 协作加载 smem_B ----
+        {
+            const int load_row_B = tid / THREADS_PER_ROW_B;
+            const int load_col_B = (tid % THREADS_PER_ROW_B) * 2;
+            *reinterpret_cast<uint32_t *>(&smem_B[load_row_B][load_col_B]) =
+                *reinterpret_cast<const uint32_t *>(B + (bk + load_row_B) * N +
+                                                    blockIdx.x * BLOCK_TILE_N +
+                                                    load_col_B);
+        }
+
+        __syncthreads();
+
+        // ---- ldmatrix 加载 A fragment ----
+        // ldmatrix.x2 覆盖 16 行（2 个 8×8 tile）
+        // lane 0~15 各指向一行，lane 16~31 指向对应行+8
+        // 每个 TILES_PER_WARP_Y 需要 1 次 ldmatrix.x2
+        #pragma  unroll
+        for (int m = 0; m < TILES_PER_WARP_Y; m++) {
+            const int smem_row = warp_y * TILES_PER_WARP_Y * WARP_TILE_M +
+                                 m * WARP_TILE_M + lane_id % 16;
+            ldmatrix_x2(reg_a[m][0], reg_a[m][1],
+                        smem_u32addr(&smem_A[smem_row][0]));
+        }
+
+        // ---- ldmatrix 加载 B fragment ----
+        // ldmatrix.x1 覆盖 8 行，lane 0~7 各指向一行，lane 8~31 重复
+        // 每个 TILES_PER_WARP_X tile 需要 2 次 ldmatrix.x1（左/右各一次）
+        #pragma  unroll
+        for (int n = 0; n < TILES_PER_WARP_X; n++) {
+            const int smem_row  = lane_id % MMA_TILE_K;   // 0~7
+            const int col_left  = warp_x * TILES_PER_WARP_X * WARP_TILE_N + n * WARP_TILE_N;
+            const int col_right = col_left + MMA_TILE_N;
+            ldmatrix_x1(reg_b[n][0],
+                        smem_u32addr(&smem_B[smem_row][col_left]));
+            ldmatrix_x1(reg_b[n][1],
+                        smem_u32addr(&smem_B[smem_row][col_right]));
+        }
+
+        // ---- MMA 计算 ----
+        #pragma unroll
+        for (int m = 0; m < TILES_PER_WARP_Y; m++)
+            #pragma unroll
+            for (int n = 0; n < TILES_PER_WARP_X; n++) {
+                mma_m16n8k8(acc[m][n][0], reg_a[m],
+                            &reg_b[n][0], acc[m][n][0]);  // 左半
+                mma_m16n8k8(acc[m][n][1], reg_a[m],
+                            &reg_b[n][1], acc[m][n][1]);  // 右半
+            }
+
+        __syncthreads();
+    }
+
+    // ---- 写回 C ----
+    #pragma unroll
+    for (int m = 0; m < TILES_PER_WARP_Y; m++) {
+        #pragma unroll
+        for (int n = 0; n < TILES_PER_WARP_X; n++) { 
+            const int base_row = tile_row + m * WARP_TILE_M;
+            const int base_col = tile_col + n * WARP_TILE_N;
+
+            const int row0 = base_row + lane_group;
+            const int row1 = base_row + lane_group + 8;
+            const int col0 = base_col + tid_in_group * 2;
+            const int col1 = base_col + tid_in_group * 2 + MMA_TILE_N;
+
+            if (row0 < M && col0 + 1 < N) {
+                C[row0 * N + col0]     = acc[m][n][0][0];
+                C[row0 * N + col0 + 1] = acc[m][n][0][1];
+            }
+            if (row1 < M && col0 + 1 < N) {
+                C[row1 * N + col0]     = acc[m][n][0][2];
+                C[row1 * N + col0 + 1] = acc[m][n][0][3];
+            }
+            if (row0 < M && col1 + 1 < N) {
+                C[row0 * N + col1]     = acc[m][n][1][0];
+                C[row0 * N + col1 + 1] = acc[m][n][1][1];
+            }
+            if (row1 < M && col1 + 1 < N) {
+                C[row1 * N + col1]     = acc[m][n][1][2];
+                C[row1 * N + col1 + 1] = acc[m][n][1][3];
+            }
+        }
+    }
+}
+
+void mma_hgemm_v2_ldmatrix(
+    const __half* A, const __half* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    dim3 block(WARPS_PER_BLOCK_X * 32, WARPS_PER_BLOCK_Y);  // (128, 4)
+    dim3 grid(
+        (N + BLOCK_TILE_N - 1) / BLOCK_TILE_N,
+        (M + BLOCK_TILE_M - 1) / BLOCK_TILE_M
+    );
+
+    mma_hgemm_v2_ldmatrix_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    CUDA_CHECK(cudaGetLastError());
+}
 ```
+
+
+#### 4.2.3 数据分析
+
+
 
 ## 五、CUTLASS SGEMM
