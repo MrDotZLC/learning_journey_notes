@@ -1,6 +1,7 @@
 ## FlashAttention 算子解析
 本文旨在学习FlashAttention，学习路径来自[比飞鸟贵重的多_HKL](https://www.bilibili.com/video/BV1FM9XYoEQ5?spm_id_from=333.1387.collection.video_card.click)。
 手搓 flash attention 算子的代码库[flash-attention-minimal](https://github.com/MrDotZLC/flash-attention-minimal)。
+[FlashAttention 手搓与优化](FlashAttention%20手搓与优化.md)
 研究LLaMA.cpp中的flash attn 需要打开对应的开关。
 
 ### 一、手搓 flash attention 算子

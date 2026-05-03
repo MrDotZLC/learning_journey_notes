@@ -3261,3 +3261,248 @@ v4 相比 v2（同为 BK=16 基础）：
 
 [Cutlass 软件抽象分层与源码解析](Cutlass%20软件抽象分层与源码解析.md)
 
+```
+cutlass::gemm::device::Gemm          ← 设备层：对外接口，管理 grid/stream
+        │
+cutlass::gemm::kernel::Gemm          ← kernel 层：管理 block tile 循环
+        │
+cutlass::gemm::threadblock::Mma      ← threadblock 层：smem tiling + warp 分配
+        │
+cutlass::gemm::warp::MmaTensorOp     ← warp 层：ldmatrix + mma.sync
+        │
+cutlass::arch::Mma                   ← arch 层：PTX 指令封装
+```
+
+### 5.1 cutlass_hgemm_v1_basic
+#### 5.1.1 参数选择（对齐手写 MMA v2）
+
+```
+ThreadblockShape = [128, 128, 32]   ← BM=128, BN=128, BK=32
+WarpShape        = [32, 32, 32]     ← 每 warp 覆盖 32×32 输出
+InstructionShape = [16, 8, 8]       ← m16n8k8，SM75
+Stages           = 2                ← double buffering
+```
+
+BK 从 16 升为 32：CUTLASS 内部 pipeline 处理，BK 更大时 AI 更高：
+
+$$AI = \frac{2 \times 128 \times 128 \times 32}{(128 \times 32 + 32 \times 128) \times 2} = 128\ \text{FLOP/B}$$
+
+#### 5.1.2 代码
+
+```cuda
+#include "gemm.h"
+
+#include <cutlass/gemm/device/gemm.h>
+#include <cutlass/epilogue/thread/linear_combination.h>
+#include <cutlass/util/host_tensor.h>
+
+// CUTLASS v1：device::Gemm 模板，FP16 输入 FP32 accumulate
+// 对标手写 MMA v2/v3，验证 CUTLASS 分层抽象的正确性
+
+using ElementA           = cutlass::half_t;
+using ElementB           = cutlass::half_t;
+using ElementC           = float;
+using ElementAccumulator = float;
+
+using LayoutA = cutlass::layout::RowMajor;
+using LayoutB = cutlass::layout::RowMajor;
+using LayoutC = cutlass::layout::RowMajor;
+
+// Epilogue：D = alpha * (A*B) + beta * C
+// LinearCombination 是最基础的 epilogue，对应 cuBLAS 的 alpha/beta
+using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+    ElementC,       // 输出类型
+    128 / cutlass::sizeof_bits<ElementC>::value,  // 向量化宽度（float→4）
+    ElementAccumulator, // A*B 的类型
+    ElementAccumulator  // C 的类型
+>;
+
+// OperatorClass：使用 Tensor Core
+using OperatorClass = cutlass::arch::OpClassTensorOp;
+
+// ArchTag：SM75
+using ArchTag = cutlass::arch::Sm75;
+
+// Tile 尺寸
+using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 32>;
+using WarpShape        = cutlass::gemm::GemmShape<32, 32, 32>;
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 8>;
+
+// 完整 Gemm 类型
+using CutlassGemm = cutlass::gemm::device::Gemm<
+    ElementA, LayoutA,
+    ElementB, LayoutB,
+    ElementC, LayoutC,
+    ElementAccumulator,
+    OperatorClass,
+    ArchTag,
+    ThreadblockShape,
+    WarpShape,
+    InstructionShape,
+    EpilogueOp,
+    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+    2    // Stages：2-stage pipeline
+>;
+
+// Host 入口
+void cutlass_hgemm_v1_basic(
+    const __half* A, const __half* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    // CUTLASS 使用自己的指针包装类型
+    const cutlass::half_t* cutlass_A =
+        reinterpret_cast<const cutlass::half_t*>(A);
+    const cutlass::half_t* cutlass_B =
+        reinterpret_cast<const cutlass::half_t*>(B);
+
+    CutlassGemm gemm_op;
+
+    // alpha=1, beta=0：纯矩阵乘，不累加旧 C
+    typename CutlassGemm::Arguments args(
+        {M, N, K},              // problem size
+        {cutlass_A, K},         // A + lda
+        {cutlass_B, N},         // B + ldb
+        {C, N},                 // C + ldc（输入，beta 用）
+        {C, N},                 // D + ldd（输出）
+        {1.0f, 0.0f}            // alpha, beta
+    );
+
+    // 检查参数合法性
+    cutlass::Status status = gemm_op.can_implement(args);
+    if (status != cutlass::Status::kSuccess) {
+        fprintf(stderr, "[cutlass_v1] can_implement failed: %d\n",
+                (int)status);
+        return;
+    }
+
+    // 执行
+    status = gemm_op(args);
+    if (status != cutlass::Status::kSuccess) {
+        fprintf(stderr, "[cutlass_v1] gemm failed: %d\n", (int)status);
+    }
+}
+```
+
+### 5.2 cutlass_hgemm_v2_epilogue
+#### 5.2.1 方案设计
+
+使用自定义 Epilogue ，当前 ThreadblockShape 和 WarpShape 不适配LinearCombinationRelu（会超过 SM75 的 cache line 限制），虽然这个版本没有使用，只用了 LinearCombination 用来与 v1 进行对比。
+
+还是使用适配 fused bias + relu 的 ThreadblockShape 和 WarpShape 。
+
+```
+using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 32>;
+using WarpShape        = cutlass::gemm::GemmShape<64, 64, 32>;
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 8>;
+```
+
+#### 5.2.2 代码
+
+```cuda
+#include "gemm.h"
+#include <cutlass/gemm/device/gemm.h>
+#include <cutlass/epilogue/thread/linear_combination_relu.h>
+
+// CUTLASS v2：自定义 Epilogue，fused bias broadcast
+// D[i][j] = alpha * (A*B)[i][j] + bias[j]
+// bias 通过 ldc=0 实现行方向 broadcast
+
+using ElementA           = cutlass::half_t;
+using ElementB           = cutlass::half_t;
+using ElementC           = float;
+using ElementAccumulator = float;
+
+using LayoutA = cutlass::layout::RowMajor;
+using LayoutB = cutlass::layout::RowMajor;
+using LayoutC = cutlass::layout::RowMajor;
+
+// CUTLASS 内置的 bias
+using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+    ElementC,
+    128 / cutlass::sizeof_bits<ElementC>::value,
+    ElementAccumulator,
+    ElementAccumulator
+>;
+
+using OperatorClass = cutlass::arch::OpClassTensorOp;
+using ArchTag       = cutlass::arch::Sm75;
+
+using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 32>;
+using WarpShape        = cutlass::gemm::GemmShape<64, 64, 32>;
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 8>;
+
+using CutlassGemmV2 = cutlass::gemm::device::Gemm<
+    ElementA, LayoutA,
+    ElementB, LayoutB,
+    ElementC, LayoutC,
+    ElementAccumulator,
+    OperatorClass,
+    ArchTag,
+    ThreadblockShape,
+    WarpShape,
+    InstructionShape,
+    EpilogueOp,
+    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+    2
+>;
+
+void cutlass_hgemm_v2_epilogue(
+    const __half* A, const __half* B, float* C,
+    const float* bias,   // [N]，每列一个偏置
+    int M, int N, int K,
+    float alpha, float beta)
+{
+    const cutlass::half_t* cutlass_A = 
+        reinterpret_cast<const cutlass::half_t*>(A);
+    const cutlass::half_t* cutlass_B = 
+        reinterpret_cast<const cutlass::half_t*>(B);
+
+    CutlassGemmV2 gemm_op;
+
+    // alpha=1, beta=1：D = 1*(A*B) + 1*bias
+    typename EpilogueOp::Params epilogue_params(alpha, beta);
+
+    // GemmUniversal 支持 bias 通过 C 矩阵 broadcast 实现：
+    // 将 bias 作为 C，ldc=0 → 每行复用同一行（broadcast 到所有行）
+    typename CutlassGemmV2::Arguments args(
+        {M, N, K},
+        {cutlass_A, K},
+        {cutlass_B, N},
+        {bias, 0},           // C = bias，ldc=0 触发 broadcast
+        {C, N},              // D = 输出
+        epilogue_params
+    );
+
+    cutlass::Status status = gemm_op.can_implement(args);
+    if (status != cutlass::Status::kSuccess) {
+        fprintf(stderr, "[cutlass_v2] can_implement failed: %d\n",
+                (int)status);
+        return;
+    }
+
+    status = gemm_op(args);
+    if (status != cutlass::Status::kSuccess) {
+        fprintf(stderr, "[cutlass_v2] gemm failed: %d\n", (int)status);
+    }
+}
+```
+
+#### 5.2.3 数据分析
+
+| kernel                | TFLOPS | vs cuBLAS |
+| --------------------- | ------ | --------- |
+| cuBLAS_fp16           | 0.422  | 1.00×     |
+| cutlass_v1_basic      | 0.711  | 1.68×     |
+| cutlass_v2_epilogue   | 0.705  | 1.67×     |
+| mma_hgemm_v4_pipeline | 0.706  | 1.66×     |
+
+**v1 与 v2 性能几乎一致**，符合预期。
+
+**CUTLASS v1 ≈ 手写 MMA v4**，0.711 vs 0.706 TFLOPS，误差在测量抖动范围内。说明手写 MMA v4 pipeline 的实现质量已接近 CUTLASS 模板库的水平。
+
+**256 规模 CUTLASS 慢于 cuBLAS**，原因是 CUTLASS 的 ThreadblockShape=128×128 对小矩阵 wave quantization 损失严重：
+
+$$ \text{blocks} = \frac{256}{128} \times \frac{256}{128} = 4\ \text{blocks} $$
+
+4 blocks 在 24 SM 上只占用 4 个 SM，剩余 20 个 SM 空闲，利用率 16.7%。cuBLAS 会针对小矩阵自动选择更小的 tile，CUTLASS v1 固定 tile 尺寸无法适应。
