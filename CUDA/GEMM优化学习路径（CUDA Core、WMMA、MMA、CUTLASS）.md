@@ -3258,3 +3258,6 @@ v4 相比 v2（同为 BK=16 基础）：
 无 smem 的零同步开销在当前环境下是结构性优势，Tensor Core 激活后此结论会完全反转——v4 的 smem 复用将消除 Global Memory 重复读取，收益远超同步开销。
 
 ## 五、CUTLASS SGEMM
+
+[Cutlass 软件抽象分层与源码解析](Cutlass%20软件抽象分层与源码解析.md)
+
