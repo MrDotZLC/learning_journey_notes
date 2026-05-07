@@ -87,7 +87,6 @@ __device__ __forceinline__ float block_reduce_sum(float val, float* shared_sum) 
 #### 2.2.1 代码
 ```cuda
 #include "attention.h"
-#include "utils.h"
 
 // FlashAttention v1：标准 Attention，无 tiling
 // 每个 block 处理一行 Q，完整计算 softmax(Q*K^T)*V
@@ -133,11 +132,12 @@ __global__ void flash_attn_v1_naive_kernel(
             dot += __half2float(q_row[d]) * __half2float(k_row[d]);
         }
 
-        // warp reduce sum
-        dot = warp_reduce_sum(dot);
+        // block reduce
+        __shared__ float shared_sum[32];
+        dot = block_reduce_sum(dot, shared_sum);
 
         // 写入 smem（只有 lane 0 写）
-        if (tid % WARP_SIZE == 0) {
+        if (tid == 0) {
             s_scores[kv_idx] = dot * scale;
         }
     }
@@ -233,5 +233,173 @@ $$ \text{dot}_{ij} = \sum_{d=0}^{63} Q[i][d] \times K[j][d] $$
 
 #### 2.3.2 代码
 ```cuda
+#include "attention.h"
+#include <float.h>
+#include <mma.h>
+using namespace nvcuda;
 
+// FlashAttention v2：online softmax + smem KV tiling
+// 相比 v1：
+//   1. K/V 分块加载，HBM 访问从 O(N²) 降为 O(N)
+//   2. online softmax，单遍完成，无需存储完整 S 矩阵
+//   3. smem 固定大小，不随 seq_len 增长
+//
+// 当前实现：
+//   1 warp -> 1 Q row
+//   warp 独立加载 Q/K/V 到 shared memory
+//   为节省寄存器，每个线程只保存自己的 o ，m_new 和 l/o 分两遍计算。
+//   用共享内存 smem_S 缓存点积，防止重复计算。
+
+// tile 参数
+static constexpr int Br = 32;    // Q tile 行数（每 block 处理 Br 行 Q）
+static constexpr int Bc = 32;    // KV tile 列数
+
+__global__ void flash_attn_v2_tiled_kernel(
+    const __half* __restrict__ Q,   // [seq_len, head_dim]
+    const __half* __restrict__ K,   // [seq_len, head_dim]
+    const __half* __restrict__ V,   // [seq_len, head_dim]
+    __half*       __restrict__ O,   // [seq_len, head_dim]
+    int seq_len,
+    int head_dim)
+{
+    // ---- smem ----
+    extern __shared__ __half smem[];
+    __half* smem_Q = smem;                          // [Br][head_dim]
+    __half* smem_K = smem_Q + Br * head_dim;        // [Bc][head_dim]
+    __half* smem_V = smem_K + Bc * head_dim;        // [Bc][head_dim]
+    float*  smem_S = reinterpret_cast<float*>(smem_V + Bc * head_dim);  // [Br][Bc]，缓存点积
+
+    const int lane_id       = threadIdx.x % 32;
+    const int warp_id       = threadIdx.x / 32;
+
+    const float scale = 1.f / sqrtf((float)head_dim);
+
+    // 该 warp 负责的全局 Q 行
+    const int q_row = blockIdx.x * Br + warp_id;
+
+    // ---- 加载 Q tile 到 smem（block 内所有线程协作）----
+    // smem_Q [Br][head_dim]，每线程加载若干 half
+    {
+        for (int col = lane_id; col < head_dim; col += 32) {
+            smem_Q[warp_id * head_dim + col] = (q_row < seq_len)
+                              ? Q[q_row * head_dim + col]
+                              : __float2half(0.f);
+        }
+    }
+    __syncthreads();
+
+    // online softmax state
+    // 存所有 o 会爆 register，m_new 和 l/o 分两遍计算，
+    // 用共享内存缓存点积，防止重复计算。
+    float m = -FLT_MAX;
+    float l = 0.f;
+    float o0 = 0.f;   // lane 负责的第 1 个维度：d = lane_id
+    float o1 = 0.f;   // lane 负责的第 2 个维度：d = lane_id + 32
+
+    // 输出寄存器
+    // float o[64] = {};
+
+    // block级：KV tile loop
+    for (int kv_start = 0; kv_start < seq_len; kv_start += Bc) {
+        // warp 独立加载 K/V
+        // warp_id -> KV row
+        // lane_id -> col
+        {
+            const int kv_row = kv_start + warp_id;
+            for (int col = lane_id; col < head_dim; col += 32) {
+                smem_K[warp_id * head_dim + col] =
+                    (kv_row < seq_len)
+                    ? K[kv_row * head_dim + col]
+                    : __float2half(0.f);
+
+                smem_V[warp_id * head_dim + col] =
+                    (kv_row < seq_len)
+                    ? V[kv_row * head_dim + col]
+                    : __float2half(0.f);
+            }
+        }
+        __syncthreads();
+
+        // compute
+        if (q_row < seq_len) {
+            // 计算 QK^T 并存 S
+            for (int j = 0; j < Bc; j++) {
+                const int kv_row = kv_start + j;
+                if (kv_row >= seq_len) break;
+                float dot = 0.f;
+#pragma unroll
+                for (int d = lane_id; d < head_dim; d += 32) {
+                    dot += __half2float(smem_Q[warp_id * head_dim + d]) *
+                            __half2float(smem_K[j * head_dim + d]);
+                }
+                dot = warp_reduce_sum(dot);
+
+                if (lane_id == 0) {
+                    smem_S[warp_id * Bc + j] = dot * scale;
+                }
+            }
+            __syncthreads();
+
+            // online softmax
+            // 从 smem_S 读取，求 m_new
+            float m_new = m;
+#pragma unroll
+            for (int j = 0; j < Bc && kv_start + j < seq_len; j++) {
+                m_new = fmaxf(m_new, smem_S[warp_id * Bc + j]);
+            }
+
+            // exp(x - m_new) = exp(x - m_old) * exp(m_old - m_new)
+            //                  ↓
+            // scale_old = exp(m_old - m_new)
+            float scale_old = expf(m - m_new);
+            // l_new = scale_old * l_old + Σ exp(S_ij - m_new)
+            float l_new = scale_old * l;
+
+            // o_new = scale_old * o_old + Σ exp(S_ij - m_new) * V_j
+            // 先对 o 进行缩放
+            o0 *= scale_old;
+            o1 *= scale_old;
+
+            // 完成 l_new 和 o_new 中的 Σ exp(x_j - m_new)
+#pragma unroll
+            for (int j = 0; j < Bc && kv_start + j < seq_len; j++) {
+                float p_ij = expf(smem_S[warp_id * Bc + j] - m_new);
+                l_new += p_ij;
+                o0 += p_ij * __half2float(smem_V[j * head_dim + lane_id]);
+                o1 += p_ij * __half2float(smem_V[j * head_dim + lane_id + 32]);
+            }
+
+            m = m_new;
+            l = l_new;
+        }
+        __syncthreads();
+    }
+
+    // write back
+    // O_i = o_new / l_new
+    if (q_row < seq_len) {
+        const float inv_l = 1.f / (l + 1e-6f);
+        O[q_row * head_dim + lane_id]      = __float2half(o0 * inv_l);
+        O[q_row * head_dim + lane_id + 32] = __float2half(o1 * inv_l);
+    }
+}
+
+void flash_attn_v2_tiled(const __half *Q, const __half *K, const __half *V,
+                         __half *O, int seq_len, int head_dim) {
+    // 1 block -> Br rows
+    const int grid = (seq_len + Br - 1) / Br;
+    // Br warps
+    const int block = Br * 32;
+
+    // Q + K + V
+    const int smem_bytes =
+        (Br + 2 * Bc) * head_dim * sizeof(__half) + Br * Bc * sizeof(float);
+
+    flash_attn_v2_tiled_kernel<<<grid, block, smem_bytes>>>(Q, K, V, O, seq_len,
+                                                            head_dim);
+    CUDA_CHECK_LAST();
+}
 ```
+
+#### 2.3.3 数据分析
+
