@@ -437,3 +437,15 @@ v2 1024: 0.2218 TFLOPS
 |online softmax|支持|
 |shared memory tiling|支持|
 |warp-level kernel|支持|
+
+$$  
+D_{16\times8} = 
+
+A_{16\times16}  
+\cdot  
+B_{16\times8}  
++  
+C_{16\times8}  
+$$
+1个 warp 完成两个 MMA： 16×8 + 16×8，即可得到：$16 \times 16$
+
