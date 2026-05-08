@@ -427,3 +427,13 @@ v2 1024: 0.2218 TFLOPS
 
 ### 2.4 flash_attn_v3_mma
 #### 2.4.1 方案设计
+
+|特性|状态|
+|---|---|
+|Tensor Core MMA|支持|
+|`ldmatrix`|支持|
+|`mma.sync`|支持|
+|`head_dim=64`|固定|
+|online softmax|支持|
+|shared memory tiling|支持|
+|warp-level kernel|支持|
