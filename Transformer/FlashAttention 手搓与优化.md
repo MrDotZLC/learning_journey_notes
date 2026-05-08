@@ -416,3 +416,14 @@ void flash_attn_v2_tiled(const __half *Q, const __half *K, const __half *V,
 
 - smem 加载和 `__syncthreads()` 的固定开销在小矩阵下占比高
 - v1 对小矩阵的 smem 利用率更高（`s_scores[seq_len]` 全部在 smem 内）
+
+```
+v2 1024: 0.2218 TFLOPS
+```
+
+两遍点积计算（求 m_new 一遍，更新 l/o 一遍）导致实际计算量是理论值的 2×，TFLOPS 计算分母用的是理论 FLOPs，实际计算量翻倍，所以数值偏低。
+
+若用 smem_S 缓存方案（避免重复计算），TFLOPS 应接近翻倍。
+
+### 2.4 flash_attn_v3_mma
+#### 2.4.1 方案设计
