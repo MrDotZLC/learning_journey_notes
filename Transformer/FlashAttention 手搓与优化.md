@@ -449,9 +449,7 @@ C_{16\times8}
 $$
 1个 warp 完成两个 MMA： 16×8 + 16×8，即可得到：$16 \times 16$ 。
 
-$QK^T$的维度=$[16\times64]  
-\cdot  
-[64\times16]$
+$QK^T$的维度=$[16 \times 64]  \cdot [64 \times 16]$
 
 Tensor Core 单次只能：
 
