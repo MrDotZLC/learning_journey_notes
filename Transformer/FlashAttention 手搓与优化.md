@@ -464,3 +464,241 @@ $$
 $$
 
 次 MMA。
+
+
+#### 2.4.2 代码
+```
+#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+#include <stdint.h>
+#include <float.h>
+#include "attention.h"
+
+// ---------------- tile config ----------------
+static constexpr int Br = 16;   // Q block rows
+static constexpr int Bc = 16;   // K/V block rows
+static constexpr int Hd = 64;   // head dimension
+
+static constexpr int MMA_M = 16;
+static constexpr int MMA_N = 8;
+static constexpr int MMA_K = 8;
+
+// Q: [N, Hd], K: [N, Hd], V: [N, Hd], O: [N, Hd]
+__global__ void flash_attn_v3_mma_kernel(
+    const half* __restrict__ Q,
+    const half* __restrict__ K,
+    const half* __restrict__ V,
+    half* __restrict__ O,
+    const int seq_len) 
+{
+    // 每个 Block 处理一个 Br x Hd 的 Q Tile
+    const int bx = blockIdx.x; 
+    const int lane_id = threadIdx.x; // 1 warp = 32 threads 刚好处理 16x64 的 Tile
+    const float softmax_scale = 1.f / sqrtf((float)Hd);
+    // ---------------- 共享内存分配 ----------------
+    __shared__ half smem_q[Br][Hd];
+    __shared__ half smem_k[Bc][Hd];
+    __shared__ half smem_v[Bc][Hd];
+    
+    // 用于 Softmax 及状态传递的 Shared Memory
+    __shared__ float smem_S[Br][Bc];
+    __shared__ half  smem_P[Br][Bc];
+    __shared__ float smem_m_i[Br];
+    __shared__ float smem_l_i[Br];
+    __shared__ float smem_scale_old[Br];
+
+    // 初始化 Online Softmax 状态
+    if (lane_id < Br) {
+        smem_m_i[lane_id] = -1e20f;
+        smem_l_i[lane_id] = 0.0f;
+    }
+    __syncthreads();
+
+    // ---------------- 寄存器分配 ----------------
+    // O 矩阵的累加器: 16x64 需要 8 个 m16n8k8，每个线程每块持有 4 个 float
+    // 每个线程共持有 8 * 4 = 32 个 float（写死一个block 32 线程）
+    float acc_O[8][4] = {0.0f};
+
+    // m16n8k8 C 矩阵 (16x8) 在寄存器中的 Layout 解析 (Ampere/Turing):
+    // 一个 16x8 tile 中，一行中一个线程负责连续 2 个元素，4 个线程负责一行
+    // 线程内包含 4 个元素，对应矩阵的 (row0, col), (row0, col+1), (row1, col), (row1, col+1)
+    int s_row0 = (lane_id / 4) % 8;
+    int s_row1 = s_row0 + 8;
+    int s_col  = (lane_id % 4) * 2;
+
+    // 1. 向量化加载 Q 到 Shared Memory (16 * 64 = 1024 halfs = 128 float4)
+    // 32 线程，每线程读取 4 个 float4
+    const float4* g_Q = reinterpret_cast<const float4*>(Q + bx * Br * Hd);
+    float4* s_Q_ptr = reinterpret_cast<float4*>(smem_q);
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        s_Q_ptr[lane_id * 4 + i] = g_Q[lane_id * 4 + i];
+    }
+    __syncthreads();
+
+    // 外层循环：遍历 K, V 的块 (Bc)
+    int num_blocks = seq_len / Bc;
+    for (int block_k = 0; block_k < num_blocks; ++block_k) {
+        
+        // 2. 向量化加载 K 和 V (与 Q 逻辑相同)
+        const float4* g_K = reinterpret_cast<const float4*>(K + block_k * Bc * Hd);
+        const float4* g_V = reinterpret_cast<const float4*>(V + block_k * Bc * Hd);
+        float4* s_K_ptr = reinterpret_cast<float4*>(smem_k);
+        float4* s_V_ptr = reinterpret_cast<float4*>(smem_v);
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            s_K_ptr[lane_id * 4 + i] = g_K[lane_id * 4 + i];
+            s_V_ptr[lane_id * 4 + i] = g_V[lane_id * 4 + i];
+        }
+        __syncthreads();
+
+        // 3. 计算 S = Q * K^T
+        // S 维度 16x16，需要 2 次 m16n8k8 操作
+        float acc_S0[4] = {0.0f}; // 对应 cols 0-7
+        float acc_S1[4] = {0.0f}; // 对应 cols 8-15
+
+        #pragma unroll
+        for (int k_idx = 0; k_idx < Hd / MMA_K; ++k_idx) {
+            uint32_t q_reg[2], k_reg0, k_reg1;
+            
+            // 使用 ldmatrix.x2 加载 16x8 的 Q tile
+            uint32_t addr_q = __cvta_generic_to_shared(&smem_q[lane_id % 16][k_idx * 8]);
+            asm volatile ("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];" 
+                          : "=r"(q_reg[0]), "=r"(q_reg[1]) : "r"(addr_q));
+
+            // 使用 ldmatrix.x1 加载 8x8 的 K^T tile (因为 K 是 row-major，直接加载即符合 K^T 的 col-major 需求)
+            uint32_t addr_k0 = __cvta_generic_to_shared(&smem_k[lane_id % 8][k_idx * 8]);
+            uint32_t addr_k1 = __cvta_generic_to_shared(&smem_k[(lane_id % 8) + 8][k_idx * 8]);
+            asm volatile ("ldmatrix.sync.aligned.m8n8.x1.shared.b16 {%0}, [%1];" : "=r"(k_reg0) : "r"(addr_k0));
+            asm volatile ("ldmatrix.sync.aligned.m8n8.x1.shared.b16 {%0}, [%1];" : "=r"(k_reg1) : "r"(addr_k1));
+
+            // MMA: Q(row-major) * K^T(col-major)
+            asm volatile (
+                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+                "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
+                : "+f"(acc_S0[0]), "+f"(acc_S0[1]), "+f"(acc_S0[2]), "+f"(acc_S0[3])
+                : "r"(q_reg[0]), "r"(q_reg[1]), "r"(k_reg0),
+                  "f"(acc_S0[0]), "f"(acc_S0[1]), "f"(acc_S0[2]), "f"(acc_S0[3])
+            );
+            asm volatile (
+                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+                "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
+                : "+f"(acc_S1[0]), "+f"(acc_S1[1]), "+f"(acc_S1[2]), "+f"(acc_S1[3])
+                : "r"(q_reg[0]), "r"(q_reg[1]), "r"(k_reg1),
+                  "f"(acc_S1[0]), "f"(acc_S1[1]), "f"(acc_S1[2]), "f"(acc_S1[3])
+            );
+        }
+
+        // 4. 写回 Shared Memory 进行 Softmax 计算
+        smem_S[s_row0][s_col + 0] = acc_S0[0] * softmax_scale;
+        smem_S[s_row0][s_col + 1] = acc_S0[1] * softmax_scale;
+        smem_S[s_row1][s_col + 0] = acc_S0[2] * softmax_scale;
+        smem_S[s_row1][s_col + 1] = acc_S0[3] * softmax_scale;
+
+        smem_S[s_row0][s_col + 8 + 0] = acc_S1[0] * softmax_scale;
+        smem_S[s_row0][s_col + 8 + 1] = acc_S1[1] * softmax_scale;
+        smem_S[s_row1][s_col + 8 + 0] = acc_S1[2] * softmax_scale;
+        smem_S[s_row1][s_col + 8 + 1] = acc_S1[3] * softmax_scale;
+        __syncthreads();
+
+        // 5. Online Softmax 处理 (Warp内划分: 前16个线程每人处理1行)
+        if (lane_id < Br) {
+            float m_block = -1e20f;
+            #pragma unroll
+            for (int i = 0; i < Bc; ++i) m_block = fmaxf(m_block, smem_S[lane_id][i]);
+
+            float m_new = fmaxf(smem_m_i[lane_id], m_block);
+            float scale_old = expf(smem_m_i[lane_id] - m_new);
+            
+            float sum_block = 0.0f;
+            #pragma unroll
+            for (int i = 0; i < Bc; ++i) {
+                // 直接在此处计算 P_block 缩放，使其后续 MMA 算出的结果直接就是正确比例的
+                float p_val = expf(smem_S[lane_id][i] - m_new);
+                smem_P[lane_id][i] = __float2half(p_val);
+                sum_block += p_val;
+            }
+
+            // 更新状态并存入 Shared Mem 供 MMA 线程使用
+            smem_l_i[lane_id] = smem_l_i[lane_id] * scale_old + sum_block;
+            smem_m_i[lane_id] = m_new;
+            smem_scale_old[lane_id] = scale_old;
+        }
+        __syncthreads();
+
+        // 6. 对之前的累加器 O 按照 scale_old 进行缩放
+        float scale0 = smem_scale_old[s_row0];
+        float scale1 = smem_scale_old[s_row1];
+        #pragma unroll
+        for (int c = 0; c < 8; ++c) {
+            acc_O[c][0] *= scale0;
+            acc_O[c][1] *= scale0;
+            acc_O[c][2] *= scale1;
+            acc_O[c][3] *= scale1;
+        }
+
+        // 7. 计算 O = P * V
+        // P: 16x16, V: 16x64 => O: 16x64
+        #pragma unroll
+        for (int k_step = 0; k_step < Bc / MMA_K; ++k_step) {
+            uint32_t p_reg[2];
+            uint32_t addr_p = __cvta_generic_to_shared(&smem_P[lane_id % 16][k_step * 8]);
+            asm volatile ("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"
+                          : "=r"(p_reg[0]), "=r"(p_reg[1]) : "r"(addr_p));
+
+            #pragma unroll
+            for (int n_step = 0; n_step < Hd / MMA_N; ++n_step) {
+                uint32_t v_reg;
+                // 核心 Trick：V在SharedMemory中是 row-major。
+                // 使用 ldmatrix.trans 可以在加载到寄存器时进行硬件级转置！使其变成 col-major。
+                uint32_t addr_v = __cvta_generic_to_shared(&smem_v[lane_id % 8 + k_step * 8][n_step * 8]);
+                asm volatile ("ldmatrix.sync.aligned.m8n8.x1.trans.shared.b16 {%0}, [%1];"
+                              : "=r"(v_reg) : "r"(addr_v));
+
+                // 此时 P 是 row-major，寄存器里的 V 是 col-major，完美契合 row.col 指令！
+                asm volatile (
+                    "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+                    "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
+                    : "+f"(acc_O[n_step][0]), "+f"(acc_O[n_step][1]), "+f"(acc_O[n_step][2]), "+f"(acc_O[n_step][3])
+                    : "r"(p_reg[0]), "r"(p_reg[1]), "r"(v_reg),
+                      "f"(acc_O[n_step][0]), "f"(acc_O[n_step][1]), "f"(acc_O[n_step][2]), "f"(acc_O[n_step][3])
+                );
+            }
+        }
+        __syncthreads();
+    }
+
+    // 8. Epilogue：除以 L 因子并写回 Global Memory
+    float l_row0 = smem_l_i[s_row0];
+    float l_row1 = smem_l_i[s_row1];
+    
+    // 复用 smem_q 作为输出缓冲，组织成向量化写回需要的连续内存
+    __shared__ half sO[Br][Hd];
+    
+    #pragma unroll
+    for (int n_step = 0; n_step < 8; ++n_step) {
+        sO[s_row0][n_step * 8 + s_col + 0] = __float2half(acc_O[n_step][0] / l_row0);
+        sO[s_row0][n_step * 8 + s_col + 1] = __float2half(acc_O[n_step][1] / l_row0);
+        sO[s_row1][n_step * 8 + s_col + 0] = __float2half(acc_O[n_step][2] / l_row1);
+        sO[s_row1][n_step * 8 + s_col + 1] = __float2half(acc_O[n_step][3] / l_row1);
+    }
+    __syncthreads();
+
+    // 向量化写回 Global Memory (128 个 float4)
+    float4* g_O = reinterpret_cast<float4*>(O + bx * Br * Hd);
+    float4* s_O_ptr = reinterpret_cast<float4*>(sO);
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        g_O[lane_id * 4 + i] = s_O_ptr[lane_id * 4 + i];
+    }
+}
+
+void flash_attn_v3_mma(const __half *Q, const __half *K, const __half *V,
+                       __half *O, int seq_len, int head_dim) {
+    const int grid = (seq_len + Br - 1) / Br;
+    const int block = 32;
+
+    flash_attn_v3_mma_kernel<<<grid, block>>>(Q, K, V, O, seq_len);
+    CUDA_CHECK_LAST();
+}
+```
