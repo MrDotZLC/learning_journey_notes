@@ -466,7 +466,7 @@ $$
 次 MMA。
 
 #### 2.4.2 代码
-```
+```cuda
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
@@ -481,6 +481,65 @@ static constexpr int Hd = 64;   // head dimension
 static constexpr int MMA_M = 16;
 static constexpr int MMA_N = 8;
 static constexpr int MMA_K = 8;
+
+// 将 shared memory 指针转换为 32-bit 地址供 ldmatrix 使用
+__device__ __forceinline__ uint32_t smem_ptr(const void* ptr) {
+    uint32_t addr;
+    asm volatile(
+        "{.reg .u64 t;"
+        " cvta.to.shared.u64 t, %1;"
+        " cvt.u32.u64 %0, t;}"
+        : "=r"(addr)
+        : "l"(ptr)
+    );
+
+    return addr;
+}
+
+// ldmatrix x2：加载 16x8 half fragment（Q/K/V使用）
+__device__ __forceinline__ void ldmatrix_x2(uint32_t &a0, uint32_t &a1,
+                                            uint32_t addr) {
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"
+        : "=r"(a0), "=r"(a1)
+        : "r"(addr)
+    );
+}
+
+// ldmatrix x1 load：用于 加载 K/V fragment
+__device__ __forceinline__ void ldmatrix_x1(uint32_t& a0, uint32_t addr) {
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x1.shared.b16 {%0}, [%1];"
+        : "=r"(a0)
+        : "r"(addr)
+    );
+}
+
+// ldmatrix x1 transpose：用于计算 K/V fragment
+__device__ __forceinline__ void ldmatrix_x1_trans(uint32_t& a0, uint32_t addr) {
+    asm volatile(
+        "ldmatrix.sync.trans.aligned.m8n8.x1.shared.b16 {%0}, [%1];"
+        : "=r"(a0)
+        : "r"(addr)
+    );
+}
+
+// MMA 16x8x8 Tensor Core
+__device__ __forceinline__ void mma_m16n8k8(
+    float* d,
+    uint32_t a0,
+    uint32_t a1,
+    uint32_t b0,
+    float* c
+) {
+    asm volatile(
+        "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};"
+        : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
+        : "r"(a0), "r"(a1), 
+          "r"(b0), 
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]));
+}
 
 // Q: [N, Hd], K: [N, Hd], V: [N, Hd], O: [N, Hd]
 __global__ void flash_attn_v3_mma_kernel(
@@ -559,33 +618,20 @@ __global__ void flash_attn_v3_mma_kernel(
         #pragma unroll
         for (int k_idx = 0; k_idx < Hd / MMA_K; ++k_idx) {
             uint32_t q_reg[2], k_reg0, k_reg1;
-            
-            // 使用 ldmatrix.x2 加载 16x8 的 Q tile
-            uint32_t addr_q = __cvta_generic_to_shared(&smem_q[lane_id % 16][k_idx * 8]);
-            asm volatile ("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];" 
-                          : "=r"(q_reg[0]), "=r"(q_reg[1]) : "r"(addr_q));
 
-            // 使用 ldmatrix.x1 加载 8x8 的 K^T tile (因为 K 是 row-major，直接加载即符合 K^T 的 col-major 需求)
-            uint32_t addr_k0 = __cvta_generic_to_shared(&smem_k[lane_id % 8][k_idx * 8]);
-            uint32_t addr_k1 = __cvta_generic_to_shared(&smem_k[(lane_id % 8) + 8][k_idx * 8]);
-            asm volatile ("ldmatrix.sync.aligned.m8n8.x1.shared.b16 {%0}, [%1];" : "=r"(k_reg0) : "r"(addr_k0));
-            asm volatile ("ldmatrix.sync.aligned.m8n8.x1.shared.b16 {%0}, [%1];" : "=r"(k_reg1) : "r"(addr_k1));
+            // 使用 ldmatrix.x2 加载 16x8 的 Q tile
+            ldmatrix_x2(q_reg[0], q_reg[1],
+                        smem_ptr(&smem_q[lane_id % 16][k_idx * 8]));
+
+            // 使用 ldmatrix.x1 加载 8x8 的 K^T tile (因为 K 是
+            // row-major，直接加载即符合 K^T 的 col-major 需求)
+            ldmatrix_x1(k_reg0, smem_ptr(&smem_k[lane_id % 8][k_idx * 8]));
+            ldmatrix_x1(k_reg1,
+                        smem_ptr(&smem_k[(lane_id % 8) + 8][k_idx * 8]));
 
             // MMA: Q(row-major) * K^T(col-major)
-            asm volatile (
-                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
-                "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
-                : "+f"(acc_S0[0]), "+f"(acc_S0[1]), "+f"(acc_S0[2]), "+f"(acc_S0[3])
-                : "r"(q_reg[0]), "r"(q_reg[1]), "r"(k_reg0),
-                  "f"(acc_S0[0]), "f"(acc_S0[1]), "f"(acc_S0[2]), "f"(acc_S0[3])
-            );
-            asm volatile (
-                "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
-                "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
-                : "+f"(acc_S1[0]), "+f"(acc_S1[1]), "+f"(acc_S1[2]), "+f"(acc_S1[3])
-                : "r"(q_reg[0]), "r"(q_reg[1]), "r"(k_reg1),
-                  "f"(acc_S1[0]), "f"(acc_S1[1]), "f"(acc_S1[2]), "f"(acc_S1[3])
-            );
+            mma_m16n8k8(acc_S0, q_reg[0], q_reg[1], k_reg0, acc_S0);
+            mma_m16n8k8(acc_S1, q_reg[0], q_reg[1], k_reg1, acc_S1);
         }
 
         // 4. 写回 Shared Memory 进行 Softmax 计算
@@ -604,15 +650,20 @@ __global__ void flash_attn_v3_mma_kernel(
         if (lane_id < Br) {
             float m_block = -1e20f;
             #pragma unroll
-            for (int i = 0; i < Bc; ++i) m_block = fmaxf(m_block, smem_S[lane_id][i]);
+            for (int i = 0; i < Bc; ++i) {
+                m_block = fmaxf(m_block, smem_S[lane_id][i]);
+            }
 
             float m_new = fmaxf(smem_m_i[lane_id], m_block);
+            // exp(x - m_new) = exp(x - m_old) * exp(m_old - m_new)
+            //                  ↓
+            // scale_old = exp(m_old - m_new)
             float scale_old = expf(smem_m_i[lane_id] - m_new);
-            
+
+            // l_new = scale_old * l_old + Σ exp(S_ij - m_new)
             float sum_block = 0.0f;
             #pragma unroll
             for (int i = 0; i < Bc; ++i) {
-                // 直接在此处计算 P_block 缩放，使其后续 MMA 算出的结果直接就是正确比例的
                 float p_val = expf(smem_S[lane_id][i] - m_new);
                 smem_P[lane_id][i] = __float2half(p_val);
                 sum_block += p_val;
@@ -626,6 +677,7 @@ __global__ void flash_attn_v3_mma_kernel(
         __syncthreads();
 
         // 6. 对之前的累加器 O 按照 scale_old 进行缩放
+        // o_new = scale_old * o_old + Σ exp(S_ij - m_new) * V_j
         float scale0 = smem_scale_old[s_row0];
         float scale1 = smem_scale_old[s_row1];
         #pragma unroll
@@ -641,27 +693,18 @@ __global__ void flash_attn_v3_mma_kernel(
         #pragma unroll
         for (int k_step = 0; k_step < Bc / MMA_K; ++k_step) {
             uint32_t p_reg[2];
-            uint32_t addr_p = __cvta_generic_to_shared(&smem_P[lane_id % 16][k_step * 8]);
-            asm volatile ("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"
-                          : "=r"(p_reg[0]), "=r"(p_reg[1]) : "r"(addr_p));
+            ldmatrix_x2(p_reg[0], p_reg[1],
+                        smem_ptr(&smem_P[lane_id % 16][k_step * 8]));
 
             #pragma unroll
             for (int n_step = 0; n_step < Hd / MMA_N; ++n_step) {
                 uint32_t v_reg;
                 // 核心 Trick：V在SharedMemory中是 row-major。
                 // 使用 ldmatrix.trans 可以在加载到寄存器时进行硬件级转置！使其变成 col-major。
-                uint32_t addr_v = __cvta_generic_to_shared(&smem_v[lane_id % 8 + k_step * 8][n_step * 8]);
-                asm volatile ("ldmatrix.sync.aligned.m8n8.x1.trans.shared.b16 {%0}, [%1];"
-                              : "=r"(v_reg) : "r"(addr_v));
+                ldmatrix_x1_trans(v_reg, smem_ptr(&smem_v[lane_id % 8 + k_step * 8][n_step * 8]));
 
                 // 此时 P 是 row-major，寄存器里的 V 是 col-major，完美契合 row.col 指令！
-                asm volatile (
-                    "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
-                    "{%0, %1, %2, %3}, {%4, %5}, {%6}, {%7, %8, %9, %10};\n"
-                    : "+f"(acc_O[n_step][0]), "+f"(acc_O[n_step][1]), "+f"(acc_O[n_step][2]), "+f"(acc_O[n_step][3])
-                    : "r"(p_reg[0]), "r"(p_reg[1]), "r"(v_reg),
-                      "f"(acc_O[n_step][0]), "f"(acc_O[n_step][1]), "f"(acc_O[n_step][2]), "f"(acc_O[n_step][3])
-                );
+                mma_m16n8k8(acc_O[n_step], p_reg[0], p_reg[1], v_reg, acc_O[n_step]);
             }
         }
         __syncthreads();
@@ -671,9 +714,8 @@ __global__ void flash_attn_v3_mma_kernel(
     float l_row0 = smem_l_i[s_row0];
     float l_row1 = smem_l_i[s_row1];
     
-    // 复用 smem_q 作为输出缓冲，组织成向量化写回需要的连续内存
+    // 可复用 smem_q 作为输出缓冲（但是复用 smem_q 会导致 cpu_vertify 异常，这里不复用）
     __shared__ half sO[Br][Hd];
-    
     #pragma unroll
     for (int n_step = 0; n_step < 8; ++n_step) {
         sO[s_row0][n_step * 8 + s_col + 0] = __float2half(acc_O[n_step][0] / l_row0);
@@ -686,6 +728,7 @@ __global__ void flash_attn_v3_mma_kernel(
     // 向量化写回 Global Memory (128 个 float4)
     float4* g_O = reinterpret_cast<float4*>(O + bx * Br * Hd);
     float4* s_O_ptr = reinterpret_cast<float4*>(sO);
+    // 16x8个float4，1个线程搬运4个float4，2个线程负责一行
     #pragma unroll
     for (int i = 0; i < 4; ++i) {
         g_O[lane_id * 4 + i] = s_O_ptr[lane_id * 4 + i];
@@ -701,3 +744,4 @@ void flash_attn_v3_mma(const __half *Q, const __half *K, const __half *V,
     CUDA_CHECK_LAST();
 }
 ```
+
