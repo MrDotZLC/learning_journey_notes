@@ -745,3 +745,462 @@ void flash_attn_v3_mma(const __half *Q, const __half *K, const __half *V,
 }
 ```
 
+#### 2.4.3 数据分析
+#####  2.4.3.1 v3 vs v1/v2 加速比
+
+|seq_len|v1 (ms)|v2 (ms)|v3 (ms)|v3/v1|v3/v2|
+|---|---|---|---|---|---|
+|128|0.0795|0.0997|0.0665|1.2×|1.5×|
+|256|0.2140|0.2689|0.0451|4.7×|6.0×|
+|512|0.7180|0.3945|0.1417|5.1×|2.8×|
+|1024|2.9923|1.6718|0.3926|7.6×|4.3×|
+
+**结论：**
+
+seq_len=128 时 v3 优势不明显（1.2×），原因是 block 数量少（`128/16=8`），Tensor Core 利用率低，launch overhead 占主导。
+
+seq_len 增大后 v3 优势显著，1024 时达到 **7.6× vs v1**，接近 Tensor Core 理论加速比（FP16 MMA vs FP32 dot product）。
+
+v3 vs v2 的加速比不单调（512 时 v3/v2=2.8×，1024 时 4.3×），原因是 v2 的 smem_S 中转开销在不同规模下占比不同。
+
+##### 2.4.3.2 TFLOPS 趋势
+
+|seq_len|v3 TFLOPS|峰值利用率（5.44T）|
+|---|---|---|
+|128|0.063|1.2%|
+|256|0.372|6.8%|
+|512|0.474|8.7%|
+|1024|0.684|12.6%|
+
+整体利用率偏低，主因：
+
+- 时钟 300 MHz（WSL2/WDDM），实际算力仅为峰值的 17%
+- online softmax 的 smem 读写和 `expf` 计算是串行瓶颈（lane 0~15 执行，其他 lane 空转）
+- 单 warp per block，SM 利用率受限
+
+### 2.5 flash_attn_v4_full
+#### 2.5.1 方案设计
+
+**扩展 1：Multi-Head**
+
+```
+grid = (ceil(N/Br), num_heads, batch_size)
+```
+
+每个 block 独立处理一个 `(batch, head, q_tile)` 三元组，head 间完全并行，SM 利用率随 `batch × num_heads` 线性提升。
+
+**扩展 2：Causal Mask**
+
+寄存器级 mask：MMA 计算完成后，在写入 smem_S 之前直接将 `k > q` 的寄存器位置置为 `-1e20f`：
+
+```
+acc_S0/acc_S1 中对应 k_global > q_global 的元素 → -1e20f
+```
+
+优势：无额外 smem 访问，无额外同步，零开销。
+
+causal 下有效计算量约为非 causal 的 50%，理论 TFLOPS 应略高于非 causal（相同延迟下 FLOPs 减半，但实际延迟也减少）。
+
+**扩展 3：可变 head_dim**
+
+模板参数 `Hd`，编译期特化 32/64/128 三种规格：
+
+$$ N_STEPS = Hd / MMA_N = 4 / 8 / 16 $$
+
+smem 大小随 Hd 线性增长，128 时为 64 的 2×。
+
+#### 2.5.2 代码
+```cuda
+// kernels/attention/flash_attn_v4_full.cu
+// FlashAttention v4：Multi-Head + Causal Mask + 可变 head_dim
+// 在 v3 基础上扩展：
+//   1. grid 增加 batch/head 维度
+//   2. causal mask：跳过右侧 tile，部分 tile 逐元素 mask
+//   3. head_dim 模板化，支持 32/64/128
+
+#include "attention.h"
+#include <cuda_fp16.h>
+#include <float.h>
+
+static constexpr int Br = 16;
+static constexpr int Bc = 16;
+static constexpr int MMA_M = 16;
+static constexpr int MMA_N = 8;
+static constexpr int MMA_K = 8;
+
+
+// PTX 工具函数
+// 将 shared memory 指针转换为 32-bit 地址供 ldmatrix 使用
+__device__ __forceinline__ uint32_t smem_ptr(const void* ptr) {
+    uint32_t addr;
+    asm volatile(
+        "{.reg .u64 t;"
+        " cvta.to.shared.u64 t, %1;"
+        " cvt.u32.u64 %0, t;}"
+        : "=r"(addr)
+        : "l"(ptr)
+    );
+
+    return addr;
+}
+
+// ldmatrix x2：加载 16x8 half fragment（Q/K/V使用）
+__device__ __forceinline__ void ldmatrix_x2(
+    uint32_t& a0, uint32_t& a1, uint32_t addr) {
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"
+        : "=r"(a0), "=r"(a1)
+        : "r"(addr)
+    );
+}
+
+// ldmatrix x1 load：用于 加载 K/V fragment
+__device__ __forceinline__ void ldmatrix_x1(uint32_t& a0, uint32_t addr) {
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x1.shared.b16 {%0}, [%1];"
+        : "=r"(a0)
+        : "r"(addr)
+    );
+}
+
+// ldmatrix x1 transpose：用于计算 K/V fragment
+__device__ __forceinline__ void ldmatrix_x1_trans(uint32_t& a0, uint32_t addr) {
+    asm volatile(
+        "ldmatrix.sync.trans.aligned.m8n8.x1.shared.b16 {%0}, [%1];"
+        : "=r"(a0)
+        : "r"(addr)
+    );
+}
+
+// MMA 16x8x8 Tensor Core
+__device__ __forceinline__ void mma_m16n8k8(float* d, uint32_t a0, uint32_t a1, uint32_t b0, float* c) {
+    asm volatile(
+        "mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 "
+        "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};"
+        : "=f"(d[0]), "=f"(d[1]), "=f"(d[2]), "=f"(d[3])
+        : "r"(a0), "r"(a1), "r"(b0),
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3])
+    );
+}
+
+// ================================================================
+// Kernel 模板：Hd 编译期确定
+// ================================================================
+template <int Hd>
+__global__ void flash_attn_v4_kernel(
+    const __half* __restrict__ Q,   // [B, H, N, Hd]
+    const __half* __restrict__ K,
+    const __half* __restrict__ V,
+    __half*       __restrict__ O,
+    int seq_len,
+    int num_heads,
+    bool causal)
+{
+    // ---- grid 坐标 ----
+    const int bx        = blockIdx.x;   // Q tile 索引
+    const int head_idx  = blockIdx.y;   // head 索引
+    const int batch_idx = blockIdx.z;   // batch 索引
+
+    const int lane_id = threadIdx.x;
+    const float softmax_scale = 1.f / sqrtf((float)Hd);
+
+    // ---- 该 head 的数据指针 ----
+    const int stride_batch = num_heads * seq_len * Hd;
+    const int stride_head  = seq_len * Hd;
+    const int offset       = batch_idx * stride_batch + head_idx * stride_head;
+
+    const __half* Q_ptr = Q + offset;
+    const __half* K_ptr = K + offset;
+    const __half* V_ptr = V + offset;
+    __half*       O_ptr = O + offset;
+
+    // ---- smem ----
+    __shared__ __half smem_q[Br][Hd];
+    __shared__ __half smem_k[Bc][Hd];
+    __shared__ __half smem_v[Bc][Hd];
+    __shared__ float  smem_S[Br][Bc];
+    __shared__ __half smem_P[Br][Bc];
+    __shared__ float  smem_m_i[Br];
+    __shared__ float  smem_l_i[Br];
+    __shared__ float  smem_scale_old[Br];
+    __shared__ __half smem_O[Br][Hd];
+
+    // ---- 初始化 online softmax 状态 ----
+    if (lane_id < Br) {
+        smem_m_i[lane_id]       = -1e20f;
+        smem_l_i[lane_id]       = 0.f;
+        smem_scale_old[lane_id] = 1.f;
+    }
+    __syncthreads();
+
+    // ---- accumulator ----
+    constexpr int N_STEPS = Hd / MMA_N;
+    float acc_O[N_STEPS][4] = {};
+
+    // MMA 坐标映射
+    const int s_row0 = (lane_id / 4) % 8;
+    const int s_row1 = s_row0 + 8;
+    const int s_col  = (lane_id % 4) * 2;
+
+    // ---- 加载 Q tile ----
+    {
+        int q_base = bx * Br;
+        #pragma unroll
+        for (int i = 0; i < (Br * Hd / 8 / 32); i++) {
+            int thread_offset = lane_id + i * 32;
+            if (q_base + (thread_offset / (Hd / 8)) < seq_len) {
+                reinterpret_cast<float4*>(smem_q)[thread_offset] = 
+                    reinterpret_cast<const float4*>(Q_ptr + q_base * Hd)[thread_offset];
+            } else {
+                reinterpret_cast<float4*>(smem_q)[thread_offset] = make_float4(0,0,0,0);
+            }
+        }
+    }
+    __syncthreads();
+
+    // ---- KV tile 循环 ----
+    const int num_kv_blocks = (seq_len + Bc - 1) / Bc;
+    const int q_tile_start  = bx * Br;
+
+    for (int block_k = 0; block_k < num_kv_blocks; block_k++) {
+        const int kv_tile_start = block_k * Bc;
+
+        // causal 块级别早停
+        if (causal && kv_tile_start > q_tile_start + Br - 1) break;
+
+        // ---- 加载 K/V tile ----
+        {
+            #pragma unroll
+            for (int i = 0; i < (Bc * Hd / 8 / 32); i++) {
+                int thread_offset = lane_id + i * 32;
+                int r = thread_offset / (Hd / 8);
+                if (kv_tile_start + r < seq_len) {
+                    reinterpret_cast<float4*>(smem_k)[thread_offset] = 
+                        reinterpret_cast<const float4*>(K_ptr + kv_tile_start * Hd)[thread_offset];
+                    reinterpret_cast<float4*>(smem_v)[thread_offset] = 
+                        reinterpret_cast<const float4*>(V_ptr + kv_tile_start * Hd)[thread_offset];
+                } else {
+                    reinterpret_cast<float4*>(smem_k)[thread_offset] = make_float4(0,0,0,0);
+                    reinterpret_cast<float4*>(smem_v)[thread_offset] = make_float4(0,0,0,0);
+                }
+            }
+        }
+        __syncthreads();
+
+        // ---- QK^T via MMA ----
+        float acc_S0[4] = {};
+        float acc_S1[4] = {};
+
+        #pragma unroll
+        for (int k_idx = 0; k_idx < Hd / MMA_K; k_idx++) {
+            uint32_t q_reg[2], k_reg0, k_reg1;
+            ldmatrix_x2(q_reg[0], q_reg[1], smem_ptr(&smem_q[lane_id % 16][k_idx * MMA_K]));
+            ldmatrix_x1(k_reg0, smem_ptr(&smem_k[lane_id % MMA_K          ][k_idx * MMA_K]));
+            ldmatrix_x1(k_reg1, smem_ptr(&smem_k[lane_id % MMA_K + MMA_K  ][k_idx * MMA_K]));
+            mma_m16n8k8(acc_S0, q_reg[0], q_reg[1], k_reg0, acc_S0);
+            mma_m16n8k8(acc_S1, q_reg[0], q_reg[1], k_reg1, acc_S1);
+        }
+
+        // 写入 smem_S 之前应用缩放
+        smem_S[s_row0][s_col        ] = acc_S0[0] * softmax_scale;
+        smem_S[s_row0][s_col + 1    ] = acc_S0[1] * softmax_scale;
+        smem_S[s_row1][s_col        ] = acc_S0[2] * softmax_scale;
+        smem_S[s_row1][s_col + 1    ] = acc_S0[3] * softmax_scale;
+        smem_S[s_row0][s_col + 8    ] = acc_S1[0] * softmax_scale;
+        smem_S[s_row0][s_col + 8 + 1] = acc_S1[1] * softmax_scale;
+        smem_S[s_row1][s_col + 8    ] = acc_S1[2] * softmax_scale;
+        smem_S[s_row1][s_col + 8 + 1] = acc_S1[3] * softmax_scale;
+        __syncthreads();
+
+        // ---- Online softmax 处理 ----
+        if (lane_id < Br) {
+            const int r_idx = lane_id;
+            int global_q_idx = q_tile_start + r_idx;
+            float m_block = -1e20f;
+
+            // 1. 寻找最大值，提前注入 Causal/Padding Mask 逻辑
+            #pragma unroll
+            for (int j = 0; j < Bc; j++) {
+                int global_kv_idx = kv_tile_start + j;
+                float s_val = smem_S[r_idx][j];
+                
+                // 完全对齐 PyTorch 的 masked_fill_(-1e4f) 逻辑
+                bool is_valid = (global_q_idx < seq_len) && (global_kv_idx < seq_len) && (!causal || global_kv_idx <= global_q_idx);
+                if (!is_valid) {
+                    s_val = -1e4f; // 使用极小值代替直接赋 0.f，让指数平滑过渡
+                }
+                m_block = fmaxf(m_block, s_val);
+            }
+
+            float m_new     = fmaxf(smem_m_i[r_idx], m_block);
+            float scale_old = expf(smem_m_i[r_idx] - m_new);
+
+            float sum_block = 0.f;
+            
+            // 2. 计算概率
+            #pragma unroll
+            for (int j = 0; j < Bc; j++) {
+                int global_kv_idx = kv_tile_start + j;
+                float s_val = smem_S[r_idx][j];
+                
+                bool is_valid = (global_q_idx < seq_len) && (global_kv_idx < seq_len) && (!causal || global_kv_idx <= global_q_idx);
+                if (!is_valid) {
+                    s_val = -1e4f;
+                }
+                
+                float p = expf(s_val - m_new);
+                
+                // 将概率转为 half 写入以供 TensorCore 消费
+                smem_P[r_idx][j] = __float2half(p);
+                sum_block += p;
+            }
+
+            smem_l_i[r_idx]       = smem_l_i[r_idx] * scale_old + sum_block;
+            smem_m_i[r_idx]       = m_new;
+            smem_scale_old[r_idx] = scale_old; 
+        }
+        __syncthreads(); 
+
+        // ---- 缩放旧的 acc_O ----
+        const float scale0 = smem_scale_old[s_row0];
+        const float scale1 = smem_scale_old[s_row1];
+        
+        #pragma unroll
+        for (int n = 0; n < N_STEPS; n++) {
+            acc_O[n][0] *= scale0;
+            acc_O[n][1] *= scale0;
+            acc_O[n][2] *= scale1;
+            acc_O[n][3] *= scale1;
+        }
+
+        // ---- PV via MMA ----
+        #pragma unroll
+        for (int k_step = 0; k_step < Bc / MMA_K; k_step++) {
+            uint32_t p_reg[2];
+            ldmatrix_x2(p_reg[0], p_reg[1], smem_ptr(&smem_P[lane_id % 16][k_step * MMA_K]));
+            #pragma unroll
+            for (int n_step = 0; n_step < N_STEPS; n_step++) {
+                uint32_t v_reg;
+                ldmatrix_x1_trans(v_reg, smem_ptr(&smem_v[lane_id % MMA_K + k_step * MMA_K][n_step * MMA_N]));
+                mma_m16n8k8(acc_O[n_step], p_reg[0], p_reg[1], v_reg, acc_O[n_step]);
+            }
+        }
+        __syncthreads(); 
+    }
+
+    // ---- 写回阶段 ----
+    const float l_row0 = smem_l_i[s_row0];
+    const float l_row1 = smem_l_i[s_row1];
+
+    #pragma unroll
+    for (int n = 0; n < N_STEPS; n++) {
+        smem_O[s_row0][n * MMA_N + s_col    ] = __float2half(acc_O[n][0] / l_row0);
+        smem_O[s_row0][n * MMA_N + s_col + 1] = __float2half(acc_O[n][1] / l_row0);
+        smem_O[s_row1][n * MMA_N + s_col    ] = __float2half(acc_O[n][2] / l_row1);
+        smem_O[s_row1][n * MMA_N + s_col + 1] = __float2half(acc_O[n][3] / l_row1);
+    }
+    __syncthreads();
+
+    int q_base = bx * Br;
+    #pragma unroll
+    for (int i = 0; i < (Br * Hd / 8 / 32); i++) {
+        int thread_offset = lane_id + i * 32;
+        if (q_base + (thread_offset / (Hd / 8)) < seq_len) {
+            reinterpret_cast<float4*>(O_ptr + q_base * Hd)[thread_offset] = 
+                reinterpret_cast<const float4*>(smem_O)[thread_offset];
+        }
+    }
+}
+
+
+// ================================================================
+// Host 入口：dispatch head_dim
+// ================================================================
+void flash_attn_v4_full(
+    const __half* Q, const __half* K, const __half* V,
+    __half* O,
+    int batch_size, int num_heads,
+    int seq_len,    int head_dim,
+    bool causal)
+{
+    dim3 grid(
+        (seq_len + Br - 1) / Br,
+        num_heads,
+        batch_size
+    );
+    const int block = 32;
+
+    switch (head_dim) {
+        case 32:
+            flash_attn_v4_kernel<32><<<grid, block>>>(
+                Q, K, V, O, seq_len, num_heads, causal);
+            break;
+        case 64:
+            flash_attn_v4_kernel<64><<<grid, block>>>(
+                Q, K, V, O, seq_len, num_heads, causal);
+            break;
+        case 128:
+            flash_attn_v4_kernel<128><<<grid, block>>>(
+                Q, K, V, O, seq_len, num_heads, causal);
+            break;
+        default:
+            fprintf(stderr, "[flash_attn_v4] unsupported head_dim: %d\n", head_dim);
+            return;
+    }
+    CUDA_CHECK_LAST();
+}
+```
+
+#### 2.5.3 数据分析
+##### 2.5.3.1 Causal vs Non-causal
+
+|seq_len|head_dim|causal|latency (ms)|TFLOPS|
+|---|---|---|---|---|
+|256|64|false|0.0504|0.333|
+|256|64|true|0.0438|0.383|
+
+causal=true 比 false 快 **1.15×**，TFLOPS 反而更高（0.383 vs 0.333）。
+
+原因：causal 下跳过了右侧 tile（`kv_tile_start > q_tile_start + Br - 1` 时 break），实际 KV tile 数量约为非 causal 的 50%，延迟降低，而 TFLOPS 分母仍用全量 FLOPs，导致数值偏高。
+
+##### 2.5.3.2 head_dim 对性能的影响
+
+|head_dim|latency (ms)|TFLOPS|
+|---|---|---|
+|32|0.0271|0.310|
+|64|0.0438|0.383|
+|128|0.0796|0.422|
+
+延迟随 head_dim 线性增长（32→64→128 ≈ 1×→1.6×→2.9×），TFLOPS 随 head_dim 增大略有提升，原因是更大的 head_dim 提供了更高的算术强度：
+
+$$ AI = \frac{2 \times N^2 \times Hd}{4 \times N \times Hd} = \frac{N}{2} $$
+
+AI 与 Hd 无关，但 Hd 更大时 smem 加载与 MMA 的比例更优（smem 加载 $O(N \times Hd)$，MMA $O(N^2 \times Hd)$），使 MMA 占比更高。
+
+##### 2.5.3.3 Multi-Head 扩展收益
+
+|配置|latency (ms)|TFLOPS|等效单 head|
+|---|---|---|---|
+|seq=512, B=2, H=8|0.7609|1.411|512 单head≈0.142ms，×16=2.27ms|
+|seq=1024, B=1, H=12|2.1508|1.498|1024 单head≈0.393ms，×12=4.71ms|
+
+Multi-head 版本相比串行跑多次单 head 有显著加速：
+
+$$ \text{seq=512, B=2, H=8}:\quad \frac{2.27}{0.761} \approx 3.0\times $$
+
+$$ \text{seq=1024, B=1, H=12}:\quad \frac{4.71}{2.15} \approx 2.2\times $$
+
+加速来自 grid 并行度提升后 SM 利用率改善，更多 block 同时在不同 SM 上执行。
+
+### 3.4 TFLOPS 峰值对比
+
+|kernel|最高 TFLOPS|配置|
+|---|---|---|
+|v1_naive|0.113|seq=1024|
+|v2_tiled|0.195|seq=1024|
+|v3_mma|0.684|seq=1024|
+|v4_full|1.498|seq=1024, H=12|
+
+v4 multi-head 达到 **1.5 TFLOPS**，是 v3 单 head 的 **2.2×**，是 v1 的 **13×**。
+
+在时钟 300 MHz 的限制下（峰值 5.44 × 17% ≈ 0.92 TFLOPS），v4 的 1.5 TFLOPS 超过了降频后的理论峰值，原因是 TFLOPS 计算使用全量 FLOPs（含 causal mask 跳过的部分），实际有效计算量约为标称值的 50%，真实利用率约 `1.5 × 50% / 0.92 ≈ 82%`。
