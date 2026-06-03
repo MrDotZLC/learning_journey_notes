@@ -165,7 +165,7 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 
 ---
 
-**Q8. LLM 推理的 Prefill 阶段和 Decode 阶段分别属于哪种瓶颈？**
+#### **Q8. LLM 推理的 Prefill 阶段和 Decode 阶段分别属于哪种瓶颈？**
 
 | 阶段          | 输入形状                                       | 主要算子        | 瓶颈类型          | 原因                                                        |
 | ----------- | ------------------------------------------ | ----------- | ------------- | --------------------------------------------------------- |
@@ -174,13 +174,13 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 
 **Decode 阶段的 $I$ 估算：** 以 Linear 层为例，权重大小 $W \in \mathbb{R}^{d \times d}$，Batch=1 时：
 
-- FLOPs $= 2d^2$
+- FLOPs $= 2d^2$（$d$ 个元素，每个需要 $d$ 次乘，$d-1$ 次加）
 - Bytes $= 2d^2$（FP16 权重读取）
 - $I = 1 \text{ FLOP/Byte}$，远小于 295 的脊点，深度 Memory-bound。
 
 ---
 
-**Q9. GEMV 与 GEMM 的计算访存比差距？为何 Decode 受限于显存带宽？**
+#### **Q9. GEMV 与 GEMM 的计算访存比差距？为何 Decode 受限于显存带宽？**
 
 **GEMM（$M \times N \times K$，$M, N, K$ 均大）：**
 
