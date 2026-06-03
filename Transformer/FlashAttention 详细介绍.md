@@ -183,7 +183,7 @@ $$ O = \frac{\tilde{O}_T}{l_T} $$
 
 $$ O = \frac{\sum_{(x,V) \in S_{\leq T}} e^{x - m_T} V}{\sum_{j \leq T} e^{x_j - m_T}} = \frac{\sum_{\text{all } j} e^{x_j} V_j}{\sum_{\text{all } j} e^{x_j}} $$
 
-与标准 Softmax Attention 完全等价。$\square$
+与标准 Softmax Attention 完全等价。
 
 ---
 
