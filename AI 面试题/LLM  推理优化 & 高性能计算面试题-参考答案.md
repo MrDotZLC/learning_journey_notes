@@ -230,12 +230,12 @@ __device__ float warp_reduce_max(float val) {
 
 **为什么比 Shared Memory Reduce 更快：**
 
-|对比项|Shared Memory Reduce|Warp Shuffle Reduce|
-|---|---|---|
-|数据路径|Register → Shared Memory → Register|Register → Register（寄存器直传）|
-|同步开销|需要 `__syncthreads()`（Block 级屏障）|仅需 `__syncwarp()`（Warp 级，开销更小）|
-|延迟|~20–30 cycles（Shared Memory 访问）|~1–4 cycles（寄存器级传输）|
-|Bank Conflict 风险|存在|无|
+| 对比项              | Shared Memory Reduce                | Warp Shuffle Reduce            |
+| ---------------- | ----------------------------------- | ------------------------------ |
+| 数据路径             | Register → Shared Memory → Register | Register → Register（寄存器直传）     |
+| 同步开销             | 需要 `__syncthreads()`（Block 级屏障）     | 仅需 `__syncwarp()`（Warp 级，开销更小） |
+| 延迟               | ~20–30 cycles（Shared Memory 访问）     | ~1–4 cycles（寄存器级传输）            |
+| Bank Conflict 风险 | 存在                                  | 无                              |
 
 ---
 

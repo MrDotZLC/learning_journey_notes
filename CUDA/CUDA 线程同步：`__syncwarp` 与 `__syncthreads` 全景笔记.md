@@ -162,6 +162,7 @@ CUDA 提供的 warp-level shuffle 系列函数（`__shfl_sync`、`__shfl_up_sync
 
 ```cpp
 // ✅ __shfl_down_sync 自带同步，无需额外 __syncwarp
+// j = i ^ offset，val = i + val_j
 int val = __shfl_down_sync(0xffffffff, x, offset);
 ```
 
