@@ -314,7 +314,19 @@ $$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m_{\text{tile}} 
 
 ---
 
-#### **Q13. 实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？**
+#### **Q13. 为什么用RMS Norm？实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？**
+
+LayerNorm 每个样本的隐层向量 $\mathbf{x} \in \mathbb{R}^d$ 做：
+
+$$\text{LayerNorm}(\mathbf{x}) = \frac{\mathbf{x} - \mu}{\sqrt{\sigma^2 + \epsilon}} \odot \boldsymbol{\gamma} + \boldsymbol{\beta}$$
+
+其中：
+
+$$\mu = \frac{1}{d}\sum_{i=1}^d x_i, \quad \sigma^2 = \frac{1}{d}\sum_{i=1}^d (x_i - \mu)^2$$
+
+LayerNorm 做了两件事：**平移（减均值）** + **缩放（除标准差）**。
+
+RMSNorm 的出发点：**平移是否必要？** 没必要，2019有学者观察到 LayerNorm的效果主要来自缩放。不计算均值，减少了 2 次遍历，也不必维护补充均值中心化带来的偏移 $β$。
 
 **RMSNorm 公式：**
 
@@ -357,7 +369,7 @@ __global__ void fused_rms_norm(
 
 ---
 
-**Q14. LayerNorm 的 Welford 在线算法如何实现？**
+#### **Q14. LayerNorm 的 Welford 在线算法如何实现？**
 
 **问题：** 计算方差的朴素公式 $\text{Var} = E[x^2] - (E[x])^2$ 在数值上不稳定（两个大数相减）。Welford 算法以单次遍历在线更新均值与方差，数值稳定。
 
