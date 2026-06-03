@@ -239,7 +239,7 @@ __device__ float warp_reduce_max(float val) {
 
 ---
 
-**Q11. 手写 Block-level Reduce，需要处理哪些边界情况？**
+#### **Q11. 手写 Block-level Reduce，需要处理哪些边界情况？**
 
 **实现（以 Sum 为例）：**
 
@@ -277,7 +277,7 @@ __device__ float block_reduce_sum(float val) {
 
 ---
 
-**Q12. 如何实现 numerically stable 的 Online Softmax？推导 3-pass → 2-pass → 1-pass 的演化。**
+#### **Q12. 如何实现 numerically stable 的 Online Softmax？推导 3-pass → 2-pass → 1-pass 的演化。**
 
 **标准 Softmax（不稳定）：**
 
