@@ -204,7 +204,7 @@ $$I_{\text{GEMV}} = \frac{2MK}{2MK + 2K} \approx 1 \text{ FLOP/Byte}$$
 
 ---
 
-**Q10. 手写 Warp-level Reduce（Sum / Max）：使用 `__shfl_xor_sync` 实现，说明为什么比 Shared Memory Reduce 更快？**
+#### **Q10. 手写 Warp-level Reduce（Sum / Max）：使用 `__shfl_xor_sync` 实现，说明为什么比 Shared Memory Reduce 更快？**
 
 **实现：**
 
