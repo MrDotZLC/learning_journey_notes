@@ -194,6 +194,8 @@ $$I_{\text{GEMV}} = \frac{2MK}{2MK + 2K} \approx 1 \text{ FLOP/Byte}$$
 
 **结论：** Decode 阶段每步需从 HBM 读取模型**全部权重**（数十 GB），而计算量仅为读取量的 $\sim$ 1 FLOP/Byte。H100 HBM 带宽 3.35 TB/s，读取 70B FP16 模型权重（140 GB）需要 $\sim$ 42 ms，这直接决定了单步 Decode 的延迟下界。**增大 Batch Size 是提升 GEMV 计算密度、从 Memory-bound 向 Compute-bound 迁移的核心手段。**
 
+---
+
 ## 第 2 章·参考答案：CUDA Kernel 开发与优化
 
 ---
