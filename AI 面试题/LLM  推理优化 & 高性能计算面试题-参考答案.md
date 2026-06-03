@@ -6,7 +6,9 @@
 
 ---
 
-**Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)、[GPU Warp详解](../CUDA/GPU%20Warp详解.md)**、[GPU 维度解析](../CUDA/GPU%20维度解析.md)
+#### **Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？
+
+[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)、[GPU Warp详解](../CUDA/GPU%20Warp详解.md)**、[GPU 维度解析](../CUDA/GPU%20维度解析.md)
 
 **SM 核心组件（以 H100 SXM 为例）：**
 
@@ -32,7 +34,9 @@ Shared Memory 与 L1 物理上合并。
 
 ---
 
-**Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)**
+#### **Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？
+
+[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)**
 
 |层次|带宽（H100 SXM）|访问延迟|作用域|
 |---|---|---|---|
@@ -47,7 +51,7 @@ Shared Memory 与 L1 物理上合并。
 
 ---
 
-**Q3. 什么是 Memory Coalescing？为什么非合并访问会严重降低性能？**
+#### **Q3. 什么是 Memory Coalescing？为什么非合并访问会严重降低性能？**
 
 **定义：** 同一 Warp 的 32 个线程若访问**连续对齐的内存地址**，硬件将其合并为 1 次（或少数几次）128 字节的内存事务；否则每个线程产生独立事务，最坏情况触发 32 次事务。
 
