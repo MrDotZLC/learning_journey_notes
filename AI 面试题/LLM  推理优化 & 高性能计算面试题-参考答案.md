@@ -314,7 +314,7 @@ $$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m_{\text{tile}} 
 
 ---
 
-**Q13. 实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？**
+#### **Q13. 实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？**
 
 **RMSNorm 公式：**
 
