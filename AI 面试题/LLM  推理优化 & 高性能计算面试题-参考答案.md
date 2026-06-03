@@ -120,7 +120,7 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 
 ---
 
-**Q6. Warp Divergence 对性能的影响及规避方法？
+#### **Q6. Warp Divergence 对性能的影响及规避方法？
 
 **原理：** SIMT 模型要求同 Warp 的 32 个线程执行相同指令。若线程因 `if/else`、`while` 等分支走向不同路径，GPU 将**串行执行所有分支**，非活跃线程被掩码屏蔽（Predicate Off），等待。
 
@@ -129,9 +129,9 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 **规避策略：**
 
 1. **对齐分支到 Warp 边界**：保证同一 Warp 的 32 个线程走相同分支（按 Warp ID 而非 Thread ID 分支）。
-2. **使用 Warp 级原语替代分支**：`__ballot_sync`、`__any_sync`、`__all_sync` 在 Warp 内进行条件聚合，Warp 级原语的耗时远低于分支判断。
+2. **使用 Warp 级原语替代分支**：`__ballot_sync(返回active mask)`、`__any_sync`、`__all_sync` 在 Warp 内进行条件聚合，Warp 级原语的耗时远低于分支判断。
 3. **展开循环，消除边界条件分支**：`#pragma unroll`。
-4. **避免 Warp 内 Dynamic 索引计算差异过大**，尤其在 Reduction 时注意 tail 处理。
+4. **避免 Warp 内 Dynamic 索引计算差异过大**，尤其在 Reduction 时注意 tail 处理（不是32的倍数）。
 
 ---
 
@@ -139,7 +139,7 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 
 ---
 
-**Q7. 什么是 Arithmetic Intensity？如何用 Roofline Model 判断瓶颈？**
+#### **Q7. 什么是 Arithmetic Intensity？如何用 Roofline Model 判断瓶颈？**
 
 **Arithmetic Intensity（算术强度）定义：**
 
