@@ -83,7 +83,7 @@ int val = A[threadIdx.x * 32];
 
 ---
 
-**Q4. Shared Memory 的 Bank Conflict 是什么？如何消除？**
+#### **Q4. Shared Memory 的 Bank Conflict 是什么？如何消除？**
 
 **Bank 结构：** Shared Memory 被划分为 **32 个 Bank**，每个 Bank 宽度 4 字节（可配置为 8 字节）。同一 Warp 内多个线程若访问**同一 Bank 的不同地址**，产生 Bank Conflict，访问被串行化。
 
