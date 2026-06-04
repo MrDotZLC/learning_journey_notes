@@ -119,7 +119,7 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 
 ---
 
-#### **Q6. Warp Divergence 对性能的影响及规避方法？
+#### Q6. Warp Divergence 对性能的影响及规避方法？
 
 **原理：** SIMT 模型要求同 Warp 的 32 个线程执行相同指令。若线程因 `if/else`、`while` 等分支走向不同路径，GPU 将**串行执行所有分支**，非活跃线程被掩码屏蔽（Predicate Off），等待。
 
