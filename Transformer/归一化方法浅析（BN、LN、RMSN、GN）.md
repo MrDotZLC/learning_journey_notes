@@ -184,11 +184,13 @@ Ba et al.（2016）提出，专门解决 BN 不适用于 RNN 的问题——归�
 
 ### 3.2 Pre-LN vs. Post-LN
 
-原始 Transformer（Vaswani 2017）使用 **Post-LN**（残差加法之后归一化），梯度流经 LN 层，深层训练不稳定，需要精心调整 Warmup。
+原始 Transformer（Vaswani 2017）使用 **Post-LN**（残差加法之后归一化），梯度流经 LN 层，即残差被包含在 LN中，深层训练不稳定，需要精心调整 Warmup。
+
+$$ \text{output} = \text{LN}(x + f_l(x)) $$
 
 **Pre-LN**（Wang et al., 2019）将 LN 放在子层输入前：
 
-$$ \text{output} = x + \text{SubLayer}(\text{LN}(x)) $$
+$$ \text{output} = x + f_l(\text{LN}(x)) $$
 
 梯度绕过 LN 直接流向残差路径，训练更稳定，无需 Warmup。GPT-2、LLaMA 系列均采用 Pre-LN。
 ![](assets/Gemini_Generated_Image_upm67lupm67lupm6.png)
