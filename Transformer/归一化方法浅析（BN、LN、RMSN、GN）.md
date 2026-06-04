@@ -304,7 +304,7 @@ $$ M_k = M_{k-1} + \frac{\delta_1}{k} \qquad \text{（更新均值）} $$
 
 $$ \delta_2 = x_k - M_k \qquad \text{（新元素与新均值之差）} $$
 
-$$ S_k = S_{k-1} + \delta_1 \cdot \delta_2 \qquad \text{（更新平方偏差和）} $$
+$$ S_k = \sum_{i=1}^{k}(x_i-M_k)^2 = \sum_{i=1}^{k-1}\!\left[(x_i-M_{k-1})+(M_{k-1}-M_k)\right]^2+(x_k-M_k)^2 = S_{k-1}+\frac{(k-1)\delta_1^2}{k^2}\cdot k = S_{k-1}+\delta_1\delta_2 \qquad \text{（更新平方偏差和）} $$
 
 **最终方差**（处理完所有 $d$ 个元素后）：
 
