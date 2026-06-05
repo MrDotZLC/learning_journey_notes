@@ -693,7 +693,7 @@ CUTLASS 编译器将 EVT 展开为 Epilogue 代码，直接操作累加器寄存
 
 ---
 
-**Q20. Kernel Fusion 的本质收益？FlashAttention 的 Fusion 策略？**
+#### **Q23. Kernel Fusion 的本质收益？FlashAttention 的 Fusion 策略？**
 
 **本质收益：消除中间张量的 HBM Round-trip。**
 
@@ -714,7 +714,7 @@ Q, K → [HBM写] S = QK^T → [HBM读] P = Softmax(S) → [HBM写] → [HBM读]
 
 ---
 
-**Q21. 什么样的算子适合 Fusion？什么情况下 Fusion 有害？**
+#### **Q24. 什么样的算子适合 Fusion？什么情况下 Fusion 有害？**
 
 **适合 Fusion 的条件：**
 
@@ -733,7 +733,7 @@ Q, K → [HBM写] S = QK^T → [HBM读] P = Softmax(S) → [HBM写] → [HBM读]
 
 ---
 
-**Q22. CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？**
+#### **Q25. CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？**
 
 **Kernel Launch Overhead 来源：**
 
@@ -772,7 +772,7 @@ cudaGraphLaunch(graphExec, stream);
 
 ---
 
-**Q_M. 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？**
+#### **Q26. 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？**
 
 **普通 Kernel 的执行模型：**
 
