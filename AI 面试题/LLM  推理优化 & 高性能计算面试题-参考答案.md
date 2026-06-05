@@ -377,7 +377,11 @@ __global__ void fused_rms_norm(
 
 $$\delta_1 = x_n - \mu_{n-1}$$ $$\mu_n = \mu_{n-1} + \frac{\delta_1}{n}$$ $$\delta_2 = x_n - \mu_n$$ $$M_n = M_{n-1} + \delta_1 \cdot \delta_2 \quad \Rightarrow \quad \text{Var}_n = \frac{M_n}{n}$$
 
-**并行 Welford Merge（两个分块 $(n_a, \mu_a, M_a)$ 和 $(n_b, \mu_b, M_b)$ 合并）：**
+**并行 Welford M$$n = n_a + n_b, \quad \delta = \mu_b - \mu_a$$
+
+$$\mu = \mu_a + \delta \cdot \frac{n_b}{n}$$
+
+$$M = M_a + M_b + \delta^2 \cdot \frac{n_a \cdot n_b}{n}$$erge（两个分块 $(n_a, \mu_a, M_a)$ 和 $(n_b, \mu_b, M_b)$ 合并）：**
 
 $$n = n_a + n_b, \quad \delta = \mu_b - \mu_a$$ $$\mu = \mu_a + \delta \cdot \frac{n_b}{n}$$ $$M = M_a + M_b + \delta^2 \cdot \frac{n_a \cdot n_b}{n}$$
 

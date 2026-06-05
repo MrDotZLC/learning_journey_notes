@@ -289,7 +289,7 @@ $$ \sigma^2 = \frac{1}{d}\sum_{j=1}^{d} x_j^2 - \mu^2 = \underbrace{\frac{1}{d}\
 > PyTorch commit [963c983](https://github.com/pytorch/pytorch/commit/963c9833) 正是因为此原因，将 LayerNorm 和 GroupNorm 的 CPU kernel 从朴素算法改为 Welford 算法（2021）。
 
 #### 3.5.2 Welford 算法推导
-
+##### 3.5.2.1 Welford 递推推导
 Welford（1962）提出的在线算法，维护三个状态量：当前样本数 $k$、运行均值 $M_k$、运行平方偏差和 $S_k$（注意：$S_k = \sum_{i=1}^k (x_i - M_k)^2$，而非方差本身）。
 
 **初始化**：
@@ -304,13 +304,21 @@ $$ M_k = M_{k-1} + \frac{\delta_1}{k} \qquad \text{（更新均值）} $$
 
 $$ \delta_2 = x_k - M_k \qquad \text{（新元素与新均值之差）} $$
 
-$$ S_k = \sum_{i=1}^{k}(x_i-M_k)^2 = \sum_{i=1}^{k-1}\!\left[(x_i-M_{k-1})+(M_{k-1}-M_k)\right]^2+(x_k-M_k)^2 = S_{k-1}+\frac{(k-1)\delta_1^2}{k^2}\cdot k = S_{k-1}+\delta_1\delta_2 \qquad \text{（更新平方偏差和）} $$
+$$ 
+\begin{aligned}S_k &= \sum_{i=1}^{k}(x_i-M_k)^2 \\ &=
+\sum_{i=1}^{k-1}\!\left[(x_i-M_{k-1})+(M_{k-1}-M_k)\right]^2+(x_k-M_k)^2 \\ &= S_{k-1}+\frac{(k-1)\delta_1^2}{k^2}\cdot k 
+\\ &= S_{k-1}+\delta_1\delta_2 \qquad \text{（更新平方偏差和）}
+\end{aligned} $$
 
 **最终方差**（处理完所有 $d$ 个元素后）：
 
 $$ \sigma^2 = \frac{S_d}{d}, \qquad \bar{\sigma} = \sqrt{\sigma^2 + \epsilon} $$
 
 **数值稳定性的关键**：$\delta_1 = x_k - M_{k-1}$ 和 $\delta_2 = x_k - M_k$ 始终是**当前值与近似均值之差**，两者量级相当（均在 $\sigma$ 量级），乘积 $\delta_1 \cdot \delta_2$ 不涉及大数相减，彻底消除灾难性抵消。
+
+##### 3.5.3.2 并行 Welford Merge（两个分块 $(d_a, M_a, S_a)$ 和 $(d_b, M_b, S_b)$ 合并）
+$$d = d_a + d_b, \quad \delta = M_b - M_a$$ $$M = M_a + \delta \cdot \frac{M_b}{d}$$ $$ S_{AB} = \sum_{i\in A}(x_i-M_{AB})^2+\sum_{i\in B}(x_i-M_{AB})^2 = S_A+n_A(M_A-M_{AB})^2+S_B+n_B(M_B-M_{AB})^2 = S_A+S_B+\frac{n_A n_B}{n_A+n_B}\delta^2 $$
+
 
 #### 3.5.3 数值例子对比
 
