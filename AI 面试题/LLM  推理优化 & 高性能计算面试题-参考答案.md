@@ -6,7 +6,7 @@
 
 ---
 
-#### **Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？
+#### **Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？**
 
 [🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)、[GPU Warp详解](../CUDA/GPU%20Warp详解.md)**、[GPU 维度解析](../CUDA/GPU%20维度解析.md)
 
@@ -34,7 +34,7 @@ Shared Memory 与 L1 物理上合并。
 
 ---
 
-#### **Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？
+#### **Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？**
 
 [🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)**
 
@@ -119,7 +119,7 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 
 ---
 
-#### Q6. Warp Divergence 对性能的影响及规避方法？
+#### **Q6. Warp Divergence 对性能的影响及规避方法？**
 
 **原理：** SIMT 模型要求同 Warp 的 32 个线程执行相同指令。若线程因 `if/else`、`while` 等分支走向不同路径，GPU 将**串行执行所有分支**，非活跃线程被掩码屏蔽（Predicate Off），等待。
 
@@ -389,7 +389,7 @@ $$n = n_a + n_b, \quad \delta = \mu_b - \mu_a$$ $$\mu = \mu_a + \delta \cdot \fr
 
 ---
 
-#### Q15. Warp Reduce 的 mask 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？
+#### **Q15. Warp Reduce 的 mask 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？**
 
 **`mask` 参数的语义：**
 
@@ -480,7 +480,7 @@ if (threadIdx.x < N)
 
 ---
 
-#### Q17. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？
+#### **Q17. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？**
 
 **Double Buffering 原理：**
 
@@ -513,7 +513,7 @@ __pipeline_wait_prior(0); // 等待最近一次提交完成
 
 ---
 
-#### Q18. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？
+#### **Q18. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？**
 
 **三代 API 对比：**
 
@@ -540,7 +540,7 @@ __pipeline_wait_prior(0); // 等待最近一次提交完成
 
 ---
 
-**Q18. cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？**
+#### Q19. **cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？**
 
 | 方案            | 适用场景                        | 优势                      | 劣势                |
 | ------------- | --------------------------- | ----------------------- | ----------------- |
@@ -556,7 +556,7 @@ __pipeline_wait_prior(0); // 等待最近一次提交完成
 
 ---
 
-**Q19. GEMM-SplitK 分解的适用场景？**
+#### **Q20. GEMM-SplitK 分解的适用场景？**
 
 **问题背景：** Decode 阶段 Batch Size 小（$M = 1 \sim 32$），GEMM 形状为"瘦高矩阵"（$M \ll K$），单个 CTA（线程块）无法充分占满 GPU 的所有 SM，导致低 SM 利用率。
 
