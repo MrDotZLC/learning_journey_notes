@@ -480,101 +480,11 @@ if (threadIdx.x < N)
 
 ---
 
-#### **Q17. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？**
-
-**Double Buffering 原理：**
-
-将 Shared Memory 分为两个 Buffer（Ping / Pong）。在计算当前 Tile 的同时，**异步预取下一个 Tile**，使计算与数据搬运流水并行，消除等待。
-
-```
-Buffer A: [Tile 0 数据]  →  计算 Tile 0
-Buffer B:               →  异步加载 Tile 1
-
-下一轮：
-Buffer A:               →  异步加载 Tile 2
-Buffer B: [Tile 1 数据]  →  计算 Tile 1
-```
-
-**`cp.async`（Ampere+）：**
-
-绕过寄存器，直接将 Global Memory 数据异步搬运至 Shared Memory，不阻塞 CUDA Core 执行：
-
-```cpp
-// 异步将 Global Memory → Shared Memory，不阻塞
-__pipeline_memcpy_async(smem_dst, gmem_src, sizeof(float4));
-__pipeline_commit();      // 提交异步操作
-// ... 执行当前 Tile 计算 ...
-__pipeline_wait_prior(0); // 等待最近一次提交完成
-```
-
-**TMA（Tensor Memory Accelerator，Hopper+）：**
-
-比 `cp.async` 更高级的异步引擎，支持多维 Tensor 的批量搬运，完全由硬件控制地址生成，进一步解放 CUDA Core 的地址计算负担（见 Q122）。
-
----
-
-#### **Q18. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？**
-
-**三代 API 对比：**
-
-|API|架构|粒度|精度支持|调用者|
-|---|---|---|---|---|
-|WMMA（`nvcuda::wmma`）|Volta+|Warp 级（16×16×16）|FP16, BF16, INT8|C++ Fragment API|
-|MMA PTX（`mma.sync`）|Ampere+|Warp 级（16×8×16 等）|FP16, BF16, FP8, INT8|PTX 内联汇编|
-|WGMMA PTX（`wgmma.mma_async`）|Hopper|**Warpgroup 级**（128 线程，64×8×16 等）|FP16, BF16, FP8|PTX 内联汇编|
-
-**Ampere MMA vs Hopper WGMMA 的关键区别：**
-
-|特性|Ampere MMA|Hopper WGMMA|
-|---|---|---|
-|执行粒度|1 Warp（32 线程）|1 Warpgroup（4 Warp = 128 线程）|
-|数据来源|寄存器 → 寄存器|**Shared Memory → 寄存器**（异步）|
-|与 TMA 配合|不直接支持|原生支持，形成 Produce-Consume 流水|
-|峰值利用率|中等|更高（配合 Warp Specialization）|
-
-**使用限制：**
-
-- 矩阵形状必须满足硬件支持的固定尺寸（如 16×8×16）。
-- 寄存器消耗大，过多 MMA 操作易导致 Register Spill 到 Local Memory（性能骤降）。
-- WGMMA 要求 Shared Memory 地址满足特定对齐与 Swizzle 要求。
-
----
-
-#### Q19. **cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？**
-
-| 方案            | 适用场景                        | 优势                      | 劣势                |
-| ------------- | --------------------------- | ----------------------- | ----------------- |
-| **cuBLAS**    | 标准方形 GEMM，Batch GEMM        | 开箱即用，NVIDIA 深度优化，峰值性能   | 不可定制，无法 Fuse 其他算子 |
-| **CUTLASS**   | 需要定制 Epilogue、Fuse 算子、非标准形状 | 高度可组合，支持 Sparse/MoE，模板化 | 编译慢，学习曲线陡峭        |
-| **手写 Kernel** | 特殊访存模式、极端优化需求               | 完全控制                    | 开发成本极高，维护难        |
-| **Triton**    | 快速验证、跨硬件                    | Python 语法，自动调优          | 极限性能略逊于手写 CUDA    |
-
-**何时必须手写：**
-
-- 算子融合逻辑极为复杂，CUTLASS Epilogue 无法表达（如 FlashAttention 的 Online Softmax 更新）。
-- 访存模式非常规（如 PagedAttention 的非连续 KV Block 读取）。
-
----
-
-#### **Q20. GEMM-SplitK 分解的适用场景？**
-
-**问题背景：** Decode 阶段 Batch Size 小（$M = 1 \sim 32$），GEMM 形状为"瘦高矩阵"（$M \ll K$），单个 CTA（线程块）无法充分占满 GPU 的所有 SM，导致低 SM 利用率。
-
-**SplitK 原理：** 将 $K$ 维度切分为 $S$ 份，每份由独立 CTA 计算部分和，最终通过 Reduction 合并：
-
-$$C = \sum_{s=0}^{S-1} A[:, s \cdot K/S : (s+1) \cdot K/S] \times B[s \cdot K/S : (s+1) \cdot K/S, :]$$
-
-- **收益**：CTA 数量从 $\lceil M/T_M \rceil \times \lceil N/T_N \rceil$ 扩大为 $S$ 倍，SM 利用率显著提升。
-- **代价**：额外的 Reduction 步骤（通常用原子操作或独立 Reduction Kernel），以及 $S$ 倍的 $B$ 矩阵读取量。
-- **典型值**：$S = 8 \sim 64$，在 Batch=1 的 Decode 场景可提升吞吐 2×–4×。
-
----
-
-**Q_K. Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？**
+#### **Q17. Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？**
 
 **问题背景：**
 
-Q15 的 Tiled GEMM 将数据复用层次提升到 Shared Memory 级别。但 Shared Memory 延迟仍有 ~20 cycles。Register Tiling 在此基础上再进一步，让每个线程负责计算 $T_m \times T_n$ 个输出元素（而非 1 个），将 Shared Memory 读取的数据**在寄存器中直接复用**，消除重复的 Shared Memory 读取。
+Q16 的 Tiled GEMM 将数据复用层次提升到 Shared Memory 级别。但 Shared Memory 延迟仍有 ~20 cycles。Register Tiling 在此基础上再进一步，让每个线程负责计算 $T_m \times T_n$ 个输出元素（而非 1 个），将 Shared Memory 读取的数据**在寄存器中直接复用**，消除重复的 Shared Memory 读取。
 
 **核心思想：外积（Outer Product）累加**
 
@@ -625,9 +535,100 @@ CUTLASS 的计算层次为：Grid → CTA（协程组，对应Thread Block）→
 ![](assets/Pasted%20image%2020260320231850.png)
 >【图 1】三级 Tiling 层次图：CTA tile (128×128) → Warp tile (64×64) → Thread tile (8×8)，每一层的数据驻留位置分别为 HBM / SMEM / Register，对应 CUTLASS 的 BlockShape / WarpShape / InstructionShape
 
+
 ---
 
-**Q_L. 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？**
+#### **Q18. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？**
+
+**Double Buffering 原理：**
+
+将 Shared Memory 分为两个 Buffer（Ping / Pong）。在计算当前 Tile 的同时，**异步预取下一个 Tile**，使计算与数据搬运流水并行，消除等待。
+
+```
+Buffer A: [Tile 0 数据]  →  计算 Tile 0
+Buffer B:               →  异步加载 Tile 1
+
+下一轮：
+Buffer A:               →  异步加载 Tile 2
+Buffer B: [Tile 1 数据]  →  计算 Tile 1
+```
+
+**`cp.async`（Ampere+）：**
+
+绕过寄存器，直接将 Global Memory 数据异步搬运至 Shared Memory，不阻塞 CUDA Core 执行：
+
+```cpp
+// 异步将 Global Memory → Shared Memory，不阻塞
+__pipeline_memcpy_async(smem_dst, gmem_src, sizeof(float4));
+__pipeline_commit();      // 提交异步操作
+// ... 执行当前 Tile 计算 ...
+__pipeline_wait_prior(0); // 等待最近一次提交完成
+```
+
+**TMA（Tensor Memory Accelerator，Hopper+）：**
+
+比 `cp.async` 更高级的异步引擎，支持多维 Tensor 的批量搬运，完全由硬件控制地址生成，进一步解放 CUDA Core 的地址计算负担（见 Q122）。
+
+---
+
+#### **Q19. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？**
+
+**三代 API 对比：**
+
+|API|架构|粒度|精度支持|调用者|
+|---|---|---|---|---|
+|WMMA（`nvcuda::wmma`）|Volta+|Warp 级（16×16×16）|FP16, BF16, INT8|C++ Fragment API|
+|MMA PTX（`mma.sync`）|Ampere+|Warp 级（16×8×16 等）|FP16, BF16, FP8, INT8|PTX 内联汇编|
+|WGMMA PTX（`wgmma.mma_async`）|Hopper|**Warpgroup 级**（128 线程，64×8×16 等）|FP16, BF16, FP8|PTX 内联汇编|
+
+**Ampere MMA vs Hopper WGMMA 的关键区别：**
+
+|特性|Ampere MMA|Hopper WGMMA|
+|---|---|---|
+|执行粒度|1 Warp（32 线程）|1 Warpgroup（4 Warp = 128 线程）|
+|数据来源|寄存器 → 寄存器|**Shared Memory → 寄存器**（异步）|
+|与 TMA 配合|不直接支持|原生支持，形成 Produce-Consume 流水|
+|峰值利用率|中等|更高（配合 Warp Specialization）|
+
+**使用限制：**
+
+- 矩阵形状必须满足硬件支持的固定尺寸（如 16×8×16）。
+- 寄存器消耗大，过多 MMA 操作易导致 Register Spill 到 Local Memory（性能骤降）。
+- WGMMA 要求 Shared Memory 地址满足特定对齐与 Swizzle 要求。
+
+---
+
+#### Q20. **cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？**
+
+| 方案            | 适用场景                        | 优势                      | 劣势                |
+| ------------- | --------------------------- | ----------------------- | ----------------- |
+| **cuBLAS**    | 标准方形 GEMM，Batch GEMM        | 开箱即用，NVIDIA 深度优化，峰值性能   | 不可定制，无法 Fuse 其他算子 |
+| **CUTLASS**   | 需要定制 Epilogue、Fuse 算子、非标准形状 | 高度可组合，支持 Sparse/MoE，模板化 | 编译慢，学习曲线陡峭        |
+| **手写 Kernel** | 特殊访存模式、极端优化需求               | 完全控制                    | 开发成本极高，维护难        |
+| **Triton**    | 快速验证、跨硬件                    | Python 语法，自动调优          | 极限性能略逊于手写 CUDA    |
+
+**何时必须手写：**
+
+- 算子融合逻辑极为复杂，CUTLASS Epilogue 无法表达（如 FlashAttention 的 Online Softmax 更新）。
+- 访存模式非常规（如 PagedAttention 的非连续 KV Block 读取）。
+
+---
+
+#### **Q21. GEMM-SplitK 分解的适用场景？**
+
+**问题背景：** Decode 阶段 Batch Size 小（$M = 1 \sim 32$），GEMM 形状为"瘦高矩阵"（$M \ll K$），单个 CTA（线程块）无法充分占满 GPU 的所有 SM，导致低 SM 利用率。
+
+**SplitK 原理：** 将 $K$ 维度切分为 $S$ 份，每份由独立 CTA 计算部分和，最终通过 Reduction 合并：
+
+$$C = \sum_{s=0}^{S-1} A[:, s \cdot K/S : (s+1) \cdot K/S] \times B[s \cdot K/S : (s+1) \cdot K/S, :]$$
+
+- **收益**：CTA 数量从 $\lceil M/T_M \rceil \times \lceil N/T_N \rceil$ 扩大为 $S$ 倍，SM 利用率显著提升。
+- **代价**：额外的 Reduction 步骤（通常用原子操作或独立 Reduction Kernel），以及 $S$ 倍的 $B$ 矩阵读取量。
+- **典型值**：$S = 8 \sim 64$，在 Batch=1 的 Decode 场景可提升吞吐 2×–4×。
+
+---
+
+#### **Q22. 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？**
 
 **问题动机：**
 
