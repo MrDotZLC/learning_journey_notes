@@ -305,7 +305,8 @@ $$ M_k = M_{k-1} + \frac{\delta_1}{k} \qquad \text{（更新均值）} $$
 $$ \delta_2 = x_k - M_k \qquad \text{（新元素与新均值之差）} $$
 
 $$ 
-\begin{aligned}S_k &= \sum_{i=1}^{k}(x_i-M_k)^2 \\ &=
+\begin{aligned}
+S_k &= \sum_{i=1}^{k}(x_i-M_k)^2 \\ &=
 \sum_{i=1}^{k-1}\!\left[(x_i-M_{k-1})+(M_{k-1}-M_k)\right]^2+(x_k-M_k)^2 \\ &= S_{k-1}+\frac{(k-1)\delta_1^2}{k^2}\cdot k 
 \\ &= S_{k-1}+\delta_1\delta_2 \qquad \text{（更新平方偏差和）}
 \end{aligned} $$
@@ -316,9 +317,15 @@ $$ \sigma^2 = \frac{S_d}{d}, \qquad \bar{\sigma} = \sqrt{\sigma^2 + \epsilon} $$
 
 **数值稳定性的关键**：$\delta_1 = x_k - M_{k-1}$ 和 $\delta_2 = x_k - M_k$ 始终是**当前值与近似均值之差**，两者量级相当（均在 $\sigma$ 量级），乘积 $\delta_1 \cdot \delta_2$ 不涉及大数相减，彻底消除灾难性抵消。
 
-##### 3.5.3.2 并行 Welford Merge（两个分块 $(d_a, M_a, S_a)$ 和 $(d_b, M_b, S_b)$ 合并）
-$$d = d_a + d_b, \quad \delta = M_b - M_a$$ $$M = M_a + \delta \cdot \frac{M_b}{d}$$ $$ S_{AB} = \sum_{i\in A}(x_i-M_{AB})^2+\sum_{i\in B}(x_i-M_{AB})^2 = S_A+n_A(M_A-M_{AB})^2+S_B+n_B(M_B-M_{AB})^2 = S_A+S_B+\frac{n_A n_B}{n_A+n_B}\delta^2 $$
+##### 3.5.3.2 并行 Welford Merge
 
+两个分块 $(d_a, M_a, S_a)$ 和 $(d_b, M_b, S_b)$ 合并
+$$d = d_a + d_b, \quad \delta = M_b - M_a$$ $$M = M_a + \delta \cdot \frac{M_b}{d}$$ $$
+\begin{aligned}
+S_{AB} &= \sum_{i\in A}(x_i-M_{AB})^2+\sum_{i\in B}(x_i-M_{AB})^2 \\
+&= S_A+d_A(M_A-M_{AB})^2+S_B+d_B(M_B-M_{AB})^2 \\
+&= S_A+S_B+\frac{d_A d_B}{d_A+d_B}\delta^2
+\end{aligned}$$
 
 #### 3.5.3 数值例子对比
 

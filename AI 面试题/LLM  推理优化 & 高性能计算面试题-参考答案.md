@@ -389,7 +389,7 @@ $$n = n_a + n_b, \quad \delta = \mu_b - \mu_a$$ $$\mu = \mu_a + \delta \cdot \fr
 
 ---
 
-**Q_J. Warp Reduce 的 `mask` 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？**
+#### Q_15. Warp Reduce 的 mask 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？
 
 **`mask` 参数的语义：**
 
