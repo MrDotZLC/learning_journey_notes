@@ -480,7 +480,7 @@ if (threadIdx.x < N)
 
 ---
 
-**Q16. 什么是 Double Buffering？如何用 `cp.async` / TMA 实现异步预取？**
+#### Q17. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？
 
 **Double Buffering 原理：**
 
@@ -513,7 +513,7 @@ __pipeline_wait_prior(0); // 等待最近一次提交完成
 
 ---
 
-**Q17. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？**
+#### Q18. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？
 
 **三代 API 对比：**
 
