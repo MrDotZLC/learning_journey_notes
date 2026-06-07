@@ -535,7 +535,6 @@ CUTLASS 的计算层次为：Grid → CTA（协程组，对应Thread Block）→
 ![](assets/Pasted%20image%2020260320231850.png)
 >【图 1】三级 Tiling 层次图：CTA tile (128×128) → Warp tile (64×64) → Thread tile (8×8)，每一层的数据驻留位置分别为 HBM / SMEM / Register，对应 CUTLASS 的 BlockShape / WarpShape / InstructionShape
 
-
 ---
 
 #### **Q18. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？**
