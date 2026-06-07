@@ -310,7 +310,7 @@ $$O \leftarrow O \cdot e^{m_{\text{old}} - m_{\text{new}}}$$
 $$m^{\text{new}} = \max(m^{\text{old}}, m_{\text{tile}})$$
 $$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m_{\text{tile}} - m^{\text{new}}} \cdot \tilde{O}_{\text{tile}}$$
 
-此技巧使 Attention 的 Softmax 可以在单次遍历 KV Tile 时完成，无需将整个序列载入 SRAM，是 FlashAttention 实现 $O(N)$ 显存复杂度的关键（见 Q23）。
+此技巧使 Attention 的 Softmax 可以在单次遍历 KV Tile 时完成，无需将整个序列载入 SRAM，是 FlashAttention 实现 $O(N)$ 显存复杂度的关键（见 Q27）。
 
 ---
 
@@ -844,7 +844,7 @@ Stream-K 是 CUTLASS 引入的调度策略，本质是在 Persistent Kernel 框�
 
 ---
 
-**Q23. 标准 Attention 的内存复杂度为 $O(N^2)$，FlashAttention 如何将其降为 $O(N)$ SRAM 占用？核心思想（Tiling + Online Softmax）？**
+#### **Q27. 标准 Attention 的内存复杂度为 $O(N^2)$，FlashAttention 如何将其降为 $O(N)$ SRAM 占用？核心思想（Tiling + Online Softmax）？**
 
 **标准 Attention 的问题：**
 
@@ -887,7 +887,7 @@ $$O_j = \text{diag}(e^{m_{j-1} - m_j}) \cdot O_{j-1} + e^{\tilde{S}_j - m_j} \cd
 
 ---
 
-**Q24. FlashAttention-2 相比 FA-1 的改进点？**
+#### **Q28. FlashAttention-2 相比 FA-1 的改进点？**
 
 FA-1 存在两个主要低效问题，FA-2 针对性解决：
 
