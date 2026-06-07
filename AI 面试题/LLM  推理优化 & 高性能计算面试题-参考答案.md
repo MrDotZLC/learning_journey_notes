@@ -817,7 +817,7 @@ persistent_gemm_kernel<<<N_SM, block_size>>>(queue, ...);
 
 **Stream-K：Persistent Kernel 在 GEMM SplitK 上的演进**
 
-Stream-K 是 CUTLASS 引入的调度策略，本质是在 Persistent Kernel 框架下对 $K$ 维度的动态分割：SM 不再按固定 Tile 边界分工，而是以"流"的方式连续消费 $K$ 方向的工作，彻底消除 Wave Quantization，在 Decode 阶段的小 Batch GEMM（瘦矩阵）上比 SplitK + Atomic 的效果更均衡。
+Stream-K 是 CUTLASS 引入的调度策略，本质是在 Persistent Kernel 框架下对 $K$ 维度的动态分割：SM 不再按固定 Tile 边界分工，而是以"流"的 方式连续消费 $K$ 方向的工作，彻底消除 Wave Quantization，在 Decode 阶段的小 Batch GEMM（瘦矩阵）上比 SplitK + Atomic 的效果更均衡。
 
 **在 LLM 推理中的应用场景：**
 
