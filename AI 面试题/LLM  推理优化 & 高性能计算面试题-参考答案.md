@@ -946,7 +946,7 @@ FA-3 将 Softmax（非 GEMM 操作）与下一轮 WGMMA 重叠执行，进一步
 
 ---
 
-**Q26. 为什么 Decode 阶段的 Attention 退化为 GEMV 问题？此时 FA 的收益是否仍然显著？**
+#### **Q30. 为什么 Decode 阶段的 Attention 退化为 GEMV 问题？此时 FA 的收益是否仍然显著？**
 
 **退化原因：**
 
@@ -960,16 +960,16 @@ $$O = \text{Softmax}(\text{score}) \cdot V \in \mathbb{R}^{1 \times d} \quad \Ri
 
 **此时 FA 的收益分析：**
 
-|指标|Prefill（$Q \in \mathbb{R}^{N \times d}$）|Decode（$Q \in \mathbb{R}^{1 \times d}$）|
-|---|---|---|
-|中间矩阵 $S$ 大小|$N \times S$（可能很大）|$1 \times S$（仅一行，很小）|
-|HBM 节省|显著（$O(N \cdot S)$ → $O(N \cdot d)$）|有限（$S$ 已很小）|
-|瓶颈|Memory-bound（读 $K, V$）|Memory-bound（读 $K, V$）|
-|FA 收益|**显著**（IO 减少为主）|**有限**（主要收益是数值稳定性，IO 节省较小）|
+| 指标          | Prefill（$Q \in \mathbb{R}^{N \times d}$） | Decode（$Q \in \mathbb{R}^{1 \times d}$） |
+| ----------- | ---------------------------------------- | --------------------------------------- |
+| 中间矩阵 $S$ 大小 | $N \times S$（可能很大）                       | $1 \times S$（仅一行，很小）                    |
+| HBM 节省      | 显著（$O(N \cdot S)$ → $O(N \cdot d)$）      | 有限（$S$ 已很小）                             |
+| 瓶颈          | Memory-bound（读 $K, V$）                   | Memory-bound（读 $K, V$）                  |
+| FA 收益       | **显著**（IO 减少为主）                          | **有限**（主要收益是数值稳定性，IO 节省较小）              |
 
 **Decode 阶段的主要优化方向**不是 FA，而是：
 
-- **GQA / MQA**：减少 KV Cache 大小（见 Q27）。
+- **GQA / MQA**：减少 KV Cache 大小（见 Q31）。
 - **PagedAttention**：减少 KV Cache 碎片（见 Q32）。
 - **KV Cache 量化**：降低 HBM 读取量（见 Q36）。
 - **Fused Decode Attention Kernel**：如 vLLM 的 `paged_attention_v2`，专为非连续 KV 访问优化。
@@ -980,15 +980,15 @@ $$O = \text{Softmax}(\text{score}) \cdot V \in \mathbb{R}^{1 \times d} \quad \Ri
 
 ---
 
-**Q27. MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？**
+#### **Q31. MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？**
 
 **三种 Attention 的 KV 头数对比：**
 
-|方案|Q 头数|K/V 头数|KV Cache 大小|代表模型|
-|---|---|---|---|---|
-|MHA（Multi-Head Attention）|$H$|$H$|基准 $1\times$|GPT-2、BERT|
-|GQA（Grouped Query Attention）|$H$|$H / G$（$G$ 为分组数）|$1/G$|Llama-2/3、Mistral|
-|MQA（Multi-Query Attention）|$H$|$1$|$1/H$|Falcon、PaLM|
+| 方案                           | Q 头数 | K/V 头数            | KV Cache 大小  | 代表模型              |
+| ---------------------------- | ---- | ----------------- | ------------ | ----------------- |
+| MHA（Multi-Head Attention）    | $H$  | $H$               | 基准 $1\times$ | GPT-2、BERT        |
+| MQA（Multi-Query Attention）   | $H$  | $1$               | $1/H$        | Falcon、PaLM       |
+| GQA（Grouped Query Attention） | $H$  | $H / G$（$G$ 为分组数） | $1/G$        | Llama-2/3、Mistral |
 
 **GQA KV Cache 节省推导：**
 
@@ -1006,7 +1006,7 @@ $$M_{\text{GQA}} = 2 \times L \times \frac{H}{G} \times d \times S \times \text{
 
 ---
 
-**Q28. MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？**
+#### **Q32. MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？**
 
 **动机：** GQA 通过减少 KV 头数降低 KV Cache，但以牺牲模型表达能力为代价。MLA 在**保持完整模型容量**的前提下压缩 KV Cache。
 
@@ -1037,7 +1037,7 @@ $$K = c^{KV} W^{UK},\quad V = c^{KV} W^{UV} \quad \text{（Up-projection，推�
 
 RoPE 依赖位置信息，无法在压缩的 $c^{KV}$ 上直接应用（因为压缩后维度失去了头的语义）。
 
-DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额外附加一组携带 RoPE 的 $k^R \in \mathbb{R}^{d_R^h}$，缓存时同时存 $c^{KV}$ 和 $k^R$，这部分会**额外增加 KV Cache**，是 Q28 压缩比计算中容易被忽略的项。
+DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额外附加一组携带 RoPE 的 $k^R \in \mathbb{R}^{d_R^h}$，缓存时同时存 $c^{KV}$ 和 $k^R$，这部分会**额外增加 KV Cache**，是 Q32 压缩比计算中容易被忽略的项。
 
 ---
 
