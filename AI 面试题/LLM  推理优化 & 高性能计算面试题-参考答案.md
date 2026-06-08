@@ -1335,7 +1335,7 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 
 ---
 
-#### Q34. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
+#### Q38. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
 
 **1. 问题背景**
 
