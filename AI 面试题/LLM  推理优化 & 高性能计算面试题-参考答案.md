@@ -1041,7 +1041,7 @@ DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额�
 
 ---
 
-**Q29. Sparse Attention（Sliding Window、BigBird）的适用场景？**
+#### **Q33. Sparse Attention（Sliding Window、BigBird）的适用场景？**
 
 **动机：** 标准 Attention 计算复杂度 $O(N^2)$，对超长序列（$N > 32k$）代价极高。Sparse Attention 通过**限制每个 Token 只关注部分 Token**，将复杂度降至 $O(N \cdot k)$（$k$ 为关注窗口大小）。
 
@@ -1959,7 +1959,7 @@ Key 的数值分布中存在少量异常值（Outlier），Per-tensor FP8 量化
 
 **问题背景：**
 
-Sliding Window Attention（见 Q29）将 KV Cache 限制为最近 $w$ 个 Token，理论上可实现无限长序列生成。但实验发现：**直接丢弃窗口外的早期 Token 会导致困惑度（Perplexity）骤增**，模型输出崩溃。
+Sliding Window Attention（见 Q33）将 KV Cache 限制为最近 $w$ 个 Token，理论上可实现无限长序列生成。但实验发现：**直接丢弃窗口外的早期 Token 会导致困惑度（Perplexity）骤增**，模型输出崩溃。
 
 **Attention Sink 现象：**
 
