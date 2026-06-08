@@ -910,7 +910,7 @@ FA-2 改为：**按 $Q$ 的行分块分配给不同 Warp**，每个 Warp 独立�
 
 ---
 
-**Q25. FlashAttention-3 在 Hopper 架构上的改进：Warp Specialization、异步流水线、WGMMA？**
+#### **Q29. FlashAttention-3 在 Hopper 架构上的改进：Warp Specialization、异步流水线、WGMMA？**
 
 FA-3 专为 H100 的三项新硬件特性设计：
 
