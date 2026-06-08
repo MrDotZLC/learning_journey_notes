@@ -1075,7 +1075,7 @@ DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额�
 
 ---
 
-#### Q30. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
+#### Q34. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
 
 **背景回顾**
 
