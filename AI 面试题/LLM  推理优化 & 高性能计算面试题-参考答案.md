@@ -970,7 +970,7 @@ $$O = \text{Softmax}(\text{score}) \cdot V \in \mathbb{R}^{1 \times d} \quad \Ri
 **Decode 阶段的主要优化方向**不是 FA，而是：
 
 - **GQA / MQA**：减少 KV Cache 大小（见 Q31）。
-- **PagedAttention**：减少 KV Cache 碎片（见 Q32）。
+- **PagedAttention**：减少 KV Cache 碎片（见 Q36）。
 - **KV Cache 量化**：降低 HBM 读取量（见 Q36）。
 - **Fused Decode Attention Kernel**：如 vLLM 的 `paged_attention_v2`，专为非连续 KV 访问优化。
 
@@ -1037,7 +1037,7 @@ $$K = c^{KV} W^{UK},\quad V = c^{KV} W^{UV} \quad \text{（Up-projection，推�
 
 RoPE 依赖位置信息，无法在压缩的 $c^{KV}$ 上直接应用（因为压缩后维度失去了头的语义）。
 
-DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额外附加一组携带 RoPE 的 $k^R \in \mathbb{R}^{d_R^h}$，缓存时同时存 $c^{KV}$ 和 $k^R$，这部分会**额外增加 KV Cache**，是 Q32 压缩比计算中容易被忽略的项。
+DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额外附加一组携带 RoPE 的 $k^R \in \mathbb{R}^{d_R^h}$，缓存时同时存 $c^{KV}$ 和 $k^R$，这部分会**额外增加 KV Cache**，是 Q34 压缩比计算中容易被忽略的项。
 
 ---
 
@@ -1213,7 +1213,7 @@ RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位�
 
 ---
 
-#### Q32. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
+#### **Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？**
 
 **1. 朴素 KV Cache 的碎片化问题**
 
@@ -1269,9 +1269,9 @@ Kernel 循环遍历所有物理块，在每块内做局部 Attention（类似 Fl
 
 ---
 
-#### Q33. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
+#### **Q37. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？**
 
-**3.1 Decode 阶段 FA 的并行度瓶颈**
+**1. Decode 阶段 FA 的并行度瓶颈**
 
 FA（FA-1/2）的并行维度为 Batch Size × Head 数。Decode 阶段的典型参数：
 
@@ -1282,7 +1282,7 @@ FA（FA-1/2）的并行维度为 Batch Size × Head 数。Decode 阶段的典型
 
 当 $B_{\text{seq}} = 1$，$H = 32$ 时，仅 32 个 CUDA Block 参与计算，大量 SM 空闲。即使每个 Block 处理完整的序列长度 $S$（如 $S = 32768$），也无法填满硬件。
 
-**3.2 Flash-Decoding 的核心思想：沿序列维度并行**
+**2. Flash-Decoding 的核心思想：沿序列维度并行**
 
 Flash-Decoding 在 FA 的 Batch/Head 并行基础上，增加**第三个并行维度：KV 序列的分块**。
 
@@ -1312,7 +1312,7 @@ $$\ell_{\text{final}} = \sum_c e^{m_c - m_{\text{final}}} \cdot \ell_c$$
 
 $$o_{\text{final}} = \frac{1}{\ell_{\text{final}}} \sum_c e^{m_c - m_{\text{final}}} \cdot o_c$$
 
-**3.3 并行度与延迟分析**
+**3. 并行度与延迟分析**
 
 | 方案             | 并行度                                        | 序列 $S=32768$，$H=32$，$B=1$ 的 SM 利用率         |
 | -------------- | ------------------------------------------ | ------------------------------------------ |
@@ -1321,7 +1321,7 @@ $$o_{\text{final}} = \frac{1}{\ell_{\text{final}}} \sum_c e^{m_c - m_{\text{fina
 
 Flash-Decoding 在长序列 Decode 场景下，延迟可降低 $8\times$（实测 $S=8192$，$d=64$，$B=1$）。
 
-**3.4 代价：额外显存与归约开销**
+**4. 代价：额外显存与归约开销**
 
 中间缓冲区大小：$C \times H \times d \times 3$（存 $o, \ell, m$），取 $C=256$，$H=32$，$d=128$，FP32：
 
