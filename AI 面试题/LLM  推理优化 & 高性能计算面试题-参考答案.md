@@ -1405,7 +1405,7 @@ $$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 5
 
 ---
 
-#### Q35. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理
+#### **Q39. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理**
 
 **1. MHA 的标准 TP 切分（Megatron-LM 方案）**
 
