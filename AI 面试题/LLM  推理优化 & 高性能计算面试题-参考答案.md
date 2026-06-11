@@ -1077,7 +1077,7 @@ MLA 的每步解压代价：$W_{\text{UK}}, W_{\text{UV}}$ 各一次 GEMV（$d_c
 
 - 超长文档理解、代码分析（$N > 32k$）：Sliding Window 足够，局部依赖为主。
 - 需要全局语义整合（如问答、摘要）：BigBird 的全局 Token 机制更优。
-- 生成任务（Decoder-only）：Sliding Window 结合 Attention Sink（StreamingLLM）实现无限流式生成（见 Q37）。
+- 生成任务（Decoder-only）：Sliding Window 结合 Attention Sink（StreamingLLM）实现无限流式生成（见 Q47）。
 
 ---
 
@@ -1795,7 +1795,7 @@ Key 的数值分布中存在少量异常值（Outlier），Per-tensor FP8 量化
 
 ---
 
-**Q37. StreamingLLM 的 Attention Sink 机制是什么？**
+#### **Q47. StreamingLLM 的 Attention Sink 机制是什么？**
 
 **问题背景：**
 
@@ -1819,7 +1819,7 @@ $$\text{KV Cache} = \text{Sink Tokens}(k) \cup \text{Recent Tokens}(w)$$
 
 ---
 
-**Q37-b. KV Cache 分级存储（HBM → CPU DRAM → NVMe SSD）**
+#### **Q48. KV Cache 分级存储（HBM → CPU DRAM → NVMe SSD）**
 
 **动机：**
 
