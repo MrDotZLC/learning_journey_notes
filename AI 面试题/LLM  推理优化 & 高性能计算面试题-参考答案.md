@@ -1865,7 +1865,7 @@ $$\text{TTFT} = T_{\text{KV load}} + T_{\text{Prefill（未缓存部分）}} + T
 
 ---
 
-**Q38. Static Batching 与 Continuous Batching 的区别？后者如何消除 Padding 浪费？**
+#### **Q49. Static Batching 与 Continuous Batching 的区别？后者如何消除 Padding 浪费？**
 
 **Static Batching（静态批处理）：**
 
