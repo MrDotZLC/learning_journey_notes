@@ -1039,6 +1039,16 @@ RoPE 依赖位置信息，无法在压缩的 $c^{KV}$ 上直接应用（因为�
 
 DeepSeek-V2 的解法是**Decoupled RoPE**：在低秩压缩的 KV 之外，额外附加一组携带 RoPE 的 $k^R \in \mathbb{R}^{d_R^h}$，缓存时同时存 $c^{KV}$ 和 $k^R$，这部分会**额外增加 KV Cache**，是 Q34 压缩比计算中容易被忽略的项。
 
+**两种路径的工程取舍对比：**
+
+|方案|KV Cache 压缩比（vs MHA）|解压计算开销|实现复杂度|主要使用模型|
+|---|---|---|---|---|
+|GQA（$G=8$）|$\times 1/8$|无|低|LLaMA-3, Mistral|
+|MQA（$G=1$）|$\times 1/H$|无|低|Falcon|
+|MLA|$\times 1/64$（典型值）|每步 $2 \times (H \times d) \times d_c$ 的小 GEMM|高|DeepSeek-V2/V3|
+
+MLA 的每步解压代价：$W_{\text{UK}}, W_{\text{UV}}$ 各一次 GEMV（$d_c \to H \times d$），在 Decode 阶段（已是 Memory-bound 主导）其计算量相对 Attention 本身可忽略，但实现复杂度显著高于 GQA。
+
 ---
 
 #### **Q33. Sparse Attention（Sliding Window、BigBird）的适用场景？**
@@ -1215,7 +1225,7 @@ RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位�
 
 #### **Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？**
 
-**1. 朴素 KV Cache 的碎片化问题**
+##### 1. 朴素 KV Cache 的碎片化问题
 
 朴素实现中，为每个请求**预分配连续显存**存放 KV Cache，大小为最大序列长度 $S_{\max}$：
 
@@ -1231,7 +1241,7 @@ $$M_{\text{alloc}} = 2 \times 32 \times 32 \times 128 \times 4096 \times 2 \appr
 2. **External Fragmentation（外部碎片）：** 不同长度的请求释放后产生零散空洞，无法被新请求利用。
 3. **Over-reservation（过度预留）：** 推理时序列长度未知，必须保守预留，进一步降低并发度。
 
-**2. PagedAttention 的分页机制**
+##### 2. PagedAttention 的分页机制
 
 借鉴操作系统虚拟内存的分页思想：将 KV Cache 切分为固定大小的**物理块（Block）**，每块存放 $B$ 个 Token 的 KV（$B$ 典型值为 16）。每个请求维护一张**块表（Block Table）**，记录逻辑块号到物理块号的映射。
 
@@ -1267,9 +1277,90 @@ Kernel 循环遍历所有物理块，在每块内做局部 Attention（类似 Fl
 
 多个请求共享同一 Prefix 时，其逻辑块可映射到**同一物理块**（引用计数 > 1）。当某请求需写入新 Token 时，触发 CoW：分配新物理块，复制内容，更新块表。这使 Prefix Caching 的显存开销为零（直到分叉点才复制）。
 
+##### 3. 额外开销：
+
+**① Block Table 查找开销：**
+
+每次访问 KV 时需通过 Block Table 将逻辑地址转换为物理地址：
+
+```cpp
+// 每个 KV 访问需额外一次查表
+int block_idx   = token_idx / block_size;
+int block_offset = token_idx % block_size;
+int physical_block = block_table[seq_id][block_idx];
+float* kv_ptr = kv_cache + physical_block * block_size * kv_dim + block_offset * kv_dim;
+```
+
+增加约 1–2 次整数运算和 1 次全局内存读取（Block Table 本身在 HBM 中）。
+
+**② Cache 局部性下降：**
+
+连续 KV Buffer 的访问模式对 L2 Cache 友好（空间局部性好）；分散 Block 的访问模式可能导致更多 L2 Cache Miss，尤其在序列长、Block 分散时。
+
+**③ Warp 内地址计算不一致：**
+
+同一 Warp 的不同线程可能访问不同物理 Block，难以完全合并访问（Memory Coalescing 下降）。
+
+**④ 量化开销（可忽略）：**
+
+Block Table 本身占用极小（每个 Block 一个 int32，序列 4096 tokens / 16 = 256 个 Block，仅 1 KB）。
+
+**实践结论：** vLLM 的测量表明，PagedAttention 相比连续 KV 的 Attention Kernel 性能损失约 **10–20%**，但其带来的内存利用率提升（从 20–40% 提升至 ~90%+）远超该开销，整体吞吐显著提升。
+
+##### **4. Block 大小 $B$ 的选择权衡**
+
+| $B$ 值       | 优点               | 缺点                             |
+| ----------- | ---------------- | ------------------------------ |
+| 小（如 1）      | 内部碎片极少           | Block Table 大，索引开销大，Cache 局部性差 |
+| 大（如 256）    | 索引开销小，访存连续性好     | 内部碎片增多，Prefix Sharing 粒度粗      |
+| **16（典型值）** | 平衡两者，与 GPU 缓存行对齐 | —                              |
+
+$B = 16$ 时，每个 Block 的 KV 数据大小为 $16 \times H \times d \times 2 \times \text{sizeof}$，通常为 512B–4KB，与 L2 Cache Line 对齐。
+
+
 ---
 
-#### **Q37. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？**
+#### **Q37. RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 的本质改进**
+
+**PagedAttention Prefix Sharing 的局限：**
+
+vLLM 的 Prefix Sharing 依赖**调度器手动标注**公共前缀范围，且要求前缀在 Token 级别完全对齐、Block 边界对齐。这意味着：
+
+- 只支持同一批次内具有相同 System Prompt 的请求共享；
+- 多轮对话的每轮新增内容无法自动复用上轮的 KV；
+- Tree-of-Thought 中不同推理分支的公共前缀无法识别。
+
+**Radix Tree 数据结构：**
+
+SGLang 将所有历史 KV Block 组织为 **Radix Tree**（基数树，又称压缩前缀树）。树的每个节点对应一段 Token 序列（可跨越多个 Block），从根到某节点的路径拼接即为一条已缓存的 Token 序列前缀。
+
+**插入操作**（新请求到来）：
+
+1. 从根节点开始，按输入 Token 序列沿树做最长公共前缀匹配（LCP）。
+2. 匹配到的节点路径对应的 KV Block **直接复用**（引用计数 +1）。
+3. 未匹配的后缀部分：创建新节点，分配新 Block，计算并写入 KV。
+
+**LRU 驱逐策略：**
+
+每个节点维护最近访问时间戳。显存不足时，优先驱逐**引用计数为 0（无活跃请求引用）且最久未被访问**的叶节点，从叶向根递归回收，直到释放足够 Block。
+
+**收益场景对比：**
+
+|场景|PagedAttention Prefix Sharing|RadixAttention|
+|---|---|---|
+|相同 System Prompt|✓（需手动配置）|✓（自动识别）|
+|多轮对话（每轮追加）|✗|✓（每轮新消息作为新分支）|
+|Tree-of-Thought（共享主干）|✗|✓（主干为公共前缀）|
+|RAG（相同检索结果）|✓（若完全对齐）|✓（自动 LCP 匹配）|
+|不同用户的部分相同前缀|✗|✓（Radix Tree 自然合并）|
+
+**复杂度：** 插入与查找均为 $O(S / B)$（$S$ 为序列长度，$B$ 为 Block 大小），与 PagedAttention 的 Block Table 查找量级相同，无额外显著开销。
+
+**与 Q66 的关系：** Q66 提及 RadixAttention 的名称，本题补充其数据结构机制。面试中若问 SGLang 的核心差异，需能清楚描述 Radix Tree 的 LCP 匹配逻辑，而不仅是"前缀树复用 KV"这一表层结论。
+
+---
+
+#### **Q38. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？**
 
 **1. Decode 阶段 FA 的并行度瓶颈**
 
@@ -1335,7 +1426,7 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 
 ---
 
-#### **Q38. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析**
+#### **Q39. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析**
 
 **1. 问题背景**
 
@@ -1405,7 +1496,7 @@ $$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 5
 
 ---
 
-#### **Q39. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理**
+#### **Q40. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理**
 
 **1. MHA 的标准 TP 切分（Megatron-LM 方案）**
 
@@ -1473,7 +1564,7 @@ $$M_{\text{KV/card}} = 2 \times 80 \times 1 \times 128 \times 8192 \times 2 \app
 
 ---
 
-#### **Q40. KV Cache 的作用与显存增长规律：推导单请求 $S$ tokens 的 KV Cache 显存占用公式。**
+#### **Q41. KV Cache 的作用与显存增长规律：推导单请求 $S$ tokens 的 KV Cache 显存占用公式。**
 
 **KV Cache 的作用：**
 
@@ -1500,95 +1591,7 @@ $$M = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 = 2 \times 80 \times 
 
 ---
 
-#### **Q41. GQA / MQA 对 KV Cache 显存的节省推导**
-
-**背景：** Q40 给出了 MHA 下 KV Cache 的通用公式。GQA 与 MQA 是现代生产模型（LLaMA-3、Mistral、Qwen）的默认 Attention 配置，其核心工程动机正是 KV Cache 的显存节省。
-
-**推导：**
-
-设 MHA 的注意力头数为 $H$，头维度为 $d$，层数为 $L$，序列长度为 $S$，数据类型 sizeof 为 $b$ 字节。
-
-MHA 的 KV Cache：
-
-$$M_{\text{KV}}^{\text{MHA}} = 2 \times L \times H \times d \times S \times b$$
-
-GQA 将 $H$ 个头分为 $G$ 组（$G \leq H$，$H/G$ 须为整数），每组内所有 Query 头共享同一对 KV 头，实际存储的 KV 头数从 $H$ 降为 $G$：
-
-$$M_{\text{KV}}^{\text{GQA}} = 2 \times L \times G \times d \times S \times b$$
-
-**缩减比：**
-
-$$r_{\text{GQA}} = \frac{M_{\text{KV}}^{\text{GQA}}}{M_{\text{KV}}^{\text{MHA}}} = \frac{G}{H}$$
-
-MQA 为 $G = 1$ 的极端情形：
-
-$$r_{\text{MQA}} = \frac{1}{H}$$
-
-**LLaMA-3 70B 具体数值**（$L=80$，$H=64$，$G=8$，$d=128$，FP16 即 $b=2$，$S=4096$）：
-
-$$M_{\text{KV}}^{\text{MHA}} = 2 \times 80 \times 64 \times 128 \times 4096 \times 2 \approx 10.74 \text{ GB}$$
-
-$$M_{\text{KV}}^{\text{GQA}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \approx 1.34 \text{ GB}$$
-
-$$\text{节省} = 1 - \frac{8}{64} = 87.5\%$$
-
-**精度代价分析：**
-
-GQA 的精度损失来源于同组内多个 Query 头共享同一 KV，无法各自关注不同的 Key 子空间。实践中，$G=8$（LLaMA-3 70B）的精度损失相对于 MHA 极小（MMLU 等基准差距通常 $< 0.3\%$），而 $G=1$（MQA）在某些任务上损失可达 $1\text{–}3\%$。
-
-**工程意义：** 在 Batch Size = 32、$S = 4096$ 的典型服务场景下，GQA 将 KV Cache 从 $\approx 343$ GB 压缩至 $\approx 42.9$ GB，使单节点 8×H100 可同时承载 Batch 而不触及显存上限，这是 GQA 取代 MHA 成为默认配置的根本原因。
-
----
-
-**Q30-c. MLA 的 KV Cache 压缩比推导**
-
-**MHA / GQA 的局限：** 两者均以完整的 $K, V$ 向量形式存储 KV Cache，压缩只能靠减少 KV 头数实现，存在精度下限。
-
-**MLA 核心思路：** 不缓存展开后的 $K, V$，而是缓存一个**低秩压缩向量** $c_t$（维度 $d_c \ll H \cdot d$），推理时按需从 $c_t$ 解压出 $K_t, V_t$：
-
-$$c_t = W_{\text{DKV}} \cdot x_t \in \mathbb{R}^{d_c} \quad \text{（Down-projection，训练时学习）}$$
-
-$$K_t = W_{\text{UK}} \cdot c_t \in \mathbb{R}^{H \times d}, \quad V_t = W_{\text{UV}} \cdot c_t \in \mathbb{R}^{H \times d}$$
-
-其中 $W_{\text{DKV}} \in \mathbb{R}^{d_c \times d_{\text{model}}}$，$W_{\text{UK}}, W_{\text{UV}} \in \mathbb{R}^{(H \times d) \times d_c}$。
-
-**KV Cache 大小：**
-
-$$M_{\text{KV}}^{\text{MLA}} = L \times d_c \times S \times b$$
-
-注意：MLA 只存一份 $c_t$，无需区分 $K/V$ 两路，故系数为 $1$（相比 MHA 的 $2$）。
-
-**压缩比：**
-
-$$r_{\text{MLA vs MHA}} = \frac{d_c}{2 \times H \times d}$$
-
-**DeepSeek-V2 具体数值**（$H = 128$，$d = 128$，$d_c = 512$，$L = 60$）：
-
-$$r = \frac{512}{2 \times 128 \times 128} = \frac{512}{32768} \approx \frac{1}{64}$$
-
-相比 GQA（$G=8$，$r=G/H=1/16$），MLA 进一步压缩 **4×**，合计相比 MHA 压缩 **64×**。
-
-**RoPE 的特殊处理（Decoupled RoPE）：**
-
-RoPE 要求对每个位置 $t$ 的 $K$ 施加旋转，但 MLA 缓存的是压缩前的 $c_t$，解压后的 $K_t$ 在 Decode 时才被计算，因此 RoPE 无法在存储阶段施加。DeepSeek-V2 的解决方案是额外缓存一小份带 RoPE 的"位置感知 Key"分量（维度 $d_r \ll H \cdot d$），与 $c_t$ 拼接存储：
-
-$$M_{\text{KV}}^{\text{MLA+RoPE}} = L \times (d_c + d_r) \times S \times b$$
-
-DeepSeek-V2 中 $d_r = 64$，相比 $d_c = 512$ 仅增加 12.5%，压缩比仍远优于 GQA。
-
-**两种路径的工程取舍对比：**
-
-|方案|KV Cache 压缩比（vs MHA）|解压计算开销|实现复杂度|主要使用模型|
-|---|---|---|---|---|
-|GQA（$G=8$）|$\times 1/8$|无|低|LLaMA-3, Mistral|
-|MQA（$G=1$）|$\times 1/H$|无|低|Falcon|
-|MLA|$\times 1/64$（典型值）|每步 $2 \times (H \times d) \times d_c$ 的小 GEMM|高|DeepSeek-V2/V3|
-
-MLA 的每步解压代价：$W_{\text{UK}}, W_{\text{UV}}$ 各一次 GEMV（$d_c \to H \times d$），在 Decode 阶段（已是 Memory-bound 主导）其计算量相对 Attention 本身可忽略，但实现复杂度显著高于 GQA。
-
----
-
-**Q30-d. Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异**
+#### **Q42 Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异**
 
 **Prefill 阶段的增长行为：**
 
@@ -1624,176 +1627,11 @@ $$\Delta M_{\text{step}} = 2 \times 80 \times 8 \times 128 \times 1 \times 2 = 3
 
 传统整段 Prefill 的问题在于：① 长 Prompt 的峰值 KV 占用会瞬间挤占大量 Block，阻塞同批 Decode 请求的 KV 追加；② Prefill 本身是 Compute-bound，与 Memory-bound 的 Decode 争抢 GPU 计算资源，导致 Decode 请求的 TPOT 抖动。Chunked Prefill 将大跳变拆解为多个小阶跃（每次 $C$ 个 Token），使 Block 分配压力分散到多个迭代步，从而与 Decode 请求更均匀地共享 Block Pool。
 
----
-
-**Q31. 为什么传统框架的 KV Cache 存在严重的内存碎片？**
-
-**传统方案：** 为每个请求预分配一块**连续的最大长度**显存（按最大序列长度 $S_{\max}$ 预分配），生成过程中逐步填充。
-
-**Internal Fragmentation（内部碎片）：**
-
-预分配按 $S_{\max}$ 分配，而实际生成长度 $S_{\text{actual}} \leq S_{\max}$。已分配但未使用的部分形成内部碎片。
-
-$$\text{碎片率} = 1 - \frac{S_{\text{actual}}}{S_{\max}}$$
-
-若 $S_{\max} = 2048$，平均生成长度 $S_{\text{actual}} = 256$，碎片率高达 **87.5%**。
-
-**External Fragmentation（外部碎片）：**
-
-不同请求的 KV Cache 大小不同，完成的请求释放显存后留下大小各异的空洞，新请求所需的连续显存无法从碎片中拼凑，即使总空闲显存充足也无法分配。
-
-```
-显存示意（碎片化状态）：
-[请求A: 512B][空闲: 200B][请求B: 1024B][空闲: 300B][请求C: 256B][空闲: 512B]
-→ 总空闲 1012B，但无法满足需要 600B 连续空间的新请求
-```
-
-**后果：** 实际 GPU 显存利用率仅约 **20–40%**（vLLM 论文数据），大量显存被碎片浪费，制约并发请求数。PagedAttention 正是为解决此问题而设计（见 Q32）。
-
----
-
 ### 4.2 PagedAttention
 
 ---
 
-**Q32. PagedAttention 的核心思路：类比 OS 虚拟内存，Block 大小如何选择？**
-
-**核心思路：**
-
-借鉴操作系统的**虚拟内存分页机制**：将 KV Cache 划分为固定大小的**物理 Block**（Physical Block），每个 Block 存储固定数量（$B$ 个，典型值 **16 tokens**）的 KV 向量；为每个请求维护一张**逻辑-物理 Block 映射表**（Block Table），逻辑上连续的 KV 序列映射到任意分散的物理 Block。
-
-```
-请求 A 的 Block Table：
-逻辑块 0 → 物理块 7
-逻辑块 1 → 物理块 3
-逻辑块 2 → 物理块 15
-...
-
-请求 B 的 Block Table：
-逻辑块 0 → 物理块 2
-逻辑块 1 → 物理块 7  ← 与请求 A 共享（Prefix Sharing）
-...
-```
-
-**消除碎片的原理：**
-
-- **无 Internal Fragmentation**：仅最后一个逻辑 Block 可能不满，浪费最多 $(B-1)$ 个 Token 槽，期望浪费仅 $(B-1)/2 \approx 7.5$ 个 Token。
-- **无 External Fragmentation**：所有物理 Block 大小相同，释放后可立即被任意新请求复用，如同 OS 的固定大小页框。
-
-**Block 大小 $B$ 的选择权衡：**
-
-|$B$ 值|优点|缺点|
-|---|---|---|
-|小（如 1）|内部碎片极少|Block Table 大，索引开销大，Cache 局部性差|
-|大（如 256）|索引开销小，访存连续性好|内部碎片增多，Prefix Sharing 粒度粗|
-|**16（典型值）**|平衡两者，与 GPU 缓存行对齐|—|
-
-$B = 16$ 时，每个 Block 的 KV 数据大小为 $16 \times H \times d \times 2 \times \text{sizeof}$，通常为 512B–4KB，与 L2 Cache Line 对齐。
-
----
-
-**Q33. PagedAttention 如何支持 Prefix Sharing（多请求共享同一 Prompt 的 KV Block）？**
-
-**Prefix Sharing 原理：**
-
-若多个请求拥有相同的前缀 Prompt（如 System Prompt），这些 Prompt Token 对应的 KV Block 内容完全相同。PagedAttention 通过**引用计数（Reference Counting）** 让多个请求的 Block Table 指向**同一组物理 Block**，该 Block 只在显存中存储一份。
-
-```
-System Prompt: "You are a helpful assistant..."（256 tokens = 16 个 Block）
-
-请求 A Block Table: [共享Block 0..15] → [私有Block 16, 17, ...]
-请求 B Block Table: [共享Block 0..15] → [私有Block 23, 24, ...]
-请求 C Block Table: [共享Block 0..15] → [私有Block 31, 32, ...]
-
-物理显存中 Block 0..15 只有 1 份，被三个请求共享
-```
-
-**Copy-on-Write（写时复制）：**
-
-共享 Block 为**只读**。当某请求需要修改（实际推理中 KV 追加只写新 Block，共享部分不修改），若发生写操作则触发 Copy-on-Write，为该请求复制一份私有副本。
-
-**收益量化：**
-
-- 若 System Prompt 长度 $S_p = 1024$ tokens，Batch Size = 64，则节省 KV Cache = $63 \times S_p$ 份，约 **98.4% 的 Prefix KV 显存复用**。
-- SGLang 的 RadixAttention 将此思路推广为**前缀树（Radix Tree）结构**，支持任意公共前缀的自动识别与共享（见 Q66）。
-
----
-
-**Q34. 相比连续 KV Buffer，PagedAttention 的 Attention Kernel 有哪些额外开销？**
-
-标准 Attention Kernel 假设 KV 数据在显存中**连续存储**，可通过简单的指针偏移访问。PagedAttention 的非连续存储引入以下额外开销：
-
-**① Block Table 查找开销：**
-
-每次访问 KV 时需通过 Block Table 将逻辑地址转换为物理地址：
-
-```cpp
-// 每个 KV 访问需额外一次查表
-int block_idx   = token_idx / block_size;
-int block_offset = token_idx % block_size;
-int physical_block = block_table[seq_id][block_idx];
-float* kv_ptr = kv_cache + physical_block * block_size * kv_dim + block_offset * kv_dim;
-```
-
-增加约 1–2 次整数运算和 1 次全局内存读取（Block Table 本身在 HBM 中）。
-
-**② Cache 局部性下降：**
-
-连续 KV Buffer 的访问模式对 L2 Cache 友好（空间局部性好）；分散 Block 的访问模式可能导致更多 L2 Cache Miss，尤其在序列长、Block 分散时。
-
-**③ Warp 内地址计算不一致：**
-
-同一 Warp 的不同线程可能访问不同物理 Block，难以完全合并访问（Memory Coalescing 下降）。
-
-**④ 量化开销（可忽略）：**
-
-Block Table 本身占用极小（每个 Block 一个 int32，序列 4096 tokens / 16 = 256 个 Block，仅 1 KB）。
-
-**实践结论：** vLLM 的测量表明，PagedAttention 相比连续 KV 的 Attention Kernel 性能损失约 **10–20%**，但其带来的内存利用率提升（从 20–40% 提升至 ~90%+）远超该开销，整体吞吐显著提升。
-
----
-
-**Q34-b. RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 的本质改进**
-
-**PagedAttention Prefix Sharing 的局限：**
-
-vLLM 的 Prefix Sharing 依赖**调度器手动标注**公共前缀范围，且要求前缀在 Token 级别完全对齐、Block 边界对齐。这意味着：
-
-- 只支持同一批次内具有相同 System Prompt 的请求共享；
-- 多轮对话的每轮新增内容无法自动复用上轮的 KV；
-- Tree-of-Thought 中不同推理分支的公共前缀无法识别。
-
-**Radix Tree 数据结构：**
-
-SGLang 将所有历史 KV Block 组织为 **Radix Tree**（基数树，又称压缩前缀树）。树的每个节点对应一段 Token 序列（可跨越多个 Block），从根到某节点的路径拼接即为一条已缓存的 Token 序列前缀。
-
-**插入操作**（新请求到来）：
-
-1. 从根节点开始，按输入 Token 序列沿树做最长公共前缀匹配（LCP）。
-2. 匹配到的节点路径对应的 KV Block **直接复用**（引用计数 +1）。
-3. 未匹配的后缀部分：创建新节点，分配新 Block，计算并写入 KV。
-
-**LRU 驱逐策略：**
-
-每个节点维护最近访问时间戳。显存不足时，优先驱逐**引用计数为 0（无活跃请求引用）且最久未被访问**的叶节点，从叶向根递归回收，直到释放足够 Block。
-
-**收益场景对比：**
-
-|场景|PagedAttention Prefix Sharing|RadixAttention|
-|---|---|---|
-|相同 System Prompt|✓（需手动配置）|✓（自动识别）|
-|多轮对话（每轮追加）|✗|✓（每轮新消息作为新分支）|
-|Tree-of-Thought（共享主干）|✗|✓（主干为公共前缀）|
-|RAG（相同检索结果）|✓（若完全对齐）|✓（自动 LCP 匹配）|
-|不同用户的部分相同前缀|✗|✓（Radix Tree 自然合并）|
-
-**复杂度：** 插入与查找均为 $O(S / B)$（$S$ 为序列长度，$B$ 为 Block 大小），与 PagedAttention 的 Block Table 查找量级相同，无额外显著开销。
-
-**与 Q66 的关系：** Q66 提及 RadixAttention 的名称，本题补充其数据结构机制。面试中若问 SGLang 的核心差异，需能清楚描述 Radix Tree 的 LCP 匹配逻辑，而不仅是"前缀树复用 KV"这一表层结论。
-
----
-
-**Q34-c. KV Block 的引用计数管理与安全释放时机**
+#### **Q43. KV Block 的引用计数管理与安全释放时机**
 
 **引用计数机制：**
 
