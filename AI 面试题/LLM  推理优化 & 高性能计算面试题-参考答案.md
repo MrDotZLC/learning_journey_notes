@@ -1317,7 +1317,6 @@ Block Table 本身占用极小（每个 Block 一个 int32，序列 4096 tokens 
 
 $B = 16$ 时，每个 Block 的 KV 数据大小为 $16 \times H \times d \times 2 \times \text{sizeof}$，通常为 512B–4KB，与 L2 Cache Line 对齐。
 
-
 ---
 
 #### **Q37. RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 的本质改进**
