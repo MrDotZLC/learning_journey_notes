@@ -1473,11 +1473,11 @@ $$M_{\text{KV/card}} = 2 \times 80 \times 1 \times 128 \times 8192 \times 2 \app
 
 ---
 
-**Q30. KV Cache 的作用与显存增长规律：推导单请求 $S$ tokens 的 KV Cache 显存占用公式。**
+#### **Q40. KV Cache 的作用与显存增长规律：推导单请求 $S$ tokens 的 KV Cache 显存占用公式。**
 
 **KV Cache 的作用：**
 
-自回归解码时，第 $t$ 步生成的 Token 需要 Attend 前 $t-1$ 个 Token 的 Key 和 Value。若不缓存，每步都需对全部历史 Token 重新计算 $K, V$，计算量随序列增长为 $O(S^2)$。KV Cache 将历史 $K, V$ 存入显存，每步只计算新 Token 的 $K, V$ 并追加，将计算量降为 $O(S)$，以**显存换计算**。
+自回归解码时，第 $t$ 步生成的 Token 需要参照 前 $t-1$ 个 Token 的 Key 和 Value。若不缓存，每步都需对全部历史 Token 重新计算 $K, V$，计算量随序列增长为 $O(S^2)$。KV Cache 将历史 $K, V$ 存入显存，每步只计算新 Token 的 $K, V$ 并追加，将计算量降为 $O(S)$，以**显存换计算**。
 
 **显存占用推导：**
 
@@ -1500,9 +1500,9 @@ $$M = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 = 2 \times 80 \times 
 
 ---
 
-**Q30-b. GQA / MQA 对 KV Cache 显存的节省推导**
+#### **Q41. GQA / MQA 对 KV Cache 显存的节省推导**
 
-**背景：** Q30 给出了 MHA 下 KV Cache 的通用公式。GQA 与 MQA 是现代生产模型（LLaMA-3、Mistral、Qwen）的默认 Attention 配置，其核心工程动机正是 KV Cache 的显存节省。
+**背景：** Q40 给出了 MHA 下 KV Cache 的通用公式。GQA 与 MQA 是现代生产模型（LLaMA-3、Mistral、Qwen）的默认 Attention 配置，其核心工程动机正是 KV Cache 的显存节省。
 
 **推导：**
 
