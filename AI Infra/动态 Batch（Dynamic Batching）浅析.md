@@ -97,8 +97,6 @@ $$ N_{\text{total}} = \sum_{i=1}^{B} n_i $$
 `cu_seqlens` 数组定义为：
 $$ \text{cu\_seqlens}[0] = 0, \quad \text{cu\_seqlens}[i] = \sum_{j=1}^{i} n_j $$
 FlashAttention-2 原生支持此格式（`varlen` 接口），直接以 `cu_seqlens` 作为输入参数，避免 padding 浪费。
-![](assets/Gemini_Generated_Image_d43aotd43aotd43a%20(1).png)
-`[图示 2：Ragged Batching 的 token 展平示意。左侧为 batch 内 4 条不等长序列，右侧为展平后的一维 token 流，cu_seqlens 标记每条序列的起始偏移。]`
 
 ---
 
