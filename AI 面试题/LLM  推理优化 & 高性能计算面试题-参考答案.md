@@ -971,7 +971,7 @@ $$O = \text{Softmax}(\text{score}) \cdot V \in \mathbb{R}^{1 \times d} \quad \Ri
 
 - **GQA / MQA**：减少 KV Cache 大小（见 Q31）。
 - **PagedAttention**：减少 KV Cache 碎片（见 Q36）。
-- **KV Cache 量化**：降低 HBM 读取量（见 Q36）。
+- **KV Cache 量化**：降低 HBM 读取量（见 Q45）。
 - **Fused Decode Attention Kernel**：如 vLLM 的 `paged_attention_v2`，专为非连续 KV 访问优化。
 
 ---
@@ -1356,7 +1356,7 @@ SGLang 将所有历史 KV Block 组织为 **Radix Tree**（基数树，又称压
 
 **复杂度：** 插入与查找均为 $O(S / B)$（$S$ 为序列长度，$B$ 为 Block 大小），与 PagedAttention 的 Block Table 查找量级相同，无额外显著开销。
 
-**与 Q66 的关系：** Q66 提及 RadixAttention 的名称，本题补充其数据结构机制。面试中若问 SGLang 的核心差异，需能清楚描述 Radix Tree 的 LCP 匹配逻辑，而不仅是"前缀树复用 KV"这一表层结论。
+**与 Q66 的关系：** Q66 提及 RadixAttention 的名称，本题补充其数据结构机制。
 
 ---
 
@@ -1627,6 +1627,8 @@ $$\Delta M_{\text{step}} = 2 \times 80 \times 8 \times 128 \times 1 \times 2 = 3
 
 传统整段 Prefill 的问题在于：① 长 Prompt 的峰值 KV 占用会瞬间挤占大量 Block，阻塞同批 Decode 请求的 KV 追加；② Prefill 本身是 Compute-bound，与 Memory-bound 的 Decode 争抢 GPU 计算资源，导致 Decode 请求的 TPOT 抖动。Chunked Prefill 将大跳变拆解为多个小阶跃（每次 $C$ 个 Token），使 Block 分配压力分散到多个迭代步，从而与 Decode 请求更均匀地共享 Block Pool。
 
+---
+
 ### 4.2 PagedAttention
 
 ---
@@ -1683,7 +1685,7 @@ Prefix Sharing 的共享 Block 同时被多个请求引用（$\text{ref} > 1$）
 
 ---
 
-**Q35. Token Eviction 方法（H2O、SnapKV）的基本思路？**
+#### **Q44. Token Eviction 方法（H2O、SnapKV）的基本思路？**
 
 **核心动机：** 并非所有历史 Token 对当前生成都同等重要，可以**丢弃低重要性 Token 的 KV**，将 KV Cache 大小限制在预算 $B_{\text{budget}}$ 以内。
 
@@ -1706,7 +1708,7 @@ $$\text{保留集合} = \text{TopK}(s_i) \cup \text{Recent}(r)$$
 
 ---
 
-**Q36. KV Cache 量化（INT8 / FP8 KV）的精度损失分析？**
+#### **Q45. KV Cache 量化（INT8 / FP8 KV）的精度损失分析？**
 
 **量化方案：**
 
@@ -2314,7 +2316,7 @@ $$\mathcal{E} = \underbrace{x_q \cdot s - x}_{\text{舍入误差，最大} \pm s
 
 - **权重量化（W4/W8）**：Per-channel 或 Per-group。
 - **激活量化（A8）**：Per-token（动态量化，每步推理时实时计算 Scale）。
-- **KV Cache 量化**：Per-channel（见 Q36）。
+- **KV Cache 量化**：Per-channel（见 Q54）。
 
 ---
 
