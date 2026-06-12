@@ -1946,7 +1946,7 @@ Continuous Batching 中，当一个长 Prompt 请求进入时，其 Prefill 阶�
 
 ---
 
-**Q39-KV. Chunked Prefill 执行期间 KV Block 的按需分配策略**
+#### **Q51. Chunked Prefill 执行期间 KV Block 的按需分配策略**
 
 **① 是否需要预分配全量显存？**
 
