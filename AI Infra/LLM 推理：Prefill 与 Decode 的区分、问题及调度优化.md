@@ -148,7 +148,7 @@ stream: [QKV Linear (merged)] → [Prefill Attn kernel] → [Decode Attn kernel]
 
 将长 Prefill 序列切分为固定大小的 chunk（如 $C = 512$ tokens），每次调度时将当前 chunk 的 token 与所有 Decode token 合并入同一 batch：
 
-$$ \text{Batch} = \underbrace{\text{Prefill chunk tokens}}_{\leq C} ;\cup; \underbrace{\text{Decode tokens}}_{\text{all active requests}} $$
+$$ \text{Batch} = \underbrace{\text{Prefill chunk tokens}}_{\leq C} \;\cup\; \underbrace{\text{Decode tokens}}_{\text{all active requests}} $$
 
 ### 4.2 调度收益
 
