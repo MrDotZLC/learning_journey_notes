@@ -2073,7 +2073,7 @@ $$\text{End-to-End Latency} = \text{TTFT} + \text{TPOT} \times (S_{\text{out}} -
 
 ---
 
-**Q42. 吞吐量与延迟之间的根本矛盾：增大 Batch Size 如何影响两个指标？**
+#### **Q54. 吞吐量与延迟之间的根本矛盾：增大 Batch Size 如何影响两个指标？**
 
 **根本矛盾：**
 
