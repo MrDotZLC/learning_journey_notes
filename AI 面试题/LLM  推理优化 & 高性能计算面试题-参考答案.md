@@ -2067,7 +2067,7 @@ $$\text{End-to-End Latency} = \text{TTFT} + \text{TPOT} \times (S_{\text{out}} -
 
 **降低 TPOT：**
 
-- 减少单步 Decode 计算量：GQA/MQA 减少 KV 头数；量化降低权重读取量。
+- 减少单步 Decode 计算量：GQA/MQA 减少 KV 头数；MLA/量化降低权重读取量。
 - 提升 HBM 带宽利用率：增大 Batch Size（提高 GEMV 的算术强度）；使用高带宽 GPU（H20）。
 - 减少 Decode 阶段的调度开销：CUDA Graph 消除 Kernel Launch 开销（见 Q22）。
 
