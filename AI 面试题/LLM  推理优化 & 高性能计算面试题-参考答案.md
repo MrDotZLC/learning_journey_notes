@@ -2182,7 +2182,7 @@ vLLM 默认使用 Swap 策略，Recompute 作为备选（可通过 `preemption_m
 
 ---
 
-**Q45-Sched. Goodput 的定义与 SLO 感知调度**
+#### **Q57. Goodput 的定义与 SLO 感知调度**
 
 **Goodput 的定义**
 
@@ -2213,6 +2213,8 @@ $$\text{Goodput} = \frac{\sum_{r \in \mathcal{R}_{\text{SLO}}} S_{\text{out}}^{(
 
 Sarathi-Serve（2024）在 Chunked Prefill 基础上引入 SLO 感知调度，通过动态调整 Chunk Size 和 Batch 组合，在不违反 TPOT SLO 的前提下最大化 Goodput，相比纯 Throughput 优化策略在实际服务中 Goodput 提升 10–30%。
 
+---
+
 ## 第 6 章·参考答案：模型量化
 
 ---
@@ -2221,7 +2223,7 @@ Sarathi-Serve（2024）在 Chunked Prefill 基础上引入 SLO 感知调度，�
 
 ---
 
-**Q44. PTQ（Post-Training Quantization）与 QAT（Quantization-Aware Training）的区别？**
+#### **Q58. PTQ（Post-Training Quantization）与 QAT（Quantization-Aware Training）的区别？**
 
 **核心对比：**
 
