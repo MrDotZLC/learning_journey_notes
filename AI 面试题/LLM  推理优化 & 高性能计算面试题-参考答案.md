@@ -2102,7 +2102,7 @@ $$B^* \approx \frac{P_{\text{peak}}}{BW_{\text{mem}} \times \text{FLOPs/token/by
 
 ---
 
-**Q43. 如何用 MFU（Model FLOP Utilization）评估系统效率？**
+#### **Q55. 如何用 MFU（Model FLOP Utilization）评估系统效率？**
 
 **MFU 定义：**
 
