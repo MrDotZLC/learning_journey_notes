@@ -2256,7 +2256,7 @@ $$\frac{\partial \mathcal{L}}{\partial x} \approx \frac{\partial \mathcal{L}}{\p
 
 ---
 
-**Q45. 对称量化与非对称量化的量化公式推导。**
+#### **Q59. 对称量化与非对称量化的量化公式推导。**
 
 **量化目标：** 将浮点数 $x \in [\alpha, \beta]$ 映射到整数 $x_q \in [q_{\min}, q_{\max}]$。
 
