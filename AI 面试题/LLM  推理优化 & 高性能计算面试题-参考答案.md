@@ -2295,7 +2295,7 @@ $$\mathcal{E} = \underbrace{x_q \cdot s - x}_{\text{舍入误差，最大} \pm s
 
 ---
 
-**Q46. Per-tensor、Per-channel、Per-group 量化粒度的精度-性能 Trade-off？**
+#### **Q60. Per-tensor、Per-channel、Per-group 量化粒度的精度-性能 Trade-off？**
 
 量化粒度决定 Scale（和 Zero-point）的共享范围，粒度越细精度越高，但存储和计算开销越大。
 
