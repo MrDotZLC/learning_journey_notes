@@ -180,7 +180,7 @@ GPTQ 不显式构造完整 $\mathbf{H}'^{-1}$，而是只计算 $L^{-1}$，在 B
 
 对每一层（Layer）：
 
-1. **收集输入**：以校准数据集跑一遍前向传播，记录该层输入 $X$（维度 $d_{\text{in}} \times n$）。
+1. **收集输入**：以校准数据集跑一遍前向传播，记录该层输入 $X$（维度 $d_{\text{in}} \times n$ ，上一层的输出）。
 2. **计算 Hessian**：$\mathbf{H} = XX^T$；加阻尼 $\mathbf{H}' = \mathbf{H} + \lambda I$；对 $\mathbf{H}'$ 做 Cholesky 分解，计算 $L^{-1}$。
 3. **分 Block 循环**（共 $K$ 个 Block）：
    - **Block 内**：
