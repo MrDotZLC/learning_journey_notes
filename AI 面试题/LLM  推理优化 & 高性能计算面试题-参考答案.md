@@ -2459,7 +2459,7 @@ $$s_i = \text{mean}(|X_i|)^{\alpha}, \quad \alpha \in [0, 1]$$
 
 ---
 
-**Q48-b. AWQ 缩放因子为何用 Grid Search 而非梯度优化？**
+#### **Q66. AWQ 缩放因子为何用 Grid Search 而非梯度优化？**
 
 **AWQ 的优化目标：**
 
