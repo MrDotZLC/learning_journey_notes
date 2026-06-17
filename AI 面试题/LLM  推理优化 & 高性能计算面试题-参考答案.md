@@ -2394,7 +2394,7 @@ $$\delta W = -\frac{w_q - \hat{w}_q}{\left[H^{-1}\right]_{qq}} \cdot \left[H^{-1
 
 ---
 
-**Q64. GPTQ 的 Lazy Batch Update 与 Cholesky 优化推导。**
+#### **Q64. GPTQ 的 Lazy Batch Update 与 Cholesky 优化推导。**
 
 **朴素 OBQ 的不可行性：**
 
@@ -2422,7 +2422,7 @@ $$W[:, j_{\text{end}}:] \mathrel{-}= \delta W_{\text{block}} \cdot H^{-1}_{\text
 
 ---
 
-**Q48. AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights？**
+#### **Q65. AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights？**
 
 **GPTQ 的问题：** GPTQ 对所有权重一视同仁地量化，但实验发现权重中约 **0.1%–1% 的 Salient（显著）权重**对输出影响极大（对应输入激活值幅度大的通道），量化这些权重导致显著精度损失。
 
