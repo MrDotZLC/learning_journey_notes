@@ -187,7 +187,7 @@ GPTQ 不显式构造完整 $\mathbf{H}'^{-1}$，而是只计算 $L^{-1}$，在 B
      - 读取 $[\mathbf{H}^{-1}]_{ii}$（对角元素）。
 	   - 量化当前列权重：$W_{:,i} \to \hat{W}_{:,i}$（对所有行同步量化）。
 	   - 计算误差：$\mathbf{err} = (W_{:,i} - \hat{W}_{:,i}) \;/\; [\mathbf{H}^{-1}]_{ii}$。
-	   - 误差补偿：$W_{:,\,j} \leftarrow W_{:,\,j} - \mathbf{err} \cdot [\mathbf{H}^{-1}]_{ji}$，对所有后续列 $j > i$ 执行。
+	   - 误差补偿：$W_{:,\,j} \leftarrow W_{:,\,j} - \mathbf{err} \cdot (\mathbf{H}^{-1})_{ji}$，对所有后续列 $j > i$ 执行。
    - **Block 后**：将 Block 累计误差矩阵 $E$ 与 $\mathbf{H}'^{-1}$ 的对应子矩阵做矩阵乘，批量更新后续所有列。
 4. **存储**：将量化权重打包，按所选格式（INT4/INT3 等）写出。
 
