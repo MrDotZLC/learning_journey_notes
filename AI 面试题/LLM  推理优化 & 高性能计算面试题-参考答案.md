@@ -2394,7 +2394,7 @@ $$\delta W = -\frac{w_q - \hat{w}_q}{\left[H^{-1}\right]_{qq}} \cdot \left[H^{-1
 
 ---
 
-**Q47-b. GPTQ 的 Lazy Batch Update 与 Cholesky 优化推导。**
+**Q64. GPTQ 的 Lazy Batch Update 与 Cholesky 优化推导。**
 
 **朴素 OBQ 的不可行性：**
 
