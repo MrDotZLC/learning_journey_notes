@@ -248,7 +248,7 @@ $$ \text{FLOP} = 2 d d_{ff}, \quad \text{Bytes（读权重）} = d \cdot d_{ff} 
 
 $$ \text{AI} = \frac{2 d d_{ff}}{2 d d_{ff}} = 1 \text{ FLOP/Byte} \ll 156 \text{ FLOP/Byte（Ridge Point）} $$
 
-GPU 算力利用率 $\approx 1/156 < 1%$，完全受 **HBM 带宽** 约束。
+GPU 算力利用率 $\approx 1/156 < 1\%$，完全受 **HBM 带宽** 约束。
 
 **提升 AI 的方法：增大有效 batch size。** 推理框架的核心目标之一即在延迟约束下尽可能提高 batch size：
 
