@@ -2518,7 +2518,7 @@ $$s_i \in \left\{ \text{mean}(|X_i|)^\alpha \;\middle|\; \alpha \in {0, 0.05, 0.
 
 ---
 
-**Q49. SmoothQuant 的思路：将激活量化难度通过 per-channel 缩放迁移到权重侧？**
+#### **Q67. SmoothQuant 的思路：将激活量化难度通过 per-channel 缩放迁移到权重侧？**
 
 **问题背景（W8A8 的挑战）：**
 
