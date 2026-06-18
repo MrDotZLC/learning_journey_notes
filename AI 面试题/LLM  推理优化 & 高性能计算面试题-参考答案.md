@@ -2546,7 +2546,7 @@ $$s_j = \frac{\max(|X_j|)^\alpha}{\max(|W_j|)^{1-\alpha}}, \quad \alpha \in [0, 
 
 ---
 
-**Q49-b. SmoothQuant 的 $\alpha$ 选择与零开销融合推导。**
+#### **Q68. SmoothQuant 的 $\alpha$ 选择与零开销融合推导。**
 
 **$\alpha$ 的影响分析：**
 
