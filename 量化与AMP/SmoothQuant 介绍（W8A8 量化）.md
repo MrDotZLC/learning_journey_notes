@@ -91,11 +91,11 @@ $$X \rightarrow XS^{-1}$$
 ---
 ## 4.1 RMSNorm 融合推导
 标准 RMSNorm：
-$$X_{\text{norm}}
+$$X_{\text{norm}}=
 \frac{X}{\sqrt{\frac{1}{C}\sum X^2 + \epsilon}}  
 \odot \gamma$$
 融合 $S^{-1}$：
-$$\hat{X}
+$$\hat{X}=
 \frac{X}{\sqrt{\frac{1}{C}\sum X^2 + \epsilon}}  
 \odot (\gamma \odot s_{\text{inv}})$$
 离线阶段：
