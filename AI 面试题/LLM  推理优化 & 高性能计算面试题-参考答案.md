@@ -2640,7 +2640,7 @@ W4A16 方案的矩阵乘流程：
 
 ---
 
-**Q51. Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？**
+#### **Q71. Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？**
 
 **NVFP4 格式定义：**
 
@@ -2673,7 +2673,7 @@ $$\hat{w}_{\text{FP4}} = \text{quantize}_{\text{FP4}}\!\left(\frac{w}{s_{\text{F
 
 ---
 
-**Q51-b. NVFP4 两级缩放的存储格式推导与工程实现。**
+#### **Q72. NVFP4 两级缩放的存储格式推导与工程实现。**
 
 **存储格式（以 16 个 FP4 权重为 1 Block 为例）：**
 
