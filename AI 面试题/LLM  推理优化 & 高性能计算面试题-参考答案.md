@@ -2618,7 +2618,7 @@ $\tilde{W}$ 在量化前离线计算，**推理时 SmoothQuant 的全部代价�
 
 ---
 
-**Q50-b. W4A16 推理的 Dequantization 开销分析。**
+#### **Q70. W4A16 推理的 Dequantization 开销分析。**
 
 W4A16 方案的矩阵乘流程：
 
