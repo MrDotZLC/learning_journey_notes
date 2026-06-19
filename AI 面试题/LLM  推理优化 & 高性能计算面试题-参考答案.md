@@ -2703,7 +2703,7 @@ Blackwell 区别于 Hopper 的关键：Hopper 的 FP8 Tensor Core 仍需软件 D
 
 ---
 
-**Q52-Q. QuaRot / SpinQuant：基于 Hadamard 旋转的 Outlier 消除。**
+#### **Q73. QuaRot / SpinQuant：基于 Hadamard 旋转的 Outlier 消除。**
 
 [基于 Hadamard 旋转的 Outlier 消除技术全解析](../KV%20Cache/基于%20Hadamard%20旋转的%20Outlier%20消除技术全解析.md)
 
