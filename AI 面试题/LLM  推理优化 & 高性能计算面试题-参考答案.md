@@ -2863,7 +2863,7 @@ FlashInfer 实现了 FP8 KV Cache 的融合 Attention Kernel，兼容 Ada Lovela
 
 ---
 
-**Q52. Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？**
+#### **Q77. Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？**
 
 **核心动机：**
 
