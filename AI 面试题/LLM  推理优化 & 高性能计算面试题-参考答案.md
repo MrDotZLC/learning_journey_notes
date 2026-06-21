@@ -2835,7 +2835,7 @@ KIVI 发现 Key 的 per-channel 分布极为稳定（统计量可离线计算）
 
 ---
 
-**Q56-Q. KV Cache 量化与 FlashAttention 后端兼容性。**
+#### **Q77. KV Cache 量化与 FlashAttention 后端兼容性。**
 
 **FA2 不支持 FP8 KV Cache 的原因：**
 
