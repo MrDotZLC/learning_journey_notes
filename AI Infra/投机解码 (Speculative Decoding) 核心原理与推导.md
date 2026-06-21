@@ -157,11 +157,11 @@ TokenVerifyResult verify_draft_tokens(
 
 传统的双模型投机解码存在“模型管理复杂”、“草稿与目标分布差异大导致接受率低”的问题。近年来，该领域主要向以下架构演进：
 
-|**技术分支**|**核心思想**|**代表作与年份**|
-|---|---|---|
-|**Tree-based / Multi-Draft**|将线性草稿转换为前缀树 (Prefix Tree)。草稿模型生成多条路径，目标模型利用 **Tree Attention** 机制在单次前向传播中验证整棵树。有效提升单次并行的有效 Token 接受期望。|SpecInfer (2024)<br><br>  <br><br>PEARL (ICLR 2025)|
-|**Draft-Free (Self-Speculation)**|摒弃独立的草稿模型。在目标模型的早期层 (Early-exiting) 插入分类头，或直接利用上文信息构建无额外参数的草稿，避免了维护两个权重的显存开销。|Medusa (2024)<br><br>  <br><br>EAGLE (2024)|
-|**Vision-Aware SD**|针对多模态大模型 (VLMs) 优化。由于视觉 Token 冗长，通过引入轻量级视觉适配器，使草稿模型能快速捕捉图像上下文，解决跨模态投机验证命中率低的问题。|ViSpec (NeurIPS 2025)|
+| **技术分支**                          | **核心思想**                                                                                               | **代表作与年份**                                          |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| **Tree-based / Multi-Draft**      | 将线性草稿转换为前缀树 (Prefix Tree)。草稿模型生成多条路径，目标模型利用 **Tree Attention** 机制在单次前向传播中验证整棵树。有效提升单次并行的有效 Token 接受期望。 | SpecInfer (2024)<br><br>  <br><br>PEARL (ICLR 2025) |
+| **Draft-Free (Self-Speculation)** | 摒弃独立的草稿模型。在目标模型的早期层 (Early-exiting) 插入分类头，或直接利用上文信息构建无额外参数的草稿，避免了维护两个权重的显存开销。                          | Medusa (2024)<br><br>  <br><br>EAGLE (2024)         |
+| **Vision-Aware SD**               | 针对多模态大模型 (VLMs) 优化。由于视觉 Token 冗长，通过引入轻量级视觉适配器，使草稿模型能快速捕捉图像上下文，解决跨模态投机验证命中率低的问题。                        | ViSpec (NeurIPS 2025)                               |
 
 ---
 
@@ -173,4 +173,3 @@ TokenVerifyResult verify_draft_tokens(
 2. **KV Cache 内存管理**：投机阶段必然伴随分支预测失败 (Rejected Tokens)。推理引擎（如 PagedAttention）必须实现极低开销的 Cache 物理块极速回收 (Free/Rollback) 机制，避免无效 KV Cache 驻留导致显存溢出 (OOM)。
 3. **Draft Length ($K$) 动态调度**：硬编码 $K$ 并非最优域。如 ICLR 2025 的 PEARL 框架所述，根据历史验证的 Acceptance Rate 与当前硬件利用率动态调整下一轮的 $K$ 值，可实现系统吞吐的极大化。
 
-是否需要展开介绍 Tree Attention 在 CUDA 层的具体实现或提供相关的 C++ 算子架构设计？
