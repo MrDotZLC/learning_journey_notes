@@ -3039,7 +3039,9 @@ $$\boxed{p'(x) = p(x) \quad \forall x}$$
 
 **③ EAGLE（自回归 Draft 头，ICML 2024）：**
 
-附加一个**单层轻量级自回归 Transformer** 作为 Draft 头，以 Target Model **倒数第二层**特征（top-layer feature）作为条件输入，自回归地预测后续 Token 的特征序列，再经 Target LM Head 解码为 Token 概率。
+**draft 不在 token 空间做自回归，而在 feature（隐藏状态）空间做自回归**。
+
+附加一个**单层轻量级自回归 Transformer** 作为 Draft 头，以 Target Model **倒数第二层**特征（最后一个 Transformer Block 的隐藏层输出，比 token embeddng 包含更多信息）作为条件输入，自回归地预测后续 Token 的特征序列，再经 Target LM Head 解码为 Token 概率。
 
 EAGLE 的 Token 预测路径：
 
