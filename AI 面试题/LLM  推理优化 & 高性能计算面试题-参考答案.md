@@ -3017,7 +3017,7 @@ $$\boxed{p'(x) = p(x) \quad \forall x}$$
 
 ---
 
-**Q55. Ngram-based Draft、Medusa、EAGLE（含 EAGLE-2/3）各方案的核心思路与对比。**
+#### **Q80. Ngram-based Draft、Medusa、EAGLE（含 EAGLE-2/3）各方案的核心思路与对比。**
 
 **① Ngram-based / Prompt Lookup Decoding（无额外模型）：**
 
