@@ -2912,7 +2912,7 @@ $$\alpha = \mathbb{E}_{\tilde{x} \sim q}\!\left[\min\!\left(1,\ \frac{p(\tilde{x
 
 ---
 
-**Q53. 接受率 $\alpha$ 与加速比的关系推导。**
+#### **Q78. 接受率 $\alpha$ 与加速比的关系推导。**
 
 **每轮期望接受 Token 数：**
 

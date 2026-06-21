@@ -38,6 +38,13 @@ $$\text{Pr}(\text{Accept } \tilde{x}) = \min \left( 1, \frac{p(\tilde{x})}{q(\ti
 
 若 $\tilde{x}$ 被拒绝，为了保证整体分布严格等于 $p(x)$，必须从一个新的残差分布 (Residual Distribution) $p'(x)$ 中重新采样一个 Token 作为当前步的最终输出，并丢弃后续所有草稿 Tokens。
 
+对每个 token $x$，比较大模型概率 $p(x)$ 和 draft 概率 $q(x)$：
+
+- 如果 $p(x) > q(x)$：说明大模型更看好这个 token，但 draft 给少了，差额 $p(x)-q(x)$ 就是"欠的部分"。
+- 如果 $p(x) \le q(x)$：说明 draft 没给少，欠款为 0。
+
+把所有 token 的"欠款"收集起来，归一化成一个新的概率分布，就是重采样用的分布 $p'(x)$。
+
 残差分布定义为：
 
 $$p'(x) = \frac{\max(0, p(x) - q(x))}{\sum_{x' \in V} \max(0, p(x') - q(x'))}$$
