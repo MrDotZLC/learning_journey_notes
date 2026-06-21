@@ -2317,7 +2317,7 @@ $$\mathcal{E} = \underbrace{x_q \cdot s - x}_{\text{舍入误差，最大} \pm s
 
 - **权重量化（W4/W8）**：Per-channel 或 Per-group。
 - **激活量化（A8）**：Per-token（动态量化，每步推理时实时计算 Scale）。
-- **KV Cache 量化**：Per-channel（见 Q54）。
+- **KV Cache 量化**：Per-channel（见 Q76）。
 
 ---
 
@@ -2973,7 +2973,7 @@ $$\text{Speedup} = \frac{1 - 0.8^5}{(1-0.8)(1+0.1)} = \frac{1 - 0.328}{0.2 \time
 
 ---
 
-**Q54. 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性证明）？**
+#### **Q79. 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性证明）？**
 
 **证明框架：**
 
