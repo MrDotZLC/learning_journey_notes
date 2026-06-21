@@ -2740,7 +2740,7 @@ Attention 计算时先反变换再做 Softmax，精度等价。
 
 ---
 
-**Q53-Q. AutoRound（EMNLP 2024）：基于优化的 Rounding。**
+#### **Q74. AutoRound（EMNLP 2024）：基于优化的 Rounding。**
 
 **与 GPTQ 的核心差异：**
 
@@ -2769,7 +2769,7 @@ GPTQ 的 Hessian 补偿是二阶近似，在极低比特（量化误差远超二
 
 ---
 
-**Q54-Q. KV Cache 量化的数据流与硬件支持差异。**
+#### **Q75. KV Cache 量化的数据流与硬件支持差异。**
 
 **完整数据流（以 FP8 KV Cache + BF16 Attention 为例）：**
 
@@ -2798,16 +2798,16 @@ GPTQ 的 Hessian 补偿是二阶近似，在极低比特（量化误差远超二
 
 **各方案的工程实际：**
 
-|方案|Attention 计算精度|KV 存储|反量化时机|框架支持|
-|---|---|---|---|---|
-|BF16 KV|BF16|BF16|无|所有框架|
-|FP8 KV + FA2 后端|BF16（dequant 前）|FP8|读取时软件 Dequant|vLLM（XFormers/FA2 后端，吞吐无显著提升）|
-|FP8 KV + FlashInfer|BF16 或 FP8|FP8|内核融合 Dequant|vLLM + FlashInfer，H100/L40S|
-|FP8 KV + FA3（H100）|**FP8 原生**|FP8|无（FP8 Attention）|vLLM >= 0.6.x，仅 Hopper|
+| 方案                  | Attention 计算精度  | KV 存储 | 反量化时机            | 框架支持                          |
+| ------------------- | --------------- | ----- | ---------------- | ----------------------------- |
+| BF16 KV             | BF16            | BF16  | 无                | 所有框架                          |
+| FP8 KV + FA2 后端     | BF16（dequant 前） | FP8   | 读取时软件 Dequant    | vLLM（XFormers/FA2 后端，吞吐无显著提升） |
+| FP8 KV + FlashInfer | BF16 或 FP8      | FP8   | 内核融合 Dequant     | vLLM + FlashInfer，H100/L40S   |
+| FP8 KV + FA3（H100）  | **FP8 原生**      | FP8   | 无（FP8 Attention） | vLLM >= 0.6.x，仅 Hopper        |
 
 ---
 
-**Q55-Q. Per-tensor vs. Per-head vs. Per-token KV Cache 量化粒度。**
+#### **Q76. Per-tensor vs. Per-head vs. Per-token KV Cache 量化粒度。**
 
 **Key 与 Value 的分布特性：**
 
