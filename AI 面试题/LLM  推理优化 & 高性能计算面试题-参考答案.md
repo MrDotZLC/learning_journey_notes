@@ -3133,7 +3133,7 @@ $K=3$ 时，$\alpha = 0.8 \Rightarrow \alpha_K \approx 0.992$，接受率显著�
 
 ---
 
-**Q55-c. Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路。**
+**Q82. Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路。**
 
 无需额外 Draft Model——利用目标模型自身的**早退出（Early Exit）** 机制，在浅层输出作为 Draft，在全深度输出作为 Verify。
 
