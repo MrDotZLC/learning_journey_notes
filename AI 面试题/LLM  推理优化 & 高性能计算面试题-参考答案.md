@@ -3029,9 +3029,9 @@ $$\boxed{p'(x) = p(x) \quad \forall x}$$
 
 **② Medusa（多并行解码头）：**
 
-在 Target Model 最后一层隐状态上附加 $K$ 个独立前馈解码头，每个头预测第 $k$ 步后的 Token。一次前向同时产生 $K$ 个独立预测，组合成候选树后由 Target LM Head 验证。
+不额外增加 Draft Model，而是在 Target Model 最后一层隐状态上并联附加 $K$ 个独立前馈解码头，每个头预测第 $k$ 步后的 Token。一次前向同时产生 $K$ 个独立预测，组合成候选树后由 Target LM Head 验证。
 
-关键约束：各 Medusa 头之间**相互独立**，不捕捉位置间的自回归依赖，导致越靠后的预测越不准确。输出分布保证需要特殊处理（Medusa-2 引入 "typical acceptance" 策略，但严格意义上不再是无损）。
+关键约束：冻结 Target Model 主体权重，各 Medusa 头之间**相互独立**，不捕捉位置间的自回归依赖，导致越靠后的预测越不准确。输出分布保证需要特殊处理（Medusa-2 引入 "typical acceptance" 策略，但严格意义上不再是无损）。
 
 - 接受率 $\alpha$：0.6–0.75
 - 加速比：1.5–2.5×
@@ -3054,11 +3054,15 @@ $$\hat{f}_{t+1} = \text{DraftLayer}(f_t,\ \text{emb}(\tilde{x}_t))$$ $$\tilde{x}
 
 **④ EAGLE-2（EMNLP 2024）——动态草稿树：**
 
+**在 EAGLE-1 的基础上动态剪枝**
+
 在 EAGLE 基础上引入**动态候选树**：根据每个位置的预测置信度（Top-1 概率）动态调整树的深度和宽度，而非固定树结构。置信度高的节点深度扩展，置信度低的节点剪枝，在保持总候选数不变的前提下提升期望接受 Token 数。
 
 - 加速比：约为 EAGLE-1 的 1.1–1.2×
 
 **⑤ EAGLE-3（NeurIPS 2025）——Training-Time Test + 多层特征融合：**
+
+**Draft 放弃特征输出，多层特征融合输入 Draft**
 
 EAGLE-1/2 的核心限制：顶层特征 $f_t$ 针对**下一个** Token 预测优化，用于预测 $t+2, t+3, \ldots$ 步时存在分布偏移，且误差随步数累积（feature prediction constraint）。
 
@@ -3101,7 +3105,7 @@ EAGLE-3 由此获得**数据扩展律**：训练数据增加后接受率持续�
 
 ---
 
-**Q55-b. Tree-based Speculative Decoding 相比链式 Draft 的优势。**
+#### **Q81. Tree-based Speculative Decoding 相比链式 Draft 的优势。**
 
 **链式 Draft 的局限：**
 
