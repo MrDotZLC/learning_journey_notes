@@ -3029,7 +3029,7 @@ $$\boxed{p'(x) = p(x) \quad \forall x}$$
 
 **② Medusa（多并行解码头）：**
 
-不额外增加 Draft Model，而是在 Target Model 最后一层隐状态上并联附加 $K$ 个独立前馈解码头，每个头预测第 $k$ 步后的 Token。一次前向同时产生 $K$ 个独立预测，组合成候选树后由 Target LM Head 验证。
+不额外增加 Draft Model，而是在 Target Model 最后一层隐状态上并联附加 $K$ 个独立前馈解码头，每个头预测第 $k$ 步后的 Token。一次前向同时产生 $K$ 个独立预测，组合成候选树后用 Tree Attention Mask 控制可见性。
 
 关键约束：冻结 Target Model 主体权重，各 Medusa 头之间**相互独立**，不捕捉位置间的自回归依赖，导致越靠后的预测越不准确。输出分布保证需要特殊处理（Medusa-2 引入 "typical acceptance" 策略，但严格意义上不再是无损）。
 
