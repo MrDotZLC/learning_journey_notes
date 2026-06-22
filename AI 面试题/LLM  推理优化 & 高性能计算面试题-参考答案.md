@@ -3133,13 +3133,15 @@ $K=3$ 时，$\alpha = 0.8 \Rightarrow \alpha_K \approx 0.992$，接受率显著�
 
 ---
 
-**Q82. Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路。**
+#### **Q82. Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路。**
 
 无需额外 Draft Model——利用目标模型自身的**早退出（Early Exit）** 机制，在浅层输出作为 Draft，在全深度输出作为 Verify。
 
 **LayerSkip 的实现：**
 
 - 训练阶段：在每层添加 Early Exit 损失，使模型在任意中间层都能给出合理预测
+	- **Layer Dropout**：训练时以一定概率随机跳过深层 Transformer Block，迫使浅层也能独立产出较合理的表征。
+	- **早退出损失（Early Exit Loss）**：在多个中间层位置都接 LM Head 计算 Loss 并联合优化，使中间层的输出分布提前向最终层的输出空间对齐。
 - 推理阶段：
     - Draft：在第 $L_d$ 层（$L_d < L$）早退出，以低计算代价生成 $\gamma$ 个候选 Token
     - Verify：将 $\gamma$ 个候选 Token 从 $L_d+1$ 层继续前向至第 $L$ 层（**仅计算剩余层**，不重复前 $L_d$ 层），代价为 $\gamma \times (1 - L_d/L)$ 倍全深度推理
@@ -3155,7 +3157,7 @@ $K=3$ 时，$\alpha = 0.8 \Rightarrow \alpha_K \approx 0.992$，接受率显著�
 
 ---
 
-**Q55-d. Speculative Decoding 在高 Batch Size 下性能退化的根本原因。**
+#### **Q83 Speculative Decoding 在高 Batch Size 下性能退化的根本原因。**
 
 **根本原因：Memory-bound → Compute-bound 转变。**
 
@@ -3187,7 +3189,7 @@ $$B^* \approx \frac{\text{HBM 带宽}}{\text{FLOPS} / \text{参数量}} = \frac{
 
 ---
 
-**Q56. Beam Search 与 Greedy Search 的显存和计算差异？**
+#### **Q84. Beam Search 与 Greedy Search 的显存和计算差异？**
 
 **Greedy Search：**
 
