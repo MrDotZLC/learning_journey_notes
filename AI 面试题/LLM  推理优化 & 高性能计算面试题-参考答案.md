@@ -3222,7 +3222,7 @@ $$B^* \approx \frac{\text{HBM 带宽}}{\text{FLOPS} / \text{参数量}} = \frac{
 
 ---
 
-**Q57. Top-k / Top-p Sampling 的实现细节与 GPU 优化？**
+#### **Q85. Top-k / Top-p Sampling 的实现细节与 GPU 优化？**
 
 **Temperature 缩放（前置步骤）：**
 
