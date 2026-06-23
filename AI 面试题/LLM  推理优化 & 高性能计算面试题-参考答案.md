@@ -3285,7 +3285,7 @@ vLLM 将 Temperature 缩放、Top-k 过滤、Top-p 过滤、Multinomial 采样 F
 
 ---
 
-**Q57-b. Repetition Penalty 与 Min-p Sampling 的实现原理。**
+#### **Q86. Repetition Penalty 与 Min-p Sampling 的实现原理。**
 
 **Repetition Penalty：**
 
