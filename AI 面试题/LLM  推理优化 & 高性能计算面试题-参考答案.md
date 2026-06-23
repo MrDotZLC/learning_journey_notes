@@ -3317,7 +3317,7 @@ $$\mathcal{V}_{\text{min-p}} = {x : p(x) \geq p_{\min} \cdot \max_{x'} p(x')}$$
 
 ***
 
-**Q58. Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？**
+#### **Q87. Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？**
 
 **核心思路：** 将单层权重矩阵沿某一维度切分到 $N$ 张 GPU，每卡只持有权重的 $1/N$，各卡并行计算后通过 AllReduce 聚合结果。
 
