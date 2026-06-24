@@ -3361,7 +3361,7 @@ Q/K/V 投影权重按头维度切分（每卡负责 $H/N$ 个头），Output 投
 
 ***
 
-**Q58-b. GQA 与 MQA 下 Tensor Parallelism 的特殊处理**
+#### **Q88. GQA 与 MQA 下 Tensor Parallelism 的特殊处理**
 
 **问题背景：**
 
