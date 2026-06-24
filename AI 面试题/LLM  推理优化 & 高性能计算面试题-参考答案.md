@@ -3382,7 +3382,7 @@ MHA 中 KV 头数 $= H$，TP 度 $= N$ 时，每卡持有 $H/N$ 个 KV 头，切
 
 ***
 
-**Q59. Pipeline Parallelism（PP）：GPipe vs 1F1B 调度的气泡率对比？**
+#### **Q89. Pipeline Parallelism（PP）：GPipe vs 1F1B 调度的气泡率对比？**
 
 **Pipeline Parallelism 基本思路：**
 
