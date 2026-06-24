@@ -154,7 +154,7 @@ Megatron-LM v2（2021）提出，每块 GPU 承担 $v$ 个不连续的 **Virtual
 - **物理层分配**：GPU $k$ 负责第 ${k, k+N, k+2N, \ldots, k+(v-1)N}$ 组共 $v \times (L/(Nv))$ 层。
 - **实例**：$L=16$，$N=4$，$v=2$，则 GPU 0 负责层 ${1,2,9,10}$，GPU 1 负责 ${3,4,11,12}$，以此类推。
 
-#### 2.4.2 气泡率推导（精确版）
+#### 2.4.2 气泡率推导
 
 引入 Virtual Stage 后，流水线深度从 $N$ 变为 $N \cdot v$（逻辑上），但每个 micro-batch 需要经历 $N \cdot v$ 个 Stage 边界。
 
@@ -166,7 +166,7 @@ $$T_{\text{total}} = \left(\frac{M}{v} + N - 1\right) v \cdot (t_f + t_b) = (M +
 
 $$T_{\text{total}} = (M + v(N-1))(t_f + t_b) + 2v(N-1)t_{\text{comm}}$$
 
-**气泡率**（忽略通信时）：
+**气泡率**（忽略通信且 M >> P 时）：
 
 $$\eta_{\text{interleaved}} = \frac{v(N-1)}{M + v(N-1)} \approx \frac{N-1}{M/v}$$
 

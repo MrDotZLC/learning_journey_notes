@@ -3426,7 +3426,7 @@ $$\text{Bubble}_{\text{推理}} = \frac{P-1}{M}$$
 
 ***
 
-**Q59-b. Interleaved 1F1B（虚拟流水段）的气泡率改进**
+#### **Q90. Interleaved 1F1B（虚拟流水段）的气泡率改进**
 
 **动机：** 标准 1F1B 中，$P$ 台设备的气泡时间为 $(P-1)$ 个 Micro-batch 步长，$M$ 增大才能摊薄，但 $M$ 增大会导致 Gradient Accumulation 步数增加，影响超参数敏感性。
 
