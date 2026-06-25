@@ -89,11 +89,11 @@ $$ \text{激活显存（单层，序列长 }T\text{，batch }B\text{）} \approx
 
 以标准 Transformer 层为例（不含 Activation Checkpointing），单层激活约占：
 
-$$ \approx B \cdot T \cdot d \cdot 10 \times \text{dtype_bytes} $$
+$$ \approx B \cdot T \cdot d \cdot 10 \times \text{dtype\_bytes} $$
 
 对长序列（$T=4096$）、大 batch（$B=32$）、$d=4096$ 的 FP16 模型，**仅激活值**就约 $32 \times 4096 \times 4096 \times 10 \times 2 \text{ B} \approx 10 \text{ GB/层}$。
 
-**Activation Checkpointing（梯度检查点）：** 放弃保存中间激活，反向传播时重新计算，显存从 $O(L \cdot B \cdot T \cdot d)$ 降至 $O(\sqrt{L} \cdot B \cdot T \cdot d)$，代价是约 $33%$ 额外计算量。
+**Activation Checkpointing（梯度检查点）：** 放弃保存中间激活，反向传播时重新计算，显存从 $O(L \cdot B \cdot T \cdot d)$ 降至 $O(\sqrt{L} \cdot B \cdot T \cdot d)$，代价是约 $33\%$ 额外计算量。
 
 ### 3.2 推理的显存构成
 

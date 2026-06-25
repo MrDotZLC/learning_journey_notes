@@ -3569,7 +3569,7 @@ ZeRO-Inference 的通信量比 TP 高（AllGather 需传输全量参数），仅
 
 ***
 
-**Q62. AllReduce 的 Ring-AllReduce 实现与带宽分析**
+#### **Q95. AllReduce 的 Ring-AllReduce 实现与带宽分析**
 
 **朴素中心化 AllReduce 的瓶颈：**
 

@@ -4,12 +4,12 @@
 
 ### 1.1 并行策略体系定位
 
-|并行维度|技术名称|切分对象|通信类型|典型库|
-|---|---|---|---|---|
-|数据维度|Data Parallelism (DP)|Batch|All-Reduce|DDP, FSDP|
-|模型宽度|Tensor Parallelism (TP)|权重矩阵|All-Reduce / All-Gather|Megatron-LM|
-|模型深度|Pipeline Parallelism (PP)|层（Layer）|P2P Send/Recv|GPipe, PipeDream|
-|专家路由|Expert Parallelism (EP)|MoE 专家|All-to-All|DeepSpeed-MoE|
+| 并行维度 | 技术名称                      | 切分对象     | 通信类型                    | 典型库              |
+| ---- | ------------------------- | -------- | ----------------------- | ---------------- |
+| 数据维度 | Data Parallelism (DP)     | Batch    | All-Reduce              | DDP, FSDP        |
+| 模型宽度 | Tensor Parallelism (TP)   | 权重矩阵     | All-Reduce / All-Gather | Megatron-LM      |
+| 模型深度 | Pipeline Parallelism (PP) | 层（Layer） | P2P Send/Recv           | GPipe, PipeDream |
+| 专家路由 | Expert Parallelism (EP)   | MoE 专家   | All-to-All              | DeepSpeed-MoE    |
 
 PP 的核心挑战是**气泡（Bubble）**：流水线填充和排空阶段，部分 GPU 不可避免地处于空闲状态。所有调度策略的本质，均是在**气泡率**、**显存占用**与**通信开销**三者之间寻求帕累托最优。
 
