@@ -3535,7 +3535,7 @@ DeepSeek-V3 采用 EP=320（跨 320 张 H800），All-to-All 通过 InfiniBand +
 
 ***
 
-**Q_N. ZeRO 在推理中的适用性**
+#### **Q94. ZeRO 在推理中的适用性**
 
 **ZeRO 三阶段回顾（训练）：**
 
