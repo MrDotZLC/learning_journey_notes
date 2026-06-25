@@ -3472,7 +3472,7 @@ CP 是 SP 的超集：在 SP 基础上，进一步将 Attention 的 Q/K/V 也按
 
 ***
 
-**Q61. Expert Parallelism（EP）：MoE 模型中 All-to-All 通信的开销分析？**
+#### **Q92. Expert Parallelism（EP）：MoE 模型中 All-to-All 通信的开销分析？**
 
 **EP 基本结构：**
 
