@@ -3696,7 +3696,7 @@ $$\text{通信量} = 2 \times 32 \times 1 \times 8192 \times 2 \text{ B} = 1 \te
 
 ***
 
-**Q_O. 通信拓扑感知调度：Ring vs. Tree AllReduce**
+#### **Q98. 通信拓扑感知调度：Ring vs. Tree AllReduce**
 
 **Ring AllReduce 的局限：**
 
