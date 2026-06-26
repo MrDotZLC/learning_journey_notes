@@ -3665,7 +3665,7 @@ Megatron-LM 通过 `--overlap-grad-reduce`（训练）和 SP 联合，在 H100 N
 
 ***
 
-**Q64. NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？**
+#### **Q97. NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？**
 
 **带宽对比（H100 / B200 代际）：**
 
