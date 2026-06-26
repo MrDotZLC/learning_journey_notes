@@ -3617,7 +3617,7 @@ NVLink 环境下，NCCL 实际使用**双向 Ring**（顺时针 + 逆时针同�
 
 ***
 
-**Q63. GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？**
+#### **Q96. GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？**
 
 **传统 TP 的串行瓶颈：**
 
