@@ -3730,7 +3730,7 @@ NCCL 在初始化时探测物理拓扑（NVLink 连接图、PCIe Switch 层次�
 
 ***
 
-**Q_P. P/D 分离中 KV Cache Transfer 与 AllReduce 的带宽竞争**
+#### **Q99. P/D 分离中 KV Cache Transfer 与 AllReduce 的带宽竞争**
 
 **问题背景：**
 
