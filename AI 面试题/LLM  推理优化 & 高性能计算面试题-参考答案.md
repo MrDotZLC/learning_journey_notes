@@ -1355,7 +1355,7 @@ SGLang 将所有历史 KV Block 组织为 **Radix Tree**（基数树，又称压
 
 **复杂度：** 插入与查找均为 $O(S / B)$（$S$ 为序列长度，$B$ 为 Block 大小），与 PagedAttention 的 Block Table 查找量级相同，无额外显著开销。
 
-**与 Q66 的关系：** Q66 提及 RadixAttention 的名称，本题补充其数据结构机制。
+**与 Q101 的关系：** Q101 提及 RadixAttention 的名称，本题补充其数据结构机制。
 
 ---
 
@@ -3767,11 +3767,11 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \text{ B}
 
 ---
 
-**Q65. vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？**
+#### **Q100. vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？**
 
 **1. vLLM 的两项核心创新**
 
-**1.1 PagedAttention（见 Q32）**
+**1.1 PagedAttention（见 Q36）**
 
 - 将 KV Cache 按固定大小的 Block（典型值 16 tokens/block）分页管理，消除 Internal 与 External Fragmentation，GPU 显存利用率从传统框架的 20–40% 提升至 90% 以上。
 - 支持 Prefix Sharing：多请求共享同一 System Prompt 的 KV Block，引用计数管理，零拷贝复用。
@@ -3810,7 +3810,7 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \text{ B}
 
 ---
 
-**Q66. SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？**
+#### **Q101. SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？**
 
 **1. vLLM Prefix Caching 的局限**
 
