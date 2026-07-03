@@ -3855,7 +3855,7 @@ SGLang 将 KV Cache 组织为**基数树（Radix Tree）**，自动识别并复�
 
 ---
 
-**Q67. TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？**
+#### **Q102. TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？**
 
 **1. Plugin 机制**
 
@@ -3895,18 +3895,18 @@ TRT-LLM 将 Chunked Prefill 与 In-flight Batching 结合，支持将长 Prefill
 
 ---
 
-**Q67-b. vLLM / SGLang / TensorRT-LLM 三者在生产部署时的选型框架？**
+#### **Q103. vLLM / SGLang / TensorRT-LLM 三者在生产部署时的选型框架？**
 
 **1. 三者定位总结**
 
-|维度|vLLM|SGLang|TensorRT-LLM|
-|---|---|---|---|
-|核心优势|生态最广、部署最快|前缀复用最强、结构化生成|单卡/多卡峰值性能最高|
-|模型适配成本|低（开箱即用）|低（同样开箱即用）|高（需适配 Plugin）|
-|Kernel 优化程度|中（依赖社区 Kernel）|中-高（自研 Triton/CUDA Kernel）|最高（NVIDIA 内部 Kernel）|
-|适合工作负载|通用场景|多轮对话、RAG、ToT|高吞吐在线服务、固定模型|
-|P/D 分离支持|vLLM v0.5+ 支持|支持|支持（NVIDIA Dynamo 集成）|
-|MoE 支持|支持|DeepSeek MoE 最优|支持，需 Plugin 适配|
+| 维度          | vLLM           | SGLang                     | TensorRT-LLM         |
+| ----------- | -------------- | -------------------------- | -------------------- |
+| 核心优势        | 生态最广、部署最快      | 前缀复用最强、结构化生成               | 单卡/多卡峰值性能最高          |
+| 模型适配成本      | 低（开箱即用）        | 低（同样开箱即用）                  | 高（需适配 Plugin）        |
+| Kernel 优化程度 | 中（依赖社区 Kernel） | 中-高（自研 Triton/CUDA Kernel） | 最高（NVIDIA 内部 Kernel） |
+| 适合工作负载      | 通用场景           | 多轮对话、RAG、ToT               | 高吞吐在线服务、固定模型         |
+| P/D 分离支持    | vLLM v0.5+ 支持  | 支持                         | 支持（NVIDIA Dynamo 集成） |
+| MoE 支持      | 支持             | DeepSeek MoE 最优            | 支持，需 Plugin 适配       |
 
 **2. 选型决策链**
 
@@ -3933,7 +3933,7 @@ TRT-LLM 将 Chunked Prefill 与 In-flight Batching 结合，支持将长 Prefill
 
 ---
 
-**Q68. 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？**
+#### **Q104. 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？**
 
 **1. 两个工具的定位**
 
