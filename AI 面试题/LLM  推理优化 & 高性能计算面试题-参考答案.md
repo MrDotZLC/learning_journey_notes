@@ -29,7 +29,7 @@ Shared Memory 与 L1 物理上合并。
 
 - 32 个线程构成 1 个 Warp，是 GPU 调度的**最小单位**。[为什么 Warp 有32个线程，而不是16或64](../CUDA/为什么%20Warp%20有32个线程，而不是16或64.md)
 - 调度器采用**零开销上下文切换**：当活跃 Warp 因全局内存访问停顿时，立即切换到其他就绪 Warp，以计算隐藏延迟。
-- 每个 SM 可同时驻留多个 Warp（由 Occupancy 决定，见 Q70），Warp 数量越多，延迟隐藏越充分。
+- 每个 SM 可同时驻留多个 Warp（由 Occupancy 决定，见 Q106），Warp 数量越多，延迟隐藏越充分。
 - 调度策略通常为 **GTO（Greedy-Then-Oldest）** 或 Round-Robin，具体由硬件实现。
 
 ---
@@ -3993,7 +3993,7 @@ ncu --import report_output.ncu-rep
 
 ---
 
-**Q69. 如何判断一个 Kernel 是 Memory-bound？**
+#### **Q105. 如何判断一个 Kernel 是 Memory-bound？**
 
 **1. 判断流程（Roofline 法）**
 
@@ -4049,7 +4049,7 @@ Elementwise（Add、Mul、GELU）、LayerNorm / RMSNorm、GEMV（Decode 阶段 A
 
 ---
 
-**Q70. Occupancy 低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？**
+#### **Q106. Occupancy 低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？**
 
 **1. Occupancy 定义**
 
