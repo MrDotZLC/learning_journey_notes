@@ -4092,7 +4092,7 @@ Occupancy 的核心作用是**延迟隐藏（Latency Hiding）**：当一个 War
 
 ---
 
-**Q70-b. 给定一个实际的 `ncu` 报告（SM Active 30%、HBM BW 91%、L2 Hit Rate 18%），写出完整的诊断流程与优化路径？**
+#### **Q107. 给定一个实际的 `ncu` 报告（SM Active 30%、HBM BW 91%、L2 Hit Rate 18%），写出完整的诊断流程与优化路径？**
 
 **1. 初步判断**
 
