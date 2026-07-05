@@ -4186,7 +4186,7 @@ vLLM 的 Decode 阶段仅对 Batch Size 固定的情况启用 CUDA Graph（通�
 
 ---
 
-**Q71. Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？**
+#### **Q109. Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？**
 
 **1. CUDA 编程模型（Thread-level）**
 
@@ -4232,7 +4232,7 @@ def add_kernel(a_ptr, b_ptr, c_ptr, n, BLOCK_SIZE: tl.constexpr):
 
 ---
 
-**Q72. 何时选择 Triton 而非 CUDA 手写？**
+#### **Q110. 何时选择 Triton 而非 CUDA 手写？**
 
 **1. 选择 Triton 的场景**
 
