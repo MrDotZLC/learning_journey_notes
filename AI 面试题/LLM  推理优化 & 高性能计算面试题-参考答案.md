@@ -4131,7 +4131,7 @@ SM Active 30% 同时检查 Occupancy。若 Occupancy 本身低（如 < 25%），
 
 ---
 
-**Q70-c. CUDA Graph 捕获的条件与限制？LLM 推理中动态 Batch Size 与 Graph Replay 如何共存？**
+#### **Q108. CUDA Graph 捕获的条件与限制？LLM 推理中动态 Batch Size 与 Graph Replay 如何共存？**
 
 **1. CUDA Graph 的核心价值**
 
