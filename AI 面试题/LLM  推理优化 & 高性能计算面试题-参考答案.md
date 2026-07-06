@@ -4339,16 +4339,16 @@ $$
 
 ---
 
-**Q72-c. Triton 在 Hopper 架构上的现状与 FlashAttention-3 为何仍选择 CUDA？**
+#### **Q112. Triton 在 Hopper 架构上的现状与 FlashAttention-3 为何仍选择 CUDA？**
 
 **1. Triton 对 Hopper 原语的支持现状（截至 2025 年上半年）**
 
-|Hopper 原语|功能|Triton 支持状态|
-|---|---|---|
-|TMA（Tensor Memory Accelerator）|异步批量 Global → Shared 搬运，解放 CUDA Core 地址计算|实验性（`tl.experimental_descriptor_load`），接口可能变动|
-|WGMMA（Warpgroup-level MMA）|以 Warpgroup（4 Warp = 128 线程）为单位执行矩阵乘，峰值算力更高|部分支持，仍有性能 Gap|
-|Warp Specialization|将 Warp 分为 Producer（搬运）和 Consumer（计算），形成软件流水|**无法直接表达**（Triton 以 Block 为粒度，无 Warp 级控制）|
-|`mbarrier`（异步 Barrier）|Producer/Consumer Warp 间的轻量级同步原语|**不支持**|
+| Hopper 原语                      | 功能                                          | Triton 支持状态                                   |
+| ------------------------------ | ------------------------------------------- | --------------------------------------------- |
+| TMA（Tensor Memory Accelerator） | 异步批量 Global → Shared 搬运，解放 CUDA Core 地址计算   | 实验性（`tl.experimental_descriptor_load`），接口可能变动 |
+| WGMMA（Warpgroup-level MMA）     | 以 Warpgroup（4 Warp = 128 线程）为单位执行矩阵乘，峰值算力更高 | 部分支持，仍有性能 Gap                                 |
+| Warp Specialization            | 将 Warp 分为 Producer（搬运）和 Consumer（计算），形成软件流水 | **无法直接表达**（Triton 以 Block 为粒度，无 Warp 级控制）     |
+| `mbarrier`（异步 Barrier）         | Producer/Consumer Warp 间的轻量级同步原语            | **不支持**                                       |
 
 **2. FlashAttention-3 选择 CUDA 的根本原因**
 
@@ -4372,7 +4372,7 @@ FlashAttention-3 的核心优化是：
 
 ---
 
-#### 1.1 Q73：100 QPS 推理服务设计
+#### **Q113. 100 QPS 推理服务设计**
 
 **需求澄清（面试中必须先问）：**
 
