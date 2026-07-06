@@ -4303,7 +4303,7 @@ TMA（Tensor Memory Accelerator）、`cp.async.bulk`、`mbarrier`、WGMMA 等原
 
 ---
 
-**Q72-b. Triton 的 `num_stages` 与 `num_warps` 超参数对性能的影响机制？**
+#### **Q111. Triton 的 `num_stages` 与 `num_warps` 超参数对性能的影响机制？**
 
 **1. `num_warps`：每个 Triton 程序实例使用的 Warp 数量**
 
