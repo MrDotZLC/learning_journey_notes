@@ -5000,11 +5000,11 @@ NodePool<RequestNode> pool(MAX_CONCURRENT_REQUESTS);
 
 ### 11.2 NUMA 与内存亲和性
 
-**Q79. NUMA 架构下内存分配对延迟的影响**
+#### **Q122. NUMA 架构下内存分配对延迟的影响**
 
 NUMA（Non-Uniform Memory Access）
 
-#### 1. NUMA 拓扑结构
+1. NUMA 拓扑结构
 
 ```
 双路服务器（2× Intel Xeon / AMD EPYC）示意：
@@ -5026,7 +5026,7 @@ nvidia-smi topo -m
 # 输出示例：GPU0 与 CPU 0 同属 NUMA Node 0（PHB 表示同 PCIe Host Bridge）
 ```
 
-#### 2. 对推理引擎的具体影响
+ 2. 对推理引擎的具体影响
 
 |场景|Remote NUMA 代价|
 |---|---|
@@ -5034,7 +5034,7 @@ nvidia-smi topo -m
 |Tokenizer / Sampler 线程运行在 Remote Node|内存访问延迟 +60–80ns/次|
 |KV Block 元数据（Block Table）分配在 Remote Node|Scheduler 每次查询 Page Table 代价翻倍|
 
-#### 3. NUMA 内存绑定方法
+3. NUMA 内存绑定方法
 
 ```cpp
 #include <numa.h>
@@ -5075,7 +5075,7 @@ if (numa_available() < 0) {
 }
 ```
 
-#### 4. 推理服务最佳实践
+4. 推理服务最佳实践
 
 ```bash
 # 查询 GPU–CPU NUMA 亲和关系
