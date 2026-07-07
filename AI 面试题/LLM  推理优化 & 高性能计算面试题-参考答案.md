@@ -4771,26 +4771,26 @@ $$\frac{x}{y} \approx \frac{T_P^{\text{wall}}}{T_D^{\text{wall}}} = \frac{2048 /
 
 ### 11.1 原子操作与内存序
 
-**Q77. `std::atomic` 的 Memory Order 模型**
+#### **Q120. `std::atomic` 的 Memory Order 模型**
 
-#### 1. 背景
+1. 背景
 
 现代 CPU（乱序执行）与编译器（指令重排）均会在不影响单线程语义的前提下重排内存访问顺序。`std::atomic` 的 Memory Order 参数精确控制原子操作周围的重排约束范围，是多线程程序正确性的基础。
 
-#### 1.1 六种 Memory Order 语义
+2. 六种 Memory Order 语义
 
-|Memory Order|语义|典型用途|
-|---|---|---|
-|`relaxed`|仅保证操作自身的原子性，不约束周围操作的重排|无序计数器、统计累加|
-|`consume`|仅对**数据依赖链**施加 Load-Acquire 约束；标准中存在但实现几乎等同 `acquire`，实践中**不推荐使用**|极少使用|
-|`acquire`|本操作之后的所有读写不得重排到本操作之前|加锁（读取锁变量）|
-|`release`|本操作之前的所有读写不得重排到本操作之后|解锁（写入锁变量）|
-|`acq_rel`|同时具备 acquire 与 release 语义|RMW 操作（`fetch_add` 等）|
-|`seq_cst`|全序一致：所有线程观察到相同的操作全局顺序|默认值，最强保证，开销最高|
+| Memory Order | 语义                                                                | 典型用途                  |
+| ------------ | ----------------------------------------------------------------- | --------------------- |
+| `relaxed`    | 仅保证操作自身的原子性，不约束周围操作的重排                                            | 无序计数器、统计累加            |
+| `consume`    | 仅对**数据依赖链**施加 Load-Acquire 约束；标准中存在但实现几乎等同 `acquire`，实践中**不推荐使用** | 极少使用                  |
+| `acquire`    | 本操作之后的所有读写不得重排到本操作之前                                              | 加锁（读取锁变量）             |
+| `release`    | 本操作之前的所有读写不得重排到本操作之后                                              | 解锁（写入锁变量）             |
+| `acq_rel`    | 同时具备 acquire 与 release 语义                                         | RMW 操作（`fetch_add` 等） |
+| `seq_cst`    | 全序一致：所有线程观察到相同的操作全局顺序                                             | 默认值，最强保证，开销最高         |
 
 > **关于 `consume`**：C++11 标准中 `consume` 仍合法，但主流编译器（GCC、Clang）将其提升为 `acquire` 实现，原因是精确跟踪数据依赖链的编译器实现极其复杂。标准委员会正在修订该语义（P0462）。
 
-#### 1.2 Acquire-Release 配对模式
+3. Acquire-Release 配对模式
 
 ```cpp
 // 生产者线程
@@ -4811,7 +4811,7 @@ void consumer() {
 
 **核心保证**：若消费者的 `acquire` 读取到生产者 `release` 写入的值，则生产者在 `release` 之前的所有写操作，对消费者在 `acquire` 之后均可见。这一关系称为 **synchronizes-with**。
 
-#### 1.3 各平台实际开销
+4. 各平台实际开销
 
 |Memory Order|x86-64|ARM64|
 |---|---|---|
@@ -4822,7 +4822,7 @@ void consumer() {
 
 **x86 开销量化**：`MFENCE` 本身约 **20–60 cycles**（@ 3 GHz ≈ 7–20 ns），但在多核高竞争下因需刷新 Store Buffer 并等待缓存一致性协议（MESI）完成，可达数十至上百纳秒。ARM64 上所有级别均需显式屏障，`seq_cst` 代价更为显著。
 
-#### 1.4 推理引擎实际应用
+5. 推理引擎实际应用
 
 |场景|Memory Order 选择|原因|
 |---|---|---|
@@ -4833,9 +4833,9 @@ void consumer() {
 
 ---
 
-**Q78. Lock-free Queue 的实现与 ABA 问题**
+#### **Q121. Lock-free Queue 的实现与 ABA 问题**
 
-#### 1. Michael-Scott Queue 核心思路
+1. Michael-Scott Queue 核心思路
 
 使用哨兵节点（Dummy Node）分离 `head`（出队端）与 `tail`（入队端）。入队通过 CAS 将新节点链入 `tail->next`，出队通过 CAS 推进 `head`。
 
