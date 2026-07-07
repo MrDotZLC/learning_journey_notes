@@ -4687,7 +4687,7 @@ $$\text{Total Latency} = \text{TTFT} + \text{OSL} \times \text{TPOT}$$
 
 ---
 
-#### 1.6 Q78-SD：多模型共享 GPU 集群的资源隔离设计
+#### Q118. 多模型共享 GPU 集群的资源隔离设计
 
 **场景：Dense 70B + MoE 8×7B 同时在线，8 × H100 单节点**
 
