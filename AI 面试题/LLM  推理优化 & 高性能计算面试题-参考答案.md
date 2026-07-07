@@ -4448,7 +4448,7 @@ $$\text{Tokens/s} = \frac{256}{0.012} \approx 21{,}000 \text{ tokens/s}, \quad \
 
 **③ Chunked Prefill Chunk Size 选择**
 
-P99 TTFT < 500ms，Chunk Size = 512 tokens 时单 Chunk Prefill 约 15–20 ms（W8A8，50% MFU）。最大 ISL = 2048 tokens 需 4 个 Chunk，TTFT ≤ $4 \times 20 + \text{排队时延} \approx 100\text{–}150 \text{ ms} \ll 500 \text{ ms}$，满足 SLA。
+P99 TTFT < 500ms，Chunk Size = 512 tokens 时单 Chunk Prefill 约 15–20 ms（W8A8，50% MFU）。最大 ISL = 2048 tokens 需 4 个 Chunk，$TTFT ≤ 4 \times 20 + \text{排队时延} \approx 100\text{–}150 \text{ ms} \ll 500 \text{ ms}$，满足 SLA。
 
 **④ CUDA Graph 启用**
 
@@ -4465,7 +4465,7 @@ Decode 阶段将 Batch Size 离散化为 2 的幂次（1, 2, 4, …, 256），�
 
 ---
 
-#### 1.2 Q74：8 × H100 部署 70B 模型的并行策略
+#### Q114. 8 × H100 部署 70B 模型的并行策略
 
 **显存需求分析：**
 
