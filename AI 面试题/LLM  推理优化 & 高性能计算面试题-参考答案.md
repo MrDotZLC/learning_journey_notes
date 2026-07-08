@@ -5544,7 +5544,7 @@ void handle_request(const BatchInput& input) {
 
 ### 11.7 推理引擎专项：CUDA 同步
 
-**Q84-CPP. CUDA Stream 与 Host 线程的同步机制**
+#### **Q127. CUDA Stream 与 Host 线程的同步机制**
 
 1. 三种同步方式对比
 
