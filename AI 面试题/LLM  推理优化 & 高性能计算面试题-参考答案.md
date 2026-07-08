@@ -1225,7 +1225,7 @@ RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位�
 
 #### **Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？**
 
-##### 1. 朴素 KV Cache 的碎片化问题
+1. 朴素 KV Cache 的碎片化问题
 
 朴素实现中，为每个请求**预分配连续显存**存放 KV Cache，大小为最大序列长度 $S_{\max}$：
 
@@ -1241,7 +1241,7 @@ $$M_{\text{alloc}} = 2 \times 32 \times 32 \times 128 \times 4096 \times 2 \appr
 2. **External Fragmentation（外部碎片）：** 不同长度的请求释放后产生零散空洞，无法被新请求利用。
 3. **Over-reservation（过度预留）：** 推理时序列长度未知，必须保守预留，进一步降低并发度。
 
-##### 2. PagedAttention 的分页机制
+4. PagedAttention 的分页机制
 
 借鉴操作系统虚拟内存的分页思想：将 KV Cache 切分为固定大小的**物理块（Block）**，每块存放 $B$ 个 Token 的 KV（$B$ 典型值为 16）。每个请求维护一张**块表（Block Table）**，记录逻辑块号到物理块号的映射。
 
@@ -1277,7 +1277,7 @@ Kernel 循环遍历所有物理块，在每块内做局部 Attention（类似 Fl
 
 多个请求共享同一 Prefix 时，其逻辑块可映射到**同一物理块**（引用计数 > 1）。当某请求需写入新 Token 时，触发 CoW：分配新物理块，复制内容，更新块表。这使 Prefix Caching 的显存开销为零（直到分叉点才复制）。
 
-##### 3. 额外开销：
+3. 额外开销：
 
 **① Block Table 查找开销：**
 
@@ -1307,7 +1307,7 @@ Block Table 本身占用极小（每个 Block 一个 int32，序列 4096 tokens 
 
 **实践结论：** vLLM 的测量表明，PagedAttention 相比连续 KV 的 Attention Kernel 性能损失约 **10–20%**，但其带来的内存利用率提升（从 20–40% 提升至 ~90%+）远超该开销，整体吞吐显著提升。
 
-##### **4. Block 大小 $B$ 的选择权衡**
+**4. Block 大小 $B$ 的选择权衡**
 
 | $B$ 值       | 优点               | 缺点                             |
 | ----------- | ---------------- | ------------------------------ |
@@ -5028,11 +5028,11 @@ nvidia-smi topo -m
 
  2. 对推理引擎的具体影响
 
-|场景|Remote NUMA 代价|
-|---|---|
-|GPU DMA 读取 Host Buffer|PCIe 传输带宽下降 **30–50%**（需跨 UPI）|
-|Tokenizer / Sampler 线程运行在 Remote Node|内存访问延迟 +60–80ns/次|
-|KV Block 元数据（Block Table）分配在 Remote Node|Scheduler 每次查询 Page Table 代价翻倍|
+| 场景                                       | Remote NUMA 代价                 |
+| ---------------------------------------- | ------------------------------ |
+| GPU DMA 读取 Host Buffer                   | PCIe 传输带宽下降 **30–50%**（需跨 UPI） |
+| Tokenizer / Sampler 线程运行在 Remote Node    | 内存访问延迟 +60–80ns/次              |
+| KV Block 元数据（Block Table）分配在 Remote Node | Scheduler 每次查询 Page Table 代价翻倍 |
 
 3. NUMA 内存绑定方法
 
@@ -5095,20 +5095,18 @@ numactl --membind=1 --cpunodebind=1 ./inference_worker --gpu=4,5,6,7 &
 
 ### 11.3 Zero-copy 传输
 
-**Q80. Zero-copy DMA 传输的实现原理**
+#### **Q123. Zero-copy DMA 传输的实现原理**
 
-#### 1. 问题根源：Pageable Memory 的隐式拷贝
-
+1. 问题根源：Pageable Memory 的隐式拷贝
+   
 标准 `malloc` 分配的**可分页内存（Pageable Memory）** 受 OS 虚拟内存管理，页面随时可能被换出（Swap）。GPU DMA 引擎需要稳定的物理地址，因此 CUDA 运行时在执行 `cudaMemcpy` 时会：
-
-1. 在内部维护一个临时的**页锁定（Pinned）中转 Buffer**
-2. 先将数据从用户 Pageable Buffer 拷贝到 Pinned Buffer（CPU 操作）
-3. 再由 DMA 引擎从 Pinned Buffer 传输到 GPU（PCIe DMA）
-
+	   1. 在内部维护一个临时的**页锁定（Pinned）中转 Buffer** 
+	   2. 先将数据从用户 Pageable Buffer 拷贝到 Pinned Buffer（CPU 操作）
+	   3. 再由 DMA 引擎从 Pinned Buffer 传输到 GPU（PCIe DMA）
 这导致**两次内存拷贝**，CPU 内存带宽成为瓶颈。
 
-#### 2. Pinned Memory：消除中转拷贝
-
+2. Pinned Memory：消除中转拷贝
+   
 `cudaHostAlloc` 通过 `mlock` 系统调用将内存**锁定在物理内存**，OS 不得将其换出，DMA 引擎可直接访问。
 
 ```cpp
@@ -5131,7 +5129,7 @@ cudaMemcpy(d_ptr, pinned, size, cudaMemcpyHostToDevice);
 cudaFreeHost(pinned);
 ```
 
-#### 3. 实测带宽对比
+3. 实测带宽对比
 
 以下数据基于 **PCIe 4.0 x16**（理论带宽约 32 GB/s 单向）：
 
@@ -5143,7 +5141,7 @@ cudaFreeHost(pinned);
 
 > **PCIe 5.0 x16 修正**：PCIe 5.0 x16 理论单向带宽约 **64 GB/s**，H100 SXM5 使用 NVLink + HBM3 路径，GPU-to-GPU 直连带宽远高于 PCIe。若通过 PCIe 连接 CPU，实测 H2D 带宽约 **48–52 GB/s**（PCIe 5.0 x16 实测效率约 75–80%）。
 
-#### 4. 三种 `cudaHostAlloc` Flag 对比
+4. 三种 `cudaHostAlloc` Flag 对比
 
 | Flag                         | 行为                                                | 适用场景               |
 | ---------------------------- | ------------------------------------------------- | ------------------ |
@@ -5162,7 +5160,7 @@ cudaHostGetDevicePointer(&d_ptr, pinned, 0);  // 获取 GPU 侧地址
 // 适合访问频率极低的小型查表，不适合大矩阵计算
 ```
 
-#### 5. 大模型权重加载最优策略
+5. 大模型权重加载最优策略
 
 ```cpp
 // 服务启动时：预分配 Pinned Buffer，全生命周期复用（避免反复 cudaHostAlloc 开销）
@@ -5186,7 +5184,7 @@ for (int layer = 0; layer < num_layers; ++layer) {
 
 **Q81. 多线程推理服务中 Thread Pool 的设计与线程亲和性绑定**
 
-#### 1. 推理服务线程职责划分
+1. 推理服务线程职责划分
 
 |线程池|职责|线程数建议|CPU 绑定原则|
 |---|---|---|---|
@@ -5195,7 +5193,7 @@ for (int layer = 0; layer < num_layers; ++layer) {
 |CUDA Launch Pool|构建 Kernel 参数、提交 CUDA 命令到 Stream|1 线程/GPU|GPU 所在 Socket，固定到独占核心|
 |Sampler Pool|Top-k/Top-p CPU 端采样（若不 GPU 化）|4–8|任意，避免与 Scheduler 核心竞争|
 
-#### 2. Thread Pool 实现（C++17）
+2. Thread Pool 实现（C++17）
 
 ```cpp
 #include <numa.h>
@@ -5312,7 +5310,7 @@ private:
 };
 ```
 
-#### 3. CUDA Launch 线程的特殊处理
+3. CUDA Launch 线程的特殊处理
 
 ```cpp
 // CUDA Launch 线程：每 GPU 一个，独占物理核心，永不阻塞
@@ -5347,7 +5345,7 @@ public:
 
 **Q82. `mmap` vs `read`：大模型权重加载最优策略**
 
-#### 1. 两种 I/O 路径的数据流对比
+1. 两种 I/O 路径的数据流对比
 
 ```
 ── read() 路径 ──────────────────────────────────────────────────
@@ -5361,14 +5359,14 @@ NVMe SSD → DMA → 内核 Page Cache ← 用户指针直接映射
             若配合 Pinned Memory + DMA：可实现 Page Cache → GPU 直通
 ```
 
-#### 2. `O_DIRECT` 与 `mmap` 的语义冲突
+2. `O_DIRECT` 与 `mmap` 的语义冲突
 
 > ⚠️ **`O_DIRECT` 与 `mmap` 不可混用。** `O_DIRECT` 的语义是**绕过内核 Page Cache**，而 `mmap` 的实现依赖 Page Cache（`mmap` 将文件的 Page Cache 页面映射到用户地址空间）。在 Linux 上，对同一 `fd` 同时使用 `O_DIRECT` 和 `mmap` 会导致行为未定义（通常表现为 `mmap` 仍走 Page Cache 路径，`O_DIRECT` 写操作使 mmap 区域的内容不一致，或直接返回 `EINVAL`）。正确策略：
 > 
 > - **`mmap` 路径**：使用普通 `open()`，搭配 `madvise(MADV_SEQUENTIAL)` 指导预读
 > - **`O_DIRECT` 路径**：使用 `read()`/`pread()`，搭配用户态对齐 Buffer（512-byte 对齐），绕过 Page Cache 减少内存压力（适用于权重文件远大于 Page Cache 容量的情况）
 
-#### 3. 各方案性能对比
+3. 各方案性能对比
 
 | 方案                        | 拷贝次数（到用户态）                | 随机访问                  | 适用场景           |
 | ------------------------- | ------------------------- | --------------------- | -------------- |
@@ -5378,7 +5376,7 @@ NVMe SSD → DMA → 内核 Page Cache ← 用户指针直接映射
 | `O_DIRECT` + `pread()`    | 1（绕过 Page Cache）          | 需手动管理对齐 Buffer        | 内存受限环境         |
 | `mmap()` + `cudaMemcpy`   | 0（Page Cache → GPU DMA）   | $O(1)$                | **推荐：权重加载主路径** |
 
-#### 4. 推荐实现：`mmap` + 异步 DMA
+4. 推荐实现：`mmap` + 异步 DMA
 
 ```cpp
 #include <sys/mman.h>
@@ -5439,7 +5437,7 @@ public:
 };
 ```
 
-#### 5. SafeTensors 格式与 MoE Expert 懒加载
+5. SafeTensors 格式与 MoE Expert 懒加载
 
 SafeTensors 文件头部存储每个 Tensor 的名称、dtype、shape 和字节偏移（`data_offsets`）。结合 `mmap` + Demand Paging，可实现：
 
@@ -5467,7 +5465,7 @@ for expert_id in activated_experts:
 
 **Q83-CPP. `std::pmr` 在推理引擎中的应用**
 
-#### 1. 问题背景
+1. 问题背景
 
 推理引擎的请求处理路径中存在大量短生命周期的小对象（Token ID 数组、采样中间结果、Beam 路径节点等）。若使用全局 `new`/`delete`：
 
@@ -5475,7 +5473,7 @@ for expert_id in activated_experts:
 - **性能**：全局 Allocator 需加锁（glibc `ptmalloc` 的 Arena 机制），高并发下产生锁竞争
 - **延迟抖动**：`malloc` 的最坏情况延迟不可预测（可能触发 `sbrk`/`mmap`）
 
-#### 2. `std::pmr` 核心组件
+2. `std::pmr` 核心组件
 
 ```
 std::pmr::memory_resource（抽象基类）
@@ -5485,7 +5483,7 @@ std::pmr::memory_resource（抽象基类）
 └── 用户自定义（继承 do_allocate / do_deallocate / do_is_equal）
 ```
 
-#### 3. 请求级 Arena Allocator
+3. 请求级 Arena Allocator
 
 ```cpp
 #include <memory_resource>
@@ -5521,7 +5519,7 @@ void handle_request(const BatchInput& input) {
 }  // 函数返回时 ctx 析构，所有内存 O(1) 回收
 ```
 
-#### 4. 性能对比
+4. 性能对比
 
 |Allocator|分配延迟|释放延迟|碎片率|线程安全|
 |---|---|---|---|---|
@@ -5537,7 +5535,7 @@ void handle_request(const BatchInput& input) {
 
 **Q84-CPP. CUDA Stream 与 Host 线程的同步机制**
 
-#### 1. 三种同步方式对比
+1. 三种同步方式对比
 
 | 同步方式                                 | CPU 行为               | 延迟开销                 | 适用场景                     |
 | ------------------------------------ | -------------------- | -------------------- | ------------------------ |
@@ -5546,7 +5544,7 @@ void handle_request(const BatchInput& input) {
 | `cudaStreamAddCallback`              | 异步回调，CPU 不阻塞         | 有回调调度开销（约 5–20 μs）   | 非关键路径的结果通知               |
 | `cudaLaunchHostFunc`（推荐）             | 异步回调，在 Stream 队列顺序执行 | 最低（避免 Callback 线程切换） | 推理完成后触发下一请求入队            |
 
-#### 2. `cudaEvent` 实现 Prefill → Decode KV 同步
+2. `cudaEvent` 实现 Prefill → Decode KV 同步
 
 P/D 分离架构中，Prefill Kernel 写入 KV Cache 后，需通知 Decode 进程可以读取。使用 `cudaEvent` 实现**无需 CPU 中介**的 GPU-to-GPU 同步：
 
@@ -5579,7 +5577,7 @@ launch_decode_kernel(stream_decode, ...);  // 保证在 KV 写入完成后执行
 
 **关键优势**：`cudaStreamWaitEvent` 是 **GPU-side wait**，CPU 线程不阻塞。Decode Kernel 在 GPU 内部等待 Event，CPU 可继续处理其他请求的调度逻辑。
 
-#### 3. `cudaLaunchHostFunc` 触发下一批请求
+3. `cudaLaunchHostFunc` 触发下一批请求
 
 ```cpp
 // 回调函数在 CPU 端执行，但在 Stream 队列中有序触发
@@ -5605,7 +5603,7 @@ cudaLaunchHostFunc(stream, [](void* arg) {
 
 **Q85-CPP. `cudaIpcMemHandle`：跨进程显存共享**
 
-#### 1. 应用场景
+1. 应用场景
 
 P/D 分离架构中，Prefill 进程与 Decode 进程部署在**同一节点**的不同 GPU 上（或同一 GPU 的不同 CUDA Context）。KV Cache 传递路径：
 
@@ -5616,7 +5614,7 @@ P/D 分离架构中，Prefill 进程与 Decode 进程部署在**同一节点**�
 |GPUDirect RDMA（跨节点）|~50–100 GB/s（200G IB）|~5–30 μs|跨节点|
 |TCP/IP（跨节点降级）|~10–25 GB/s|~50–500 μs|无 RDMA 环境|
 
-#### 2. `cudaIpcMemHandle` 零拷贝共享实现
+2. `cudaIpcMemHandle` 零拷贝共享实现
 
 ```cpp
 // ---- Prefill 进程（生产者）----
@@ -5653,7 +5651,7 @@ launch_decode_kernel(stream, kv_cache_remote, ...);
 cudaIpcCloseMemHandle(kv_cache_remote);
 ```
 
-#### 3. 与 RDMA 路径的边界
+3. 与 RDMA 路径的边界
 
 |条件|推荐路径|
 |---|---|
@@ -5670,7 +5668,7 @@ cudaIpcCloseMemHandle(kv_cache_remote);
 
 **Q86-CPP. CPU 内存序与 GPU Kernel 启动的混合并发正确性**
 
-#### 1. 问题场景
+1. 问题场景
 
 推理引擎的典型线程模型：
 
@@ -5687,7 +5685,7 @@ cudaIpcCloseMemHandle(kv_cache_remote);
 
 **潜在 Bug**：若调度线程写入 Block Table 指针使用 `relaxed`，CUDA Launch 线程可能读到旧值（NULL 或上一请求的 Block 地址），导致 GPU Kernel 访问错误显存。
 
-#### 2. 正确的内存序配对
+2. 正确的内存序配对
 
 ```cpp
 // ---- 共享数据结构 ----
@@ -5740,7 +5738,7 @@ void CUDALaunchThread::launch_loop() {
 }
 ```
 
-#### 3. GPU-side 一致性
+3. GPU-side 一致性
 
 `cudaMemcpyAsync` 本身保证：在提交到 Stream 之前，CPU 对 `table` 的写入对该次 `cudaMemcpyAsync` 读取可见（CPU→GPU 路径通过 PCIe 总线，硬件保证传输的是 `cudaMemcpyAsync` 调用时的内存快照）。因此：
 
@@ -8573,7 +8571,7 @@ $$\text{Score} = w_1 \cdot \frac{\text{TTFT\_target}}{\text{TTFT\_actual}} + w_2
 
 #### Q114. Vision Encoder 输出 Token 数量对 Prefill 显存和计算的影响
 
-##### 1. ViT 的 Patch Token 化原理
+1. ViT 的 Patch Token 化原理
 
 Vision Transformer（ViT）将输入图像划分为固定大小的 Patch，每个 Patch 线性投影为一个 Token 向量。
 
@@ -8583,7 +8581,7 @@ $$N_{\text{patch}} = \left(\frac{H}{p}\right) \times \left(\frac{W}{p}\right) = 
 
 加上 CLS Token 后共 **257 个 ViT 内部 Token**。在 LLaVA-style 架构中，CLS Token 通常被丢弃，MLP Projector 仅将 256 个 Patch Token 映射至 LLM 词嵌入空间，因此注入 LLM 的 Image Token 数 $= 256$。
 
-##### 2. 高分辨率 VLM 的 Image Token 膨胀
+2. 高分辨率 VLM 的 Image Token 膨胀
 
 现代 VLM 通过两种路径大幅增加 Image Token 数以提升细粒度视觉理解能力：
 
@@ -8603,7 +8601,7 @@ $$N_{\text{visual}} = \frac{H \times W}{p^2}$$
 
 Qwen2-VL 使用 $p = 14$，一张 $1344 \times 1344$ 的图片产生 $\left(\frac{1344}{14}\right)^2 = 9216$ 个 Patch Token，再经 $2 \times 2$ Spatial Merge（相当于 $28 \times 28$ 有效 Patch Size）降为 **2304 个 Image Token**。Qwen2-VL 可配置 `min_pixels` 至 `max_pixels`（默认范围 4~16384 Token），提供精度-速度显式权衡。
 
-##### 3. 对 Prefill 显存的量化推导
+3. 对 Prefill 显存的量化推导
 
 Image Token 在 LLM 层产生 KV Cache，与文本 Token 无本质差别：
 
@@ -8615,7 +8613,7 @@ $$M_{\text{KV,img}} = 2 \times 32 \times 8 \times 128 \times 2880 \times 2 \appr
 
 若同一请求还有 1024 个文本 Token，图片 KV 已占总 KV Cache 的 $2880 / (2880 + 1024) \approx 74\%$。
 
-##### 4. 对 Prefill 计算量（FLOPs）的影响
+4. 对 Prefill 计算量（FLOPs）的影响
 
 Prefill 阶段的 Attention FLOPs 与序列长度 $S$ 满足：
 
@@ -8627,7 +8625,7 @@ Image Token 的引入将有效序列长度从 $S_{\text{text}}$ 扩展至 $S_{\t
 
 #### Q114-b. 动态分辨率的工程实现
 
-##### 1. 变长序列的 Batch 打包（Sequence Packing）
+1. 变长序列的 Batch 打包（Sequence Packing）
 
 动态分辨率导致同一 Batch 内各请求的 Image Token 数不同。两种处理策略：
 
@@ -8635,7 +8633,7 @@ Image Token 的引入将有效序列长度从 $S_{\text{text}}$ 扩展至 $S_{\t
 
 **Packing 策略（Sequence Packing / Variable Length Attention）**：将多个不等长序列拼接为单个长序列，通过 Attention Mask（Causal Diagonal Block 结构）确保序列间不相互注意。FlashAttention-2 / FlashAttention-3 的 `varlen` 接口（`flash_attn_varlen_func`）原生支持此模式，无需 Padding 开销。
 
-##### 2. ViT 计算量与分辨率的关系
+2. ViT 计算量与分辨率的关系
 
 ViT 自注意力计算量与 Patch 数 $N_p$ 的关系：
 
@@ -8664,7 +8662,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 #### Q115. Image Token 与 Text Token 的差异化 KV Cache 策略
 
-##### 1. Image Token 在 LLM 层的注意力行为
+1. Image Token 在 LLM 层的注意力行为
 
 实验观察（FastV，ECCV 2024）表明：
 
@@ -8673,7 +8671,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 这一现象支撑了一个核心判断：**深层的绝大多数 Image Token KV 是冗余的**，可被安全丢弃。
 
-##### 2. FastV（ECCV 2024 Oral）
+2. FastV（ECCV 2024 Oral）
 
 **核心思路**：在第 $K$（典型值 $K=2$）层之后，依据 CLS Token 或 Text Token 对 Image Token 的 Attention Score 排序，保留 Top-$r\%$（典型值 $r=50$）的 Image Token，丢弃其余 Image Token 的 KV，后续层不再计算这些 Token 的注意力。
 
@@ -8681,7 +8679,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 **与 KV Cache 的兼容性**：FastV 的动态剪枝需要在每个 Decode 步骤重新计算注意力图以确定保留哪些 Image Token KV，这与静态 KV Cache 存在冲突。静态 KV Pruning 变体（剪枝一次、后续复用）可获得约 8% 的额外显存节省，但会因"Decode 步重用了首次 Prefill 时的剪枝决策"引入轻微精度损失。
 
-##### 3. SparseVLM（ICML 2025）
+3. SparseVLM（ICML 2025）
 
 **与 FastV 的根本区别**：FastV 使用 CLS Token 或固定层的 Attention Score 进行文本无关（Text-agnostic）剪枝；SparseVLM 从自注意力矩阵中提取**文本 Token 对视觉 Token 的注意力权重**（Text-aware），根据问题 Prompt 的语义动态选择保留哪些 Image Token，使剪枝具有任务感知能力。
 
@@ -8691,7 +8689,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 #### Q115-b. Image Token 的 Prefix Caching 可行性
 
-##### 1. 理论可行性
+1. 理论可行性
 
 对于纯文本 LLM，Prefix Caching 依赖同一 Token 序列在相同绝对位置产生相同的 KV。Image Token 满足此条件当且仅当：
 
@@ -8702,7 +8700,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 若图片被插入到不同上下文位置（绝对 offset 改变），其 Image Token 的 Q/K 旋转相位不同，KV Cache **不可跨位置复用**（需重算）。动态插入 RAG 文档会导致后续图片 Token 的绝对 offset 整体偏移，使缓存失效——与纯文本场景的影响机制相同。
 
-##### 2. VLCache（2025）的实现思路
+2. VLCache（2025）的实现思路
 
 VLCache 将 ViT 编码输出（Vision Encoder 特征向量）与 LLM 层 KV Cache 分开存储。对于相同图片的多次查询：
 
@@ -8729,7 +8727,7 @@ $$M_{\text{KV,video}} = 2 \times 32 \times 8 \times 128 \times 16384 \times 2 \a
 
 #### Q116. Chunked Prefill 的 Chunk Size 调整策略
 
-##### 1. Image Token 不可拆分的根本原因
+1. Image Token 不可拆分的根本原因
 
 标准文本 Chunked Prefill 可在任意 Token 边界切分序列。Image Token 存在以下约束：
 
@@ -8743,7 +8741,7 @@ $$C \geq N_{\text{img\_tile}} = \left(\frac{H_{\text{tile}}}{p}\right)^2$$
 
 对 Qwen2-VL 高分辨率输入（单张 2304 Token）：$C \geq 2304$，远超常规推荐值（512）。
 
-##### 2. 图片感知（Image-aware）Chunking 策略
+2. 图片感知（Image-aware）Chunking 策略
 
 设请求序列为：$[\text{System Prompt}] + [\text{Image}_1: N_1 \text{ Token}] + [\text{Text}_1] + [\text{Image}_2: N_2 \text{ Token}] + [\text{Text}_2]$
 
@@ -8755,7 +8753,7 @@ Image-aware Chunking 规则：
 
 **对调度器的影响**：调度器需感知每个 Chunk 内 Image Token 数量，与纯文本 Chunked Prefill 的等分逻辑不同，需要基于语义单元（Semantic Unit）的 Chunk 划分。
 
-##### 3. TTFT vs. TPOT 的双向约束
+3. TTFT vs. TPOT 的双向约束
 
 设 Decode 吞吐目标为 TPOT SLO $\tau$（毫秒/Token），则每个 Decode Step 可容忍的 Prefill 抢占时间为 $\tau$。一次 Image Chunk 的前向时延 $T_{\text{img}}$ 需满足：
 
@@ -8795,7 +8793,7 @@ vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal i
 
 #### Q117-VLM. 多模态位置编码（M-RoPE）的推理影响
 
-##### 1. M-RoPE 的分解结构
+1. M-RoPE 的分解结构
 
 Qwen2-VL 的 Multimodal Rotary Position Embedding 将标量位置 $m$ 分解为三个独立维度：
 
@@ -8816,7 +8814,7 @@ $$\mathbf{q}_m = \text{concat}\!\left[\mathbf{q}^{(t)} e^{i t_m \theta}, \; \mat
 
 #### Q118-VLM. VLM 中混合模态批处理的 Attention Mask 结构
 
-##### 1. 混合 Causal Mask 设计
+1. 混合 Causal Mask 设计
 
 VLM 的标准 Attention Mask 规则：
 
@@ -8831,7 +8829,7 @@ $$M = \begin{pmatrix} \mathbf{1}_{N \times N} & \mathbf{0}_{N \times L_T} \\ \ma
 
 其中 $\mathbf{1}_{N \times N}$ 为全 1 矩阵（图片内全注意力），$\mathbf{0}_{N \times L_T}$ 为零矩阵（图片不看未来文本），$\mathbf{1}_{L_T \times N}$ 表示文本 Token 对所有图片 Token 可见，$\text{Causal}_{L_T \times L_T}$ 为下三角矩阵。
 
-##### 2. FlashAttention 对非标准 Mask 的支持
+2. FlashAttention 对非标准 Mask 的支持
 
 FlashAttention-2 的 `varlen` 接口通过 `cu_seqlens` 参数区分不同子序列的边界，但对图片 Token 内全注意力的支持需要指定 `causal=False` 区段，目前工程实现通常通过以下方式处理：
 
