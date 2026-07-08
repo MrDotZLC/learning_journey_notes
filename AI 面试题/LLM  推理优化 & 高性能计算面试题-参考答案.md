@@ -4916,7 +4916,7 @@ private:
 };
 ```
 
-#### 2. ABA 问题
+2. ABA 问题
 
 CAS 仅比较指针的数值，无法感知指针指向内容的语义变化。
 
@@ -4930,7 +4930,7 @@ T1: 恢复，CAS(head: A → A->next) 成功
     ——但 A 已是内容不同的新节点，逻辑错误
 ```
 
-#### 3. ABA 解决方案
+3. ABA 解决方案
 
 **方案一：Tagged Pointer（版本号指针）**
 
@@ -4991,7 +4991,7 @@ bool dequeue(T& val) {
 NodePool<RequestNode> pool(MAX_CONCURRENT_REQUESTS);
 ```
 
-#### 4. 推理引擎应用场景
+4. 推理引擎应用场景
 
 - **请求调度队列**：Tokenizer 线程 → Scheduler 线程，使用 MSQueue + 内存池，避免 Mutex 导致调度线程阻塞
 - **KV Block 空闲链表**：PagedAttention 中 Free Block Stack，操作频繁，Lock-free 可显著降低 P99 调度延迟
