@@ -5182,16 +5182,16 @@ for (int layer = 0; layer < num_layers; ++layer) {
 
 ### 11.4 线程池与亲和性
 
-**Q81. 多线程推理服务中 Thread Pool 的设计与线程亲和性绑定**
+#### **Q124. 多线程推理服务中 Thread Pool 的设计与线程亲和性绑定**
 
 1. 推理服务线程职责划分
 
-|线程池|职责|线程数建议|CPU 绑定原则|
-|---|---|---|---|
-|IO Pool|接收 gRPC/HTTP 请求、Tokenize、序列化返回|8–16|GPU 对应的 Local Socket|
-|Scheduler Pool|调度请求入队/出队、管理 KV Block、抢占决策|2–4（通常单线程避免竞争）|Local Socket，固定核心|
-|CUDA Launch Pool|构建 Kernel 参数、提交 CUDA 命令到 Stream|1 线程/GPU|GPU 所在 Socket，固定到独占核心|
-|Sampler Pool|Top-k/Top-p CPU 端采样（若不 GPU 化）|4–8|任意，避免与 Scheduler 核心竞争|
+| 线程池              | 职责                              | 线程数建议          | CPU 绑定原则              |
+| ---------------- | ------------------------------- | -------------- | --------------------- |
+| IO Pool          | 接收 gRPC/HTTP 请求、Tokenize、序列化返回  | 8–16           | GPU 对应的 Local Socket  |
+| Scheduler Pool   | 调度请求入队/出队、管理 KV Block、抢占决策      | 2–4（通常单线程避免竞争） | Local Socket，固定核心     |
+| CUDA Launch Pool | 构建 Kernel 参数、提交 CUDA 命令到 Stream | 1 线程/GPU       | GPU 所在 Socket，固定到独占核心 |
+| Sampler Pool     | Top-k/Top-p CPU 端采样（若不 GPU 化）   | 4–8            | 任意，避免与 Scheduler 核心竞争 |
 
 2. Thread Pool 实现（C++17）
 
