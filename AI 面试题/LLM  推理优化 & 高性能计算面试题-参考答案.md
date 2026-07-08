@@ -5475,6 +5475,17 @@ for expert_id in activated_experts:
 
 2. `std::pmr` 核心组件
 
+`std::pmr`（**Polymorphic Memory Resource**）是 **C++17** 引入的**多态内存资源库**，位于头文件：
+
+```cpp
+#include <memory_resource>
+```
+
+它的核心思想是：
+
+> **将"内存从哪里分配"与"容器如何使用内存"解耦，减少 `malloc/free` 调用。。**
+> 申请一个大 Buffer，所有内存请求都从 Buffer 中切一块，析构时，整个 Buffer 一次释放。 
+
 ```
 std::pmr::memory_resource（抽象基类）
 ├── std::pmr::monotonic_buffer_resource   // 只分配不释放，析构时一次性回收
