@@ -5833,7 +5833,7 @@ $$M_{\text{MoE}} = \underbrace{M_{\text{weights}}}_{\text{全量权重}} + \unde
 
 ---
 
-**Q83-c. Shared Expert 机制的设计动机与效果。**
+#### **Q132. Shared Expert 机制的设计动机与效果。**
 
 **定义：**
 
@@ -5859,7 +5859,7 @@ $$\mathcal{L}_{\text{balance}} = \alpha \cdot E_r \cdot \sum_{i=1}^{E_r} f_i \cd
 
 ---
 
-**Q84. Top-K Routing 的 Gating 函数实现：Softmax-based vs. Sigmoid-based，Expert Load Balancing Loss？**
+#### **Q133. Top-K Routing 的 Gating 函数实现：Softmax-based vs. Sigmoid-based，Expert Load Balancing Loss？**
 
 **Softmax-based Gating（标准 MoE，如 GShard、Switch Transformer）：**
 
