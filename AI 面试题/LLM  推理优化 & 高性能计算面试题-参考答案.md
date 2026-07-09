@@ -5618,12 +5618,12 @@ cudaLaunchHostFunc(stream, [](void* arg) {
 
 P/D 分离架构中，Prefill 进程与 Decode 进程部署在**同一节点**的不同 GPU 上（或同一 GPU 的不同 CUDA Context）。KV Cache 传递路径：
 
-|传输路径|带宽|延迟|适用条件|
-|---|---|---|---|
-|GPU IPC（同一 GPU 不同进程）|~900 GB/s（HBM 带宽）|~1–5 μs|同 GPU，不同进程|
-|NVLink（同节点不同 GPU）|200–600 GB/s（NVLink 4）|~5–20 μs|同节点，NVLink 直连|
-|GPUDirect RDMA（跨节点）|~50–100 GB/s（200G IB）|~5–30 μs|跨节点|
-|TCP/IP（跨节点降级）|~10–25 GB/s|~50–500 μs|无 RDMA 环境|
+| 传输路径                 | 带宽                     | 延迟         | 适用条件          |
+| -------------------- | ---------------------- | ---------- | ------------- |
+| GPU IPC（同一 GPU 不同进程） | ~900 GB/s（HBM 带宽）      | ~1–5 μs    | 同 GPU，不同进程    |
+| NVLink（同节点不同 GPU）    | 200–600 GB/s（NVLink 4） | ~5–20 μs   | 同节点，NVLink 直连 |
+| GPUDirect RDMA（跨节点）  | ~50–100 GB/s（200G IB）  | ~5–30 μs   | 跨节点           |
+| TCP/IP（跨节点降级）        | ~10–25 GB/s            | ~50–500 μs | 无 RDMA 环境     |
 
 2. `cudaIpcMemHandle` 零拷贝共享实现
 
@@ -5641,7 +5641,7 @@ ipc_send(&mem_handle, sizeof(mem_handle));
 
 // 写入 KV Cache（Prefill Kernel 执行）
 launch_prefill_kernel(stream, kv_cache_d, ...);
-record_and_send_event(stream);   // 通知 Decode 侧数据就绪（见 Q84-CPP）
+record_and_send_event(stream);   // 通知 Decode 侧数据就绪（见 Q127）
 
 // ---- Decode 进程（消费者）----
 cudaIpcMemHandle_t mem_handle;
@@ -5653,7 +5653,7 @@ void* kv_cache_remote = nullptr;
 cudaIpcOpenMemHandle(&kv_cache_remote, mem_handle,
                      cudaIpcMemLazyEnablePeerAccess);
 
-wait_for_kv_ready_event();  // 等待 Prefill 写入完成（见 Q84-CPP）
+wait_for_kv_ready_event();  // 等待 Prefill 写入完成（见 Q127）
 
 // 直接读取 Prefill 侧 KV Cache，零拷贝
 launch_decode_kernel(stream, kv_cache_remote, ...);
