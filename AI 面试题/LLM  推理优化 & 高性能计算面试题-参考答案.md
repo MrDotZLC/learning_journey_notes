@@ -5949,12 +5949,12 @@ $$C = \left\lfloor \text{CF} \times \frac{T \cdot k}{E} \right\rfloor$$
 
 **Capacity Factor 取值权衡：**
 
-|Capacity Factor|效果|代价|
-|---|---|---|
-|1.0|期望负载下零 Drop，但任何不均衡立即触发 Drop|鲁棒性差，实际 Drop 率随不均衡程度线性上升|
-|1.25（训练常用）|允许 25% 超载，Drop 率 < 1%（Batch 够大时）|每 Expert 预留 25% Buffer，显存多开 ~1.25×|
-|2.0（保守）|Drop 率趋近 0|显存和 Padding 计算浪费约 2×|
-|$\infty$（推理默认）|不 Drop 任何 Token，保证信息完整性|负载不均时慢 Expert 成为木桶效应瓶颈|
+| Capacity Factor | 效果                               | 代价                                 |
+| --------------- | -------------------------------- | ---------------------------------- |
+| 1.0             | 期望负载下零 Drop，但任何不均衡立即触发 Drop      | 鲁棒性差，实际 Drop 率随不均衡程度线性上升           |
+| 1.25（训练常用）      | 允许 25% 超载，Drop 率 < 1%（Batch 够大时） | 每 Expert 预留 25% Buffer，显存多开 ~1.25× |
+| 2.0（保守）         | Drop 率趋近 0                       | 显存和 Padding 计算浪费约 2×               |
+| $\infty$（推理默认）  | 不 Drop 任何 Token，保证信息完整性          | 负载不均时慢 Expert 成为木桶效应瓶颈             |
 
 **推理阶段的特殊处理：**
 
@@ -5969,7 +5969,7 @@ $$C = \left\lfloor \text{CF} \times \frac{T \cdot k}{E} \right\rfloor$$
 
 ---
 
-**Q86. EP 的核心通信模式：Two-shot All-to-All 的完整流程、通信量公式与延迟构成。**
+#### **Q135. EP 的核心通信模式：Two-shot All-to-All 的完整流程、通信量公式与延迟构成。**
 
 **EP 的数据流（$N$ 卡 EP，每卡持有 $E/N$ 个 Expert）：**
 
