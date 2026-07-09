@@ -5903,7 +5903,7 @@ $\alpha$ 典型值为 $10^{-2} \sim 10^{-3}$。
 
 ---
 
-**Q84-b. Expert 路由崩溃（Routing Collapse）的成因、检测与分布偏移。**
+#### **Q134. Expert 路由崩溃（Routing Collapse）的成因、检测与分布偏移。**
 
 **成因：**
 

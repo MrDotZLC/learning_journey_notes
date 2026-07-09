@@ -117,7 +117,7 @@ $$G_{\text{dense}}(\mathbf{x}) = \text{Softmax}(H(\mathbf{x})) = \frac{e^{H(\mat
 $$H'(\mathbf{x})_i = \begin{cases} H(\mathbf{x})_i & \text{if } i \in \text{TopK}(H(\mathbf{x}), k) \ -\infty & \text{otherwise} \end{cases}$$
 **再做 Softmax（对 $-\infty$ 项结果为 0）**：
 $$G(\mathbf{x}) = \text{Softmax}(H'(\mathbf{x}))$$
-$$G(\mathbf{x})_i = \begin{cases} \dfrac{e^{H(\mathbf{x})_i}}{\displaystyle\sum_{j \in \text{TopK}} e^{H(\mathbf{x})_j}} & \text{if } i \in \text{TopK} \[10pt] 0 & \text{otherwise} \end{cases}$$
+$$G(\mathbf{x})_i = \begin{cases} \dfrac{e^{H(\mathbf{x})_i}}{\displaystyle\sum_{j \in \text{TopK}} e^{H(\mathbf{x})_j}} & \text{if } i \in \text{TopK} \\ 0 & \text{otherwise} \end{cases}$$
 **性质**：
 - $\sum_{i=1}^{N} G(\mathbf{x})_i = 1$（概率归一）
 - 恰好 $k$ 个非零项
