@@ -5677,7 +5677,7 @@ cudaIpcCloseMemHandle(kv_cache_remote);
 
 ### 11.9 推理引擎专项：内存序与 GPU 调度
 
-**Q86-CPP. CPU 内存序与 GPU Kernel 启动的混合并发正确性**
+#### **Q129. CPU 内存序与 GPU Kernel 启动的混合并发正确性**
 
 1. 问题场景
 
@@ -5687,8 +5687,8 @@ cudaIpcCloseMemHandle(kv_cache_remote);
 [调度线程（CPU）]                [CUDA Launch 线程（CPU）]
     │                                    │
     ├─ 分配 KV Block（PagedAttention）    │
-    ├─ 写入 Block Table 指针             │
-    ├─ 将 BatchTask 放入无锁队列 ──────► ├─ 读取 BatchTask
+    ├─ 写入 Block Table 指针              │
+    ├─ 将 BatchTask 放入无锁队列 ──────►   ├─ 读取 BatchTask
     │                                    ├─ 读取 Block Table 指针
     │                                    └─ cudaMemcpyAsync 到 GPU
     │                                       launch_kernel(stream, block_table_d)
