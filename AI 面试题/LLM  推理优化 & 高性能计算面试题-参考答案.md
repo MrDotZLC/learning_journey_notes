@@ -5768,7 +5768,7 @@ void CUDALaunchThread::launch_loop() {
 
 ---
 
-**Q83. Dense 模型与 Sparse MoE 的计算量对比：单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？**
+#### **Q130. Dense 模型与 Sparse MoE 的计算量对比：单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？**
 
 **MoE 基本结构：**
 
@@ -5807,7 +5807,7 @@ $$\frac{\text{FLOPs}_{\text{MoE}}}{\text{FLOPs}_{\text{Dense}}} \approx \frac{k}
 
 ---
 
-**Q83-b. MoE 模型的显存占用构成分析：以 DeepSeek-V3 为例说明"显存-计算解耦"特性。**
+#### **Q131. MoE 模型的显存占用构成分析：以 DeepSeek-V3 为例说明"显存-计算解耦"特性。**
 
 **显存构成分解：**
 
