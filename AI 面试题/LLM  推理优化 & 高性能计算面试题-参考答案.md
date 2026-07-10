@@ -6164,7 +6164,7 @@ Compute:    [Q K V Proj]      [Attn Kernel] [O Proj]  [Expert FFN]
 
 ---
 
-**Q89. MoE 层的 GEMM 为什么是"非均匀矩阵乘"？如何用 GroupGEMM 处理？**
+#### **Q140. MoE 层的 GEMM 为什么是"非均匀矩阵乘"？如何用 GroupGEMM 处理？**
 
 **问题根源：**
 
