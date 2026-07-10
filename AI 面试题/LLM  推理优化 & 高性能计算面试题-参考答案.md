@@ -6306,7 +6306,7 @@ MoE 的稀疏性是 Expert 级别的：每个 Token 只激活 $k/E$ 比例的 Ex
 
 ---
 
-**Q90-b. MoE 模型的 Decode 阶段瓶颈分析与 "MoE Tax" 量化。**
+#### **Q144. MoE 模型的 Decode 阶段瓶颈分析与 "MoE Tax" 量化。**
 
 **Decode 阶段的计算退化：**
 
