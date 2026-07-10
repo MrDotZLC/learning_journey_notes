@@ -6350,7 +6350,7 @@ $$\text{MoE Tax} \approx \frac{t_{\text{A2A}} \times 2}{t_{\text{Dense Decode}}}
 
 ---
 
-**Q91. Prefill 与 Decode 的计算特性差异，以及传统混合部署的根本问题。**
+#### **Q145. Prefill 与 Decode 的计算特性差异，以及传统混合部署的根本问题。**
 
 **两阶段计算特性的根本差异：**
 
