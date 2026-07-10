@@ -6191,7 +6191,7 @@ Expert 255: 53 tokens
 
 **方案 2：GroupGEMM（CUTLASS `GemmGrouped`）**
 
-将所有 Expert 的输入按 Expert 排序拼接为 $[T \cdot k, d]$ 的连续缓冲区，通过 `problem_sizes` 数组记录每个 Expert 的 $[m_i, n, k]$，在单个 Kernel 内完成所有 Expert 的矩阵乘：
+将所有 Expert 的输入按 Expert 排序拼接为 $[T \cdot k, d]$ 的连续缓冲区，通过 `problem_sizes` 数组记录每个 Expert 的 $[m_i, n, k]$，在单个 Kernel 内完成所有 Expert 的矩阵乘，即一次 launch 所有 Expert 的小 GEMM：
 
 ```cpp
 // CUTLASS GemmGrouped 示意（伪代码）
