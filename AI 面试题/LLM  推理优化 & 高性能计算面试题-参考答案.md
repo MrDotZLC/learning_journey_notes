@@ -5981,8 +5981,8 @@ $$C = \left\lfloor \text{CF} \times \frac{T \cdot k}{E} \right\rfloor$$
          │
 ┌────────┴────────────────────────────┐
 │  All-to-All #1（Dispatch / Scatter）│
-│  每卡将本地 Token 按路由目标         │
-│  发送到对应 Expert 所在的卡          │
+│  每卡将本地 Token 按路由目标          │
+│  发送到对应 Expert 所在的卡           │
 └────────┬────────────────────────────┘
          │
   各卡执行本地 Expert FFN 计算
@@ -5991,7 +5991,7 @@ $$C = \left\lfloor \text{CF} \times \frac{T \cdot k}{E} \right\rfloor$$
 ┌────────┴────────────────────────────┐
 │  All-to-All #2（Combine / Gather）  │
 │  Expert 输出发回 Token 来源卡        │
-│  加权求和得到 MoE 层输出             │
+│  加权求和得到 MoE 层输出              │
 └────────┬────────────────────────────┘
          │
   每卡得到本地 Token 的完整 MoE 输出
@@ -6024,7 +6024,7 @@ Decode 阶段（$T=32$，小 Batch），通信量缩小 128 倍，但 NCCL 启�
 
 ---
 
-**Q86-b. EP All-to-All 与 Expert 计算的 Overlap 实现：DualPipe 方案分析。**
+#### **Q136. EP All-to-All 与 Expert 计算的 Overlap 实现：DualPipe 方案分析。**
 
 **Overlap 的基本思路：**
 
@@ -6056,7 +6056,7 @@ Decode 小 Batch 场景下：
 
 ---
 
-**Q86-c. EP 与 TP 共存时 KV Cache 布局与 P/D 分离的交互。**
+#### **Q137. EP 与 TP 共存时 KV Cache 布局与 P/D 分离的交互。**
 
 **KV Cache 的归属：**
 
@@ -6074,7 +6074,7 @@ KV Transfer 实质上是 TP 域之间的点对点传输（Prefill GPU $r$ → De
 
 ---
 
-**Q87. Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？**
+#### **Q138. Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？**
 
 **TP 与 EP 的计算-通信特性对比：**
 
@@ -6118,7 +6118,7 @@ elif 延迟极致优先（单请求低延迟）:
 
 ---
 
-**Q88. EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 在 N-D 并行中的调度。**
+#### **Q139. EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 在 N-D 并行中的调度。**
 
 **N-D 并行示例（TP=8，EP=4，共 32 卡，4 节点）：**
 
