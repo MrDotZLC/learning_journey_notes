@@ -6271,7 +6271,7 @@ PCIe 换入延迟远超 Expert 计算时间（~1–5 ms），**按需换入不�
 
 ---
 
-**Q90. Structured Sparsity（2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？**
+#### **Q143. Structured Sparsity（2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？**
 
 **2:4 结构化稀疏（NVIDIA Sparse Tensor Core，Ampere 及以后）：**
 
