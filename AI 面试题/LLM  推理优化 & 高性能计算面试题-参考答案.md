@@ -6472,12 +6472,12 @@ $$= 2 \times 80 \times 8 \times 128 \times 1024 \times 2 = 335{,}544{,}320 \text
 P GPU → NVSwitch（节点内） → D GPU
 ```
 
-| 参数                 | 数值        | 说明                                   |
-| ------------------ | --------- | ------------------------------------ |
-| 总线双向带宽             | 900 GB/s  | 单 GPU 至 NVSwitch 全部 18 条链路之和         |
-| GPU-to-GPU 点对点双向带宽 | ~300 GB/s | 经 NVSwitch 转发，与其他 GPU 共享 NVSwitch 端口 |
-| 单向可用带宽（P→D）        | ~150 GB/s |                                      |
-| 335 MB 传输时间        | ~2.2 ms   | $335 \text{ MB} / 150 \text{ GB/s}$  |
+| 参数                 | 数值        | 说明                                          |
+| ------------------ | --------- | ------------------------------------------- |
+| 总线双向带宽             | 900 GB/s  | 单 GPU 至 NVSwitch 全部 18 条链路之和                |
+| GPU-to-GPU 点对点双向带宽 | ~300 GB/s | 实测有效带宽，经 NVSwitch 转发，与其他 GPU 共享 NVSwitch 端口 |
+| 单向可用带宽（P→D）        | ~150 GB/s |                                             |
+| 335 MB 传输时间        | ~2.2 ms   | $335 \text{ MB} / 150 \text{ GB/s}$         |
 
 - 适合 P/D 同节点部署，延迟最低，但同节点 D 实例 KV Cache 长期驻留与 P 实例显存存在竞争。
 
@@ -6552,7 +6552,7 @@ $$\Delta t_{\text{正}} = \frac{335 \text{ MB}}{150 \text{ GB/s}} \approx 2.2 \t
 
 ---
 
-**Q93-c. NIXL 与 NCCL 的定位区别及 Scatter-Gather 优化。**
+#### **Q149. NIXL 与 NCCL 的定位区别及 Scatter-Gather 优化。**
 
 **通信模式对比：**
 
