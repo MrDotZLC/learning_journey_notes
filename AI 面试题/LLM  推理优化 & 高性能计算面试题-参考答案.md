@@ -6454,7 +6454,7 @@ NIXL 的核心技术特征：
 
 ---
 
-**Q93. KV Cache Transfer 的实现方式：三种传输路径的带宽与延迟量级。**
+#### **Q147. KV Cache Transfer 的实现方式：三种传输路径的带宽与延迟量级。**
 
 **KV Cache Transfer 的数据规模（以 LLaMA-3 70B GQA 为基准）：**
 
@@ -6487,12 +6487,12 @@ P GPU → NVSwitch（节点内） → D GPU
 P GPU HBM → RDMA NIC（绕过 CPU 和主机内存） → IB 网络 → RDMA NIC → D GPU HBM
 ```
 
-|参数|数值|说明|
-|---|---|---|
-|NDR InfiniBand 单端口带宽|~50 GB/s|400 Gb/s ≈ 50 GB/s|
-|HDR InfiniBand 单端口带宽|~25 GB/s|200 Gb/s ≈ 25 GB/s|
-|335 MB 传输时间（NDR）|~6.7 ms|$335 \text{ MB} / 50 \text{ GB/s}$|
-|端到端实际延迟|~5–20 ms|含 RDMA 连接建立、网络传播延迟|
+| 参数                   | 数值       | 说明                                 |
+| -------------------- | -------- | ---------------------------------- |
+| NDR InfiniBand 单端口带宽 | ~50 GB/s | 400 Gb/s ≈ 50 GB/s                 |
+| HDR InfiniBand 单端口带宽 | ~25 GB/s | 200 Gb/s ≈ 25 GB/s                 |
+| 335 MB 传输时间（NDR）     | ~6.7 ms  | $335 \text{ MB} / 50 \text{ GB/s}$ |
+| 端到端实际延迟              | ~5–20 ms | 含 RDMA 连接建立、网络传播延迟                 |
 
 - **生产主流选择**：P/D 分别部署在不同节点，彻底解耦显存竞争。
 - 前提：需要 GPUDirect RDMA 支持（NVIDIA OFED + RDMA-capable NIC）。
@@ -6523,7 +6523,7 @@ P GPU HBM → cudaMemcpy → CPU DRAM → TCP Socket → CPU DRAM → cudaMemcpy
 
 ---
 
-**Q93-b. NVLink 节点内传输带宽的正确理解。**
+#### **Q148. NVLink 节点内传输带宽的正确理解。**
 
 **关键区分：NVLink 总线带宽 vs. GPU-to-GPU 点对点带宽**
 
