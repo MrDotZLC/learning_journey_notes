@@ -2031,7 +2031,7 @@ Prefill 和 Decode 共享同一 GPU 时相互干扰：
 
 - P 节点专注大 Batch Prefill，持续高 MFU（Compute-bound 充分利用算力）。
 - D 节点专注大 Batch Decode，KV Cache 常驻，HBM 带宽充分利用。
-- P/D 实例数比例（xPyD Ratio）可根据负载动态调整（见 Q94）。
+- P/D 实例数比例（xPyD Ratio）可根据负载动态调整（见 Q150）。
 - 2025 年已成为所有主流推理框架（vLLM、SGLang、TRT-LLM、NVIDIA Dynamo）的默认部署模式。
 
 ---
@@ -6589,7 +6589,7 @@ PagedAttention Block 地址列表
 
 ---
 
-**Q94. xPyD Ratio 的推导与典型场景配比。**
+#### **Q150. xPyD Ratio 的推导与典型场景配比。**
 
 **符号定义：**
 
@@ -6635,7 +6635,7 @@ $$\boxed{\frac{x}{y} = \frac{r_D}{r_P} = \frac{R_D}{R_P} \cdot \frac{\text{ISL}}
 
 ---
 
-**Q94-b. 动态扩缩容与调度降级策略。**
+#### **Q151. 动态扩缩容与调度降级策略。**
 
 **触发阈值设计：**
 
