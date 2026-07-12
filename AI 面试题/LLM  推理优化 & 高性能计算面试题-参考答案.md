@@ -7167,9 +7167,9 @@ $$t_{\text{comm/step}} \approx \frac{67 \text{ MB}}{300 \text{ GB/s}} \approx 0.
 
 ---
 
-#### 8. Q102. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill
+#### Q164. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill
 
-**8.1 KV Cache 显存量化（LLaMA-3 70B，FP16，GQA）**
+**1. KV Cache 显存量化（LLaMA-3 70B，FP16，GQA）**
 
 $$M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times S \times b$$
 
@@ -7180,7 +7180,7 @@ $$M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times S \times b$$
 |128k|~16.0 GB|~3|
 |1M|~125 GB|<1（需分级存储）|
 
-**8.2 Chunked Prefill 的必要性**
+**2. Chunked Prefill 的必要性**
 
 128k tokens 的 Prefill 计算量约为：
 
@@ -7192,7 +7192,7 @@ $$t_{\text{prefill}} \approx \frac{2.2 \times 10^{17}}{7.9 \times 10^{15} \times
 
 若不拆分，TTFT 约 70 秒，完全不可接受。Chunked Prefill 将其拆分为若干 Chunk，每 Chunk 与 Decode 请求交错调度，将单步延迟控制在秒级。
 
-**8.3 Chunk Size 选择**
+**3. Chunk Size 选择**
 
 |Chunk Size|每 Chunk 耗时（估算）|GEMM 形状 M|Tensor Core 效率|Decode 阻塞|
 |---|---|---|---|---|
