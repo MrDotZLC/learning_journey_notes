@@ -6936,7 +6936,7 @@ __device__ void apply_rope(float* q, int pos, int head_dim, float base = 10000.f
 
 ---
 
-#### 2. Q98. RoPE 外推问题
+#### Q158. RoPE 外推问题
 
 **2.1 外推失效的根本原因**
 
@@ -6999,7 +6999,7 @@ Llama-3.1 使用此方案将上下文从 8k 扩展到 **128k**（配合长上下
 
 ---
 
-#### 3. Q99. ALiBi 与 RoPE 的外推能力对比
+#### Q159. ALiBi 与 RoPE 的外推能力对比
 
 **3.1 ALiBi 原理**
 
