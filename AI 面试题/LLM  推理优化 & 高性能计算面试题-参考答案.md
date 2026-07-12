@@ -7070,13 +7070,13 @@ $$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \
 
 ---
 
-#### 5. Q100. Ring Attention 原理
+#### Q161. Ring Attention 原理
 
-**5.1 动机**
+**1. 动机**
 
 序列长度 $N = 128\text{k}$ 时，Attention 计算需要 $O(N^2)$ FLOPs 和 $O(N \cdot d_{\text{KV}})$ 的 KV Cache，单卡 80 GB HBM 无法容纳单请求的完整 KV（见 Q102-KV 的量化分析）。
 
-**5.2 核心思路：序列分片 + P2P Ring 通信**
+**2. 核心思路：序列分片 + P2P Ring 通信**
 
 将序列 $[1, N]$ 沿序列维度切分到 $P$ 张 GPU，每卡持有 $N/P$ 个 Query 和对应 KV 分片。通过逻辑环形 P2P 通信轮流传递 KV 块：
 
@@ -7088,15 +7088,15 @@ $$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \
   4. 用 Online Softmax（保存每步的 max 和 sum）在 P 轮后合并得到最终输出
 ```
 
-**5.3 通信量分析**
+**3. 通信量分析**
 
-每轮每卡传输 $\frac{N}{P} \times H_{\text{KV}} \times d \times \text{sizeof}$ 字节，共 $P$ 轮：
+每轮每卡传输 $\frac{N}{P} \times H_{\text{KV}} \times d \times \text{sizeof}$ 字节，共 $P - 1$ 轮：
 
-$$V_{\text{comm/卡}} = P \times \frac{N}{P} \times H_{\text{KV}} \times d \times b = N \times H_{\text{KV}} \times d \times b$$
+$$V_{\text{comm/卡}} = (P - 1) \times \frac{N}{P} \times H_{\text{KV}} \times d \times b = N \times H_{\text{KV}} \times d \times b$$
 
-**通信量与 $P$ 无关**（类比 Ring-AllReduce 的带宽最优性），通信开销不随设备数增加而增大。
+当 P 远大于 1时，**通信量与 $P$ 无关**（类比 Ring-AllReduce 的带宽最优性），通信开销不随设备数增加而增大。
 
-**5.4 正确性保证（Causal Mask 场景）**
+**4. 正确性保证（Causal Mask 场景）**
 
 对于Causal Attention（Decoder-only 模型），每个 Query 只能 Attend 自身及之前的 Token，分布在不同卡上的 KV 块中只有部分与当前 Q 块有效。实现时通过 Mask 跳过无效 KV 块（GPU 编号 > 当前 Q 所在 GPU 的 KV 块），减少约一半的有效计算量：
 
@@ -7104,7 +7104,7 @@ $$\text{有效 FLOPs} \approx \frac{N^2 / 2}{P} \quad \text{（Causal Mask 下�
 
 ---
 
-#### 6. Q101. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别
+#### Q162. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别
 
 **6.1 核心区分**
 
