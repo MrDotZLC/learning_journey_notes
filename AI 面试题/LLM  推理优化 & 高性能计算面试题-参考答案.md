@@ -7028,11 +7028,11 @@ $$\text{score}_{m,n} = \frac{\mathbf{q}_m^T \mathbf{k}_n}{\sqrt{d}} - m_h \cdot 
 
 #### **Q160. RoPE 与 ALiBi 对 Prefix Caching 的兼容性差异**
 
-**4.1 问题背景**
+**1. 问题背景**
 
 Prefix Caching（前缀 KV 复用）的核心假设：相同前缀 Prompt 在不同请求间共享 KV Cache，避免重复计算。这要求**相同位置的相同 Token，其 KV 向量必须完全相同**（与请求中的其他 Token 无关）。
 
-**4.2 ALiBi 的天然兼容性**
+**2. ALiBi 的天然兼容性**
 
 ALiBi 不将位置信息嵌入 K/V 向量本身，而是在 Score 矩阵上加偏置。KV 向量只由 Token 内容决定，与位置无关，因此：
 
@@ -7040,7 +7040,7 @@ $$K_i = \mathbf{W}_K \mathbf{x}_i \quad \text{（与位置无关）}$$
 
 位置 $i$ 处 Token 的 KV 向量在任何请求中均相同，**Prefix Caching 无条件兼容**。
 
-**4.3 RoPE 的兼容性限制**
+**3. RoPE 的兼容性限制**
 
 RoPE 将旋转变换应用于 K 向量，KV 向量本身携带位置信息：
 
@@ -7056,7 +7056,7 @@ $$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \
 | 多轮对话历史拼接           | 每轮后续追加内容，历史部分位置不变，兼容         |
 | 动态插入新内容（如 RAG 文档）  | 插入点后的所有 Token 位置偏移，KV 缓存全部失效 |
 
-**4.4 工程实践**
+**4. 工程实践**
 
 实际系统（vLLM、SGLang）在使用 RoPE 模型时，通过以下策略维持 Prefix Caching 的高命中率：
 
