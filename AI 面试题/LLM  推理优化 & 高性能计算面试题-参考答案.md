@@ -6884,7 +6884,7 @@ P 实例因 KV 驻留时间极短，可将大部分 HBM 用于权重缓存和激
 
 位置编码需满足：Query 位置 $m$、Key 位置 $n$ 的内积结果仅依赖**相对位置差 $m - n$**，而非绝对位置，使模型对相对距离天然敏感。
 
-**1.1 核心思路：对向量施加位置相关的旋转变换**
+**1. 核心思路：对向量施加位置相关的旋转变换**
 
 将 $d$ 维向量视为 $d/2$ 对二维子向量，对第 $k$ 对子向量施加旋转角度 $m\theta_k$（$m$ 为 Token 的绝对位置）：
 
@@ -6894,7 +6894,7 @@ $$f_q(\mathbf{x}_m, m) = \mathbf{x}_m \odot e^{im\theta}, \quad \theta_k = 10000
 
 $$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \\ \sin m\theta_k & \cos m\theta_k \end{pmatrix}$$
 
-**1.2 内积推导（证明相对位置依赖性）：**
+**2. 内积推导（证明相对位置依赖性）：**
 
 位置 $m$ 的 Query 与位置 $n$ 的 Key 的内积：
 
@@ -6906,7 +6906,7 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 结果**只含 $(n-m)$**，与绝对位置 $m, n$ 无关，仅取决于相对位置差。
 
-**1.3 不同频率的 $\theta_k$（RoPE 的频率谱）**
+**3. 不同频率的 $\theta_k$（RoPE 的频率谱）**
 
 $$\theta_k = 10000^{-2k/d}, \quad k = 0, 1, \ldots, d/2 - 1$$
 
@@ -6917,7 +6917,7 @@ $$\theta_k = 10000^{-2k/d}, \quad k = 0, 1, \ldots, d/2 - 1$$
 
 底数 $10000$ 决定位置分辨率的上限（低频分量的周期约为 $2\pi \times 10000 / \theta_0 = 2\pi \times 10^4$，远超常规训练长度）。
 
-**1.4 高效实现（无需显式旋转矩阵）：**
+**4. 高效实现（无需显式旋转矩阵）：**
 
 ```cpp
 // 对向量的相邻两个元素分组，直接用复数乘法实现旋转
@@ -6938,7 +6938,7 @@ __device__ void apply_rope(float* q, int pos, int head_dim, float base = 10000.f
 
 #### **Q158. RoPE 外推问题**
 
-**2.1 外推失效的根本原因**
+**1. 外推失效的根本原因**
 
 训练时序列长度为 $L_{\text{train}}$（如 4096），位置编码的旋转角度范围为 $[0,\; L_{\text{train}} \times \theta_k]$。推理时若位置 $m > L_{\text{train}}$，某些高频分量（$\theta_k$ 大）的旋转角度超出训练分布，模型未见过这些角度组合，导致 Attention 计算失效（PPL 骤增）。
 
@@ -6946,7 +6946,7 @@ __device__ void apply_rope(float* q, int pos, int head_dim, float base = 10000.f
 
 ---
 
-**2.2 方案一：Linear Scaling（线性缩放）**
+**2. 方案一：Linear Scaling（线性缩放）**
 
 扩展因子 $s = L_{\text{target}} / L_{\text{train}}$，对所有频率等比缩小：
 
@@ -6958,7 +6958,7 @@ $$\theta_k' = \theta_k / s \quad \Leftrightarrow \quad m' = m / s$$
 
 ---
 
-**2.3 方案二：YaRN（Yet another RoPE extensioN，2023）**
+**3. 方案二：YaRN（Yet another RoPE extensioN，2023）**
 
 核心观察：不同频率外推难度不同，应差异化处理。将频率按波长 $\lambda_k = 2\pi / \theta_k$ 分为三组：
 
@@ -6972,7 +6972,7 @@ $$\text{score} = \frac{\mathbf{q}^T \mathbf{k}}{\sqrt{d} \cdot t}, \quad t = 0.1
 
 ---
 
-**2.4 方案三：Llama3 RoPE Scaling（2024）**
+**4. 方案三：Llama3 RoPE Scaling（2024）**
 
 Meta 采用**低频插值 + 高频保持**的混合方案，以平滑系数 $\alpha$ 过渡：
 
@@ -6984,7 +6984,7 @@ Llama-3.1 使用此方案将上下文从 8k 扩展到 **128k**（配合长上下
 
 ---
 
-**2.5 方案四：LongRoPE（2024）**
+**5. 方案四：LongRoPE（2024）**
 
 在 YaRN 基础上，通过在长序列数据上**搜索每个频率分量的最优非均匀缩放因子**（每维独立优化），进一步减少外推误差。引入两套位置编码（短上下文和长上下文各一套），推理时根据序列长度自动切换。
 
@@ -7001,7 +7001,7 @@ Llama-3.1 使用此方案将上下文从 8k 扩展到 **128k**（配合长上下
 
 #### **Q159. ALiBi 与 RoPE 的外推能力对比**
 
-**3.1 ALiBi 原理**
+**1. ALiBi 原理**
 
 不对 Q/K 向量添加位置信息，而是在 Attention Score 上直接加**线性惩罚项**：
 
@@ -7009,24 +7009,24 @@ $$\text{score}_{m,n} = \frac{\mathbf{q}_m^T \mathbf{k}_n}{\sqrt{d}} - m_h \cdot 
 
 其中 $m_h$ 为每个头固定的斜率（通过几何级数设定，不同头使用不同斜率）。
 
-**3.2 外推能力对比**
+**2. 外推能力对比**
 
-|维度|RoPE|ALiBi|
-|---|---|---|
-|外推原理|旋转角度超出训练范围则失效|线性惩罚天然适应任意长度|
-|外推上限|训练长度（不修改时）|理论无界（PPL 缓慢上升）|
-|短程精度|高（精确编码相对位置方向与距离）|中（仅编码距离，损失方向信息）|
-|长程表现|需扩展策略|开箱即用|
-|与 KV Cache Prefix Caching 兼容性|受限（见 Q99-b）|天然兼容|
-|代表模型|Llama、Mistral、Qwen|MPT、BLOOM（部分）|
+| 维度                            | RoPE               | ALiBi           |
+| ----------------------------- | ------------------ | --------------- |
+| 外推原理                          | 旋转角度超出训练范围则失效      | 线性惩罚天然适应任意长度    |
+| 外推上限                          | 训练长度（不修改时）         | 理论无界（PPL 缓慢上升）  |
+| 短程精度                          | 高（精确编码相对位置方向与距离）   | 中（仅编码距离，损失方向信息） |
+| 长程表现                          | 需扩展策略              | 开箱即用            |
+| 与 KV Cache Prefix Caching 兼容性 | 受限（见 Q160）         | 天然兼容            |
+| 代表模型                          | Llama、Mistral、Qwen | MPT、BLOOM（部分）   |
 
-**3.3 工业界现状**
+**3. 工业界现状**
 
 当前主流选择为 **RoPE + 长上下文微调**（在长文本数据上继续训练数千步），是最可靠的方案。纯外推（零 Fine-tuning）的 YaRN 质量稍逊。ALiBi 因损失位置方向信息、表达能力略弱，在新的大规模预训练中使用减少。
 
 ---
 
-#### 4. Q99-b. RoPE 与 ALiBi 对 Prefix Caching 的兼容性差异（新增）
+#### **Q160. RoPE 与 ALiBi 对 Prefix Caching 的兼容性差异**
 
 **4.1 问题背景**
 
