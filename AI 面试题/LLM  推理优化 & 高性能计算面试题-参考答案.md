@@ -6707,30 +6707,7 @@ DeepSeek-V3 生产部署采用 P 节点 EP=320、D 节点 EP=32 的非对称配�
 
 ---
 
-#### **Q153. P/D 分离在 MoE 架构下的额外收益。**
-
-**两阶段 All-to-All 通信特性差异：**
-
-设 MoE 层共 $E$ 个 Expert，EP 度为 $D_E$（每 GPU 持有 $E/D_E$ 个 Expert），Batch 中 Token 数为 $B$，每 Token 激活 $k$ 个 Expert。
-
-单次 All-to-All 通信量（发送侧）：
-
-$$C_{\text{A2A}} = B \cdot k \cdot d_{\text{model}} \cdot \text{sizeof(dtype)} / D_E$$
-
-Prefill 阶段（$B$ 大）：$C_{\text{A2A}}$ 大，但 Expert FFN 计算时间（$T_{\text{compute}}$）也大，可通过 Micro-batch 流水线将 All-to-All 隐藏在计算后面（DualPipe 方案中 $T_{\text{compute}} \geq T_{\text{A2A}}$ 成立）。
-
-Decode 阶段（$B$ 小）：$C_{\text{A2A}}$ 小，但 $T_{\text{compute}}$ 也小（Expert GEMV），All-to-All 延迟占 Decode 总延迟比例高，难以 Overlap。
-
-**非对称 EP 配置的优势（以 DeepSeek-V3 为参考）：**
-
-|实例类型|EP 规模|每 GPU Expert 数|通信特性|优化目标|
-|---|---|---|---|---|
-|P 节点|EP=320（大）|少（Expert 分布广）|All-to-All 可大 Batch 充分 Overlap|最大化 Prefill 吞吐（MFU）|
-|D 节点|EP=32（小）|多（Expert 集中）|All-to-All 小 Batch 延迟短|最小化单步 Decode 延迟（TPOT）|
-
----
-
-**Q96. KV Cache Transfer 与 EP All-to-All 带宽竞争的缓解方案。**
+#### **Q153. KV Cache Transfer 与 EP All-to-All 带宽竞争的缓解方案。**
 
 **带宽竞争的根源：**
 
