@@ -268,6 +268,14 @@ $$
 $$
 - $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
 - $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。随着维度 $i$ 增大，频率 $\omega_i$ **指数级减小**，类比“d/2根角度相差指数倍的向量”。在注意力计算中，每个维度对在不同区间对注意力分数的贡献有正有负，一对维度只体现周期性的距离模式，多对=连续傅里叶基，分数累加=在相对距离轴上，用多对正弦基对 token-token 的距离关系做投影。总结，所有**维度对**体现了两个token的**相对位置**。
+
+|$k$ 大小|$\theta_k$ 大小|旋转速度|频率类型|编码的位置信息|
+|---|---|---|---|---|
+|小（$k \approx 0$）|大（$\approx 1$）|快|**高频**|短程相对位置|
+|大（$k \approx d/2$）|小（$\approx 10^{-4}$）|慢|**低频**|长程相对位置|
+
+底数 $10000$ 决定位置分辨率的上限（低频分量的周期约为 $2\pi \times 10000 / \theta_0 = 2\pi \times 10^4$，远超常规训练长度）。
+
 #### 3.2 工程公式
 公式里写的是“矩阵乘法”，但在 PyTorch 等实现中，它被等价地展开成了逐元素运算（Hadamard 运算 + 广播），从而避免显式构造旋转矩阵。
 
@@ -282,9 +290,9 @@ $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 这里：
 - $\odot$是逐元素乘法
 - $\cos\theta, \sin\theta \in \mathbb{R}^d$
-### 3.3 举例：x=[1,16,5,128]
+#### 3.3 举例：x=[1,16,5,128]
 ![](assets/Pasted%20image%2020260114054506.png)
-## 4. 注意力计算中的作用
+### 4. 注意力计算中的作用
 标准自注意力：
 $$
 \text{Attention}(Q, K, V) = \text{softmax}\Big(\frac{QK^T}{\sqrt{d}}\Big)V
@@ -299,8 +307,48 @@ $$
 - $Q'_i {K'_j}^T$ 自动包含 **相对位置 $i-j$** 信息  
 - 不依赖额外的相对位置矩阵  
 - 支持任意长度序列  
-## 5. 几何直觉
-### RoPE（旋转）
+
+### 5. 数学推导
+
+#### 1. 符号说明
+
+| 符号                         | 含义                  | 维度            |
+| -------------------------- | ------------------- | ------------- |
+| $\mathbf{x}_m$             | 第 (m) 个 Token 的输入向量 | (d)           |
+| $\mathbf{x}_n$             | 第 (n) 个 Token 的输入向量 | (d)           |
+| $\mathbf{W}_q$             | Query 投影矩阵          | (d_h\times d) |
+| $\mathbf{W}_k$             | Key 投影矩阵            | (d_h\times d) |
+| $\mathbf{q}_m$             | 第 (m) 个 Query       | (d_h)         |
+| $\mathbf{k}_n$             | 第 (n) 个 Key         | (d_h)         |
+| $H$                        | 共轭转置（Hermitian）     |               |
+| $\odot$                    | 按元素乘                |               |
+| $\operatorname{Re}(\cdot)$ | 取实部                 |               |
+| $i$                        | 虚数单位，满足 (i^2=-1)    |               |
+| $\theta$                   | 每一维对应的旋转频率          |               |
+
+#### 2. 核心思路：对向量施加位置相关的旋转变换
+
+将 $d$ 维向量视为 $d/2$ 对二维子向量，对第 $k$ 对子向量施加旋转角度 $m\theta_k$（$m$ 为 Token 的绝对位置）：
+
+$$f_q(\mathbf{x}_m, m) = \mathbf{x}_m \odot e^{im\theta}, \quad \theta_k = 10000^{-2k/d}$$
+
+其中复数乘法 $\odot e^{im\theta_k}$ 等价于对第 $k$ 对子向量施加旋转矩阵 $R(m\theta_k)$：
+$$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \\ \sin m\theta_k & \cos m\theta_k \end{pmatrix}$$
+
+#### 3. 内积推导（证明相对位置依赖性）
+
+位置 $m$ 的 Query 与位置 $n$ 的 Key 的内积：
+
+$$\mathbf{q}_m^T \mathbf{k}_n = \left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\theta}\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{in\theta}\right)$$
+
+利用旋转矩阵的正交性 $R(m\theta)^T R(n\theta) = R((n-m)\theta)$，展开得：
+
+$$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{i(n-m)\theta}\right)\right]$$
+
+结果**只含 $(n-m)$**，与绝对位置 $m, n$ 无关，仅取决于相对位置差。
+
+### 6. 几何直觉
+#### RoPE（旋转）
 - 将 embedding 看作高维空间中的箭头  
 - 每两个维度一组旋转，方向随 token 位置变化  
 - 内积大小 = cos(方向差) → 自然表示相对位置  
@@ -315,7 +363,7 @@ y
 | → (pos=0)  
 +----------------> x
 ```
-### Sinusoidal PE（平移）
+#### Sinusoidal PE（平移）
 - 在 embedding 上直接加上 `[sin(pos*ω), cos(pos*ω)]`  
 - 向量方向不变，只是平移  
 - 相对位置需要额外计算  
@@ -325,12 +373,12 @@ y
 位置 2: →  
 位置 3: →
 ```
-## 6. 优点总结
+### 7. 优点总结
 1. **自然支持相对位置**：注意力分数直接编码 \(i-j\) 信息  
 2. **长度可扩展**：不受最大位置限制  
 3. **与多头注意力兼容**：直接作用在 Q/K 上  
 4. **无需额外参数**：频率可固定，可选可训练频率  
-## 7. 对比总结
+### 8. 对比总结
 
 | 方法 | 几何变化 | 相对位置 |
 |------|---------|---------|
