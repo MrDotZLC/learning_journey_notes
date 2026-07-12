@@ -7106,7 +7106,7 @@ $$\text{有效 FLOPs} \approx \frac{N^2 / 2}{P} \quad \text{（Causal Mask 下�
 
 #### Q162. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别
 
-**6.1 核心区分**
+**1. 核心区分**
 
 两者均沿序列维度切分，但切分的**算子范围**不同：
 
@@ -7119,21 +7119,23 @@ $$\text{有效 FLOPs} \approx \frac{N^2 / 2}{P} \quad \text{（Causal Mask 下�
 | 显存收益         | 激活值显存 $\div P$（仅非 Attention 部分）           | KV Cache 显存 $\div P$ + 激活值显存 $\div P$ |
 | 适用序列长度       | 中长（8k–64k，单卡 Attention 仍可放下）              | 超长（64k+，单卡 KV Cache 放不下）              |
 
-**6.2 SP 的通信模式推导**
+**2. SP 的通信模式推导**
 
 SP 与 TP 联合使用时，AllReduce 被拆分为 ReduceScatter + AllGather（通信量不变，但每卡的激活值只持有 $1/P$ 的序列切片）：
 
 $$\underbrace{\text{TP-Linear}}_{\text{列切分}} \xrightarrow{\text{ReduceScatter}} \underbrace{\text{SP 区域（LayerNorm 等）}}_{\text{每卡持有 } N/P \text{ 个 Token}} \xrightarrow{\text{AllGather}} \underbrace{\text{Attention}}_{\text{全序列}}$$
 
-**6.3 三维并行组合（TP $\times$ SP $\times$ CP）**
+**3. 三维并行组合（TP $\times$ SP $\times$ CP）**
 
 在一个 Transformer 层内：SP 处理 LayerNorm/Dropout，CP 处理 Attention，TP 处理 MLP 和 QKV 投影。三者正交，可同时部署。
 
 ---
 
-#### 7. Q101-b. Context Parallelism 的精确通信量推导（新增）
+#### **Q163. Context Parallelism 的精确通信量推导**
 
-**7.1 单步 Ring 通信量**
+RingAttention 是 CP 的一种基于 Ring 通信的实现，此外还有基于 All-to-All 通信的实现。
+
+**1. 单步 Ring 通信量**
 
 设 CP 度为 $P$，序列长度 $N$，GQA KV 头数 $H_{\text{KV}}$，头维度 $d$，数据类型 $b$ 字节。
 
@@ -7149,7 +7151,7 @@ $$V_{\text{total/卡}} = (P-1) \times 2 \times \frac{N}{P} \times H_{\text{KV}} 
 
 $$V_{\text{total/卡}} \approx 2N H_{\text{KV}} d \cdot b$$
 
-**7.2 代入 LLaMA-3 70B 参数（$N = 128\text{k}$，$P = 8$，$H_{\text{KV}} = 8$，$d = 128$，FP16）**
+**2. 代入 LLaMA-3 70B 参数（$N = 128\text{k}$，$P = 8$，$H_{\text{KV}} = 8$，$d = 128$，FP16）**
 
 $$V_{\text{total/卡}} = \frac{7}{8} \times 2 \times 131072 \times 8 \times 128 \times 2 \approx 471 \text{ MB}$$
 
@@ -7159,7 +7161,7 @@ $$t_{\text{comm/step}} \approx \frac{67 \text{ MB}}{300 \text{ GB/s}} \approx 0.
 
 而每步的 Local Attention 计算时间（$N/P = 16\text{k}$ tokens）远超 $0.22 \text{ ms}$，**通信可被完全隐藏**在计算之后，理论 CP Overlap 效率接近 $100\%$。
 
-**7.3 跨节点（PCIe/RDMA）场景**
+**3. 跨节点（PCIe/RDMA）场景**
 
 跨节点带宽降至 $\sim 25 \text{ GB/s}$（InfiniBand HDR），传输时间约 $2.7 \text{ ms}$，与计算时间接近，Overlap 效率下降。此时需配合 Flash-Decoding 或增大 Chunk Size 以保证计算时间 $\geq$ 通信时间。
 
@@ -7237,7 +7239,7 @@ Batch Size 可达 8–10。精度损失与任务强相关：长程依赖任务�
 
 $$M_{\text{KV/卡}}^{\text{CP}} = \frac{40.0}{4} = 10.0 \text{ GB}$$
 
-Batch Size 恢复至 4–5，无精度损失。引入跨 GPU Ring 通信（节点内 NVLink 可完全 Overlap，见 Q101-b），增加系统复杂度和 GPU 数量成本。
+Batch Size 恢复至 4–5，无精度损失。引入跨 GPU Ring 通信（节点内 NVLink 可完全 Overlap，见 Q163），增加系统复杂度和 GPU 数量成本。
 
 **三路径综合对比：**
 
