@@ -6764,15 +6764,15 @@ MoE Prefill 时间轴（P 节点）：
 
 **方案 4：KV Transfer 压缩（减少传输量）**
 
-|压缩策略|带宽节省|精度损失|实现代价|
-|---|---|---|---|
-|FP8 KV Cache|~50%（FP16→FP8）|< 0.5% PPL 劣化|H100 硬件原生支持，低|
-|仅传输增量 KV|最高 (1−前缀命中率)×100%|无|需 D 节点已有前缀 KV，依赖 KV 感知路由|
-|稀疏 KV（Heavy Hitter）|可达 50–80%|中等|结合 H2O/SnapKV，实现较复杂|
+| 压缩策略                | 带宽节省              | 精度损失          | 实现代价                     |
+| ------------------- | ----------------- | ------------- | ------------------------ |
+| FP8 KV Cache        | ~50%（FP16→FP8）    | < 0.5% PPL 劣化 | H100 硬件原生支持，低            |
+| 仅传输增量 KV            | 最高 (1−前缀命中率)×100% | 无             | 需 D 节点已有前缀 KV，依赖 KV 感知路由 |
+| 稀疏 KV（Heavy Hitter） | 可达 50–80%         | 中等            | 结合 H2O/SnapKV，实现较复杂      |
 
 ---
 
-**Q96-b. KV 感知路由（KV-aware Routing）。**
+#### **Q154. KV 感知路由（KV-aware Routing）。**
 
 **动机：** 传统负载均衡路由将请求均匀分配到各 D 实例，忽视了 D 实例已有的 KV 前缀缓存。若请求与某 D 实例的已有 KV 前缀匹配，无需 Transfer 该前缀部分（或完全无需 Transfer），TTFT 可大幅下降。
 
@@ -6789,11 +6789,11 @@ MoE Prefill 时间轴（P 节点）：
 
 **主流框架的实现方式：**
 
-|框架|机制|粒度|
-|---|---|---|
-|**NVIDIA Dynamo Smart Router**|维护全局 KV Block 哈希目录，请求到来时匹配最长前缀|Block 级（PagedAttention Block）|
-|**SGLang RadixAttention**|全局 Radix Tree 维护所有 D 实例的 KV 前缀树，LCP（最长公共前缀）匹配|Token 级（精度更高）|
-|**MoonCake**|KVCache-centric 调度，将 KV 视为一级资源进行全局调度|Block 级|
+| 框架                             | 机制                                            | 粒度                            |
+| ------------------------------ | --------------------------------------------- | ----------------------------- |
+| **NVIDIA Dynamo Smart Router** | 维护全局 KV Block 哈希目录，请求到来时匹配最长前缀                | Block 级（PagedAttention Block） |
+| **SGLang RadixAttention**      | 全局 Radix Tree 维护所有 D 实例的 KV 前缀树，LCP（最长公共前缀）匹配 | Token 级（精度更高）                 |
+| **MoonCake**                   | KVCache-centric 调度，将 KV 视为一级资源进行全局调度          | Block 级                       |
 
 **收益量化（多轮对话场景）：**
 
@@ -6805,7 +6805,7 @@ $$\Delta M_{\text{Transfer}} = 2 \times 80 \times 8 \times 128 \times 1200 \time
 
 ---
 
-**Q97-PD. P/D 分离的容错与一致性设计。**
+#### **Q155. P/D 分离的容错与一致性设计。**
 
 **Prefill 完成但 KV Transfer 失败的处理策略：**
 
@@ -6824,7 +6824,7 @@ D 实例崩溃意味着正在 Decode 的所有请求的 KV Cache 全部丢失。
 
 ---
 
-**Q98-PD. P/D 分离的显存规划差异。**
+#### **Q156. P/D 分离的显存规划差异。**
 
 **P 实例的 KV Cache 规划（短暂峰值模型）：**
 
