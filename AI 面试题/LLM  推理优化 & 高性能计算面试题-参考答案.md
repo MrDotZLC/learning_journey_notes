@@ -7074,7 +7074,7 @@ $$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \
 
 **1. 动机**
 
-序列长度 $N = 128\text{k}$ 时，Attention 计算需要 $O(N^2)$ FLOPs 和 $O(N \cdot d_{\text{KV}})$ 的 KV Cache，单卡 80 GB HBM 无法容纳单请求的完整 KV（见 Q102-KV 的量化分析）。
+序列长度 $N = 128\text{k}$ 时，Attention 计算需要 $O(N^2)$ FLOPs 和 $O(N \cdot d_{\text{KV}})$ 的 KV Cache，单卡 80 GB HBM 无法容纳单请求的完整 KV（见 Q165 的量化分析）。
 
 **2. 核心思路：序列分片 + P2P Ring 通信**
 
@@ -7205,7 +7205,7 @@ $$t_{\text{prefill}} \approx \frac{2.2 \times 10^{17}}{7.9 \times 10^{15} \times
 
 ---
 
-#### 9. Q102-KV. 128k+ 上下文显存压力量化分析
+#### Q165. 128k+ 上下文显存压力量化分析
 
 **9.1 基线计算（LLaMA-3 70B GQA FP16，全局 KV Cache 视角）**
 
