@@ -7167,7 +7167,7 @@ $$t_{\text{comm/step}} \approx \frac{67 \text{ MB}}{300 \text{ GB/s}} \approx 0.
 
 ---
 
-#### Q164. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill
+#### **Q164. 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill**
 
 **1. KV Cache 显存量化（LLaMA-3 70B，FP16，GQA）**
 
