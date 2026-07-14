@@ -7293,17 +7293,17 @@ $$C^* = \arg\max_C \;\text{GEMM效率}(C) \quad \text{s.t.} \;\; t_{\text{chunk}
 
 ---
 
-#### 11. Q103. Sliding Window Attention 的 Attention Sink 失效问题
+#### Q167. Sliding Window Attention 的 Attention Sink 失效问题
 
-**11.1 Sliding Window Attention（SWA）的假设**
+**1. Sliding Window Attention（SWA）的假设**
 
 每个 Token 只 Attend 最近 $w$ 个 Token，超出窗口的历史 Token KV 不保存，实现 $O(w)$ KV Cache（固定大小），适合流式生成。
 
-**11.2 Attention Sink 现象**
+**2. Attention Sink 现象**
 
 模型训练时前几个 Token（Sink Tokens，通常为 BOS Token 及开头少量 Token）吸收了大量"无处安放"的注意力权重——这是 Softmax 数学特性的产物：Softmax 输出总和为 1，当无明显相关 Token 时，权重集中于固定的"垃圾桶"位置。
 
-**11.3 在 SWA 中的失效场景**
+**3. 在 SWA 中的失效场景**
 
 ```
 序列长度超过 w + sink 位置后，Sink Tokens 的 KV 被逐出窗口：
@@ -7316,7 +7316,7 @@ $$C^* = \arg\max_C \;\text{GEMM效率}(C) \quad \text{s.t.} \;\; t_{\text{chunk}
   → 模型输出质量骤降（PPL 从 ~5 跳升至 >>100）
 ```
 
-**11.4 StreamingLLM 的解决方案**
+**4. StreamingLLM 的解决方案**
 
 保留 $k$ 个 Sink Tokens（通常 $k = 4$）+ 最近 $w$ 个 Token，KV Cache 大小为 $O(k + w)$：
 
@@ -7324,30 +7324,30 @@ $$\text{KV Cache 大小} = (k + w) \times H_{\text{KV}} \times d \times b \times
 
 实验表明，保留 4 个 Sink Tokens 后 PPL 仅从 ~5 增加到 ~5.3，可在无限长流式生成中保持稳定。
 
-**11.5 各方案对比**
+**5. 各方案对比**
 
-|方案|KV Cache 大小|长程依赖|说明|
-|---|---|---|---|
-|全 KV Cache|$O(N)$，随 $N$ 线性增长|完整|标准 Attention|
-|SWA（无保护）|$O(w)$，固定|超窗口后崩溃|不可用于长流式生成|
-|StreamingLLM|$O(k + w) \approx O(w)$，固定|无真实长程依赖|仅保证输出不崩溃|
-|SWA + 周期全 Attention|$O(w)$ + 全 Attention 层 $O(N)$|部分长程依赖|LongFormer 思路|
+| 方案                  | KV Cache 大小                   | 长程依赖    | 说明            |
+| ------------------- | ----------------------------- | ------- | ------------- |
+| 全 KV Cache          | $O(N)$，随 $N$ 线性增长             | 完整      | 标准 Attention  |
+| SWA（无保护）            | $O(w)$，固定                     | 超窗口后崩溃  | 不可用于长流式生成     |
+| StreamingLLM        | $O(k + w) \approx O(w)$，固定    | 无真实长程依赖 | 仅保证输出不崩溃      |
+| SWA + 周期全 Attention | $O(w)$ + 全 Attention 层 $O(N)$ | 部分长程依赖  | LongFormer 思路 |
 
-**11.6 本质局限**
+**6. 本质局限**
 
 StreamingLLM 仅解决了**输出不崩溃**的问题，并不提供真实的长程依赖能力。对于需要跨越窗口长度的信息检索（如超长文档 QA），SWA 架构在本质上无法解决，必须使用全 KV Cache 或 Ring Attention（CP）。
 
 ---
 
-#### 12. Q104-LC. 长上下文下 KV Cache 分级存储的触发条件与精度无损条件
+#### Q168. 长上下文下 KV Cache 分级存储的触发条件与精度无损条件
 
-**12.1 分级存储架构**
+**1. 分级存储架构**
 
 当单请求 KV Cache 超过 HBM 容量或批量并发导致 HBM 耗尽时，将不活跃的 KV 块降级存储：
 
 $$\text{HBM（80 GB）} \xrightarrow{\text{驱逐}} \text{CPU DRAM（~512 GB–2 TB）} \xrightarrow{\text{驱逐}} \text{NVMe SSD（~10 TB）}$$
 
-**12.2 各级有效带宽与恢复延迟**
+**2. 各级有效带宽与恢复延迟**
 
 |存储层|读带宽（典型值）|写带宽|访问延迟|每 GB KV 恢复时间|
 |---|---|---|---|---|
@@ -7355,7 +7355,7 @@ $$\text{HBM（80 GB）} \xrightarrow{\text{驱逐}} \text{CPU DRAM（~512 GB–2
 |CPU DRAM（PCIe 5.0）|~50 GB/s（单向）|~50 GB/s|~1 µs|~20 ms/GB|
 |NVMe SSD（NVLink 直接）|~7 GB/s（seq）|~3 GB/s|~100 µs|~143 ms/GB|
 
-**12.3 对 TTFT 的叠加影响**
+**3. 对 TTFT 的叠加影响**
 
 若恢复 $V_{\text{KV}}$ GB 的 KV Cache（从 DRAM）：
 
@@ -7371,7 +7371,7 @@ $$\Delta \text{TTFT} \approx \frac{40}{50} \approx 0.8 \text{ s}$$
 2. **预取（Prefetch）**：预测即将激活的请求，提前将 KV 从 DRAM 加载到 HBM
 3. **Prefix Cache 优先驻留**：高复用前缀的 KV 始终保留在 HBM，只驱逐尾部低复用 KV
 
-**12.4 精度无损的前提条件**
+**4. 精度无损的前提条件**
 
 |条件|说明|
 |---|---|
