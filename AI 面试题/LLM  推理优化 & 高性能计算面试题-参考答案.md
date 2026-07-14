@@ -7207,19 +7207,19 @@ $$t_{\text{prefill}} \approx \frac{2.2 \times 10^{17}}{7.9 \times 10^{15} \times
 
 #### **Q165. 128k+ 上下文显存压力量化分析**
 
-**9.1 基线计算（LLaMA-3 70B GQA FP16，全局 KV Cache 视角）**
+**1. 基线计算（LLaMA-3 70B GQA FP16，全局 KV Cache 视角）**
 
 参数：$L = 80$，$H_{\text{KV}} = 8$，$d = 128$，$b = 2$（FP16），$S = 131072$（128k）：
 
 $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 131072 \times 2 = 42{,}949{,}672{,}960 \text{ B} \approx 40.0 \text{ GB}$$
 
-**9.2 单卡可用显存（8 × H100，TP=8）**
+**2. 单卡可用显存（8 × H100，TP=8）**
 
 $$\text{单卡可用} = 80 \text{ GB} - \frac{140 \text{ GB（模型权重 FP16）}}{8} = 80 - 17.5 = 62.5 \text{ GB}$$
 
 单请求 128k KV Cache = 40.0 GB，**Batch Size 实际仅能为 1**，且单请求已占用单卡 $64\%$ 的可用显存。
 
-**9.3 三种应对路径**
+**3. 三种应对路径**
 
 **路径一：FP8 KV Cache 量化**
 
@@ -7253,9 +7253,9 @@ Batch Size 恢复至 4–5，无精度损失。引入跨 GPU Ring 通信（节�
 
 ---
 
-#### 10. Q102-b. 超长上下文下 Chunked Prefill 的 Chunk Size 选择原则（新增）
+#### **Q166. 超长上下文下 Chunked Prefill 的 Chunk Size 选择原则**
 
-**10.1 内部碎片率**
+**1. 内部碎片率**
 
 PagedAttention 中，Block 大小为 $B$ tokens，Chunk Size 为 $C$ tokens。每个请求的最后一个 KV Block 平均浪费约 $B/2$ tokens（均匀分布假设）。当 Chunked Prefill 运行中途请求被中止时，已分配但未完全填充的 Block 产生内部碎片，碎片率近似为：
 
@@ -7263,7 +7263,7 @@ $$\text{碎片率} \approx \frac{B - 1}{2C}$$
 
 Chunk Size 越大，相对碎片率越低；Block 越小，碎片越少。典型参数 $B = 16, C = 2048$：碎片率 $\approx 15 / 4096 \approx 0.4\%$，可忽略不计。
 
-**10.2 Chunk Size 对 GEMM 效率的影响**
+**2. Chunk Size 对 GEMM 效率的影响**
 
 Prefill 阶段主要算子为 QKV Projection（GEMM，$M = C$，$K = d_{\text{model}}$，$N = d_{\text{model}}$）。H100 Tensor Core 的高效计算要求 $M \geq 128$（Wave Quantization 效应）：
 
@@ -7272,7 +7272,7 @@ Prefill 阶段主要算子为 QKV Projection（GEMM，$M = C$，$K = d_{\text{mo
 - $C = 1024$：效率约 $80\%$
 - $C \geq 4096$：效率约 $90\text{–}95\%$
 
-**10.3 Chunk Size 对 Decode 延迟的影响**
+**3. Chunk Size 对 Decode 延迟的影响**
 
 Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算时间：
 
@@ -7280,7 +7280,7 @@ $$\text{TPOT}_{\text{P99}} \approx t_{\text{chunk}} = \frac{C \times \text{FLOPs
 
 在 H100 $\times$ 8 上，$C = 2048$ 时约 $0.8\text{–}1.2 \text{ ms}$，满足大多数 TPOT SLO（$<20 \text{ ms}$）。
 
-**10.4 推荐 Chunk Size 的选择框架**
+**4. 推荐 Chunk Size 的选择框架**
 
 $$C^* = \arg\max_C \;\text{GEMM效率}(C) \quad \text{s.t.} \;\; t_{\text{chunk}}(C) < \text{TPOT\_SLO}$$
 
