@@ -7070,7 +7070,7 @@ $$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \
 
 ---
 
-#### Q161. Ring Attention 原理
+#### **Q161. Ring Attention 原理**
 
 **1. 动机**
 
@@ -7104,7 +7104,7 @@ $$\text{有效 FLOPs} \approx \frac{N^2 / 2}{P} \quad \text{（Causal Mask 下�
 
 ---
 
-#### Q162. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别
+#### **Q162. Context Parallelism（CP）与 Sequence Parallelism（SP）的区别**
 
 **1. 核心区分**
 
@@ -7293,7 +7293,7 @@ $$C^* = \arg\max_C \;\text{GEMM效率}(C) \quad \text{s.t.} \;\; t_{\text{chunk}
 
 ---
 
-#### Q167. Sliding Window Attention 的 Attention Sink 失效问题
+#### **Q167. Sliding Window Attention 的 Attention Sink 失效问题**
 
 **1. Sliding Window Attention（SWA）的假设**
 
@@ -7339,7 +7339,7 @@ StreamingLLM 仅解决了**输出不崩溃**的问题，并不提供真实的长
 
 ---
 
-#### Q168. 长上下文下 KV Cache 分级存储的触发条件与精度无损条件
+#### **Q168. 长上下文下 KV Cache 分级存储的触发条件与精度无损条件**
 
 **1. 分级存储架构**
 
@@ -7392,7 +7392,7 @@ SSD 分级存储由于延迟极高（>100 ms/GB），在生产环境中仅适用
 
 ---
 
-#### 1. Q104. 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？
+#### **Q169. 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？**
 
 **1.1 Training-Time Scaling（训练时计算扩展）**
 
