@@ -133,25 +133,25 @@ Chunk 之后，调度粒度缩小，TTFT 显著下降。
 8. Decode 的 FLOPs
    $$FLOPs_{Decode} = L \times (8d^2 + 4Sd + 4dd_{ff})$$
 
-**2. 计算Prefill 时延
+**2. Prefill 时延对 Chunk Size 的影响**
 
 在 H100 $\times$ 8（TP=8）上理论峰值约 $8 \times 989 \text{ TFLOPS} \approx 7.9 \text{ PFLOPS}$，MFU 约 $30\text{–}50\%$，实际耗时约：
 $$t_{\text{Prefill}} \approx \frac{FLOPs_{Prefill}} {7.9 \times 10^{15} \times 0.4}$$
 
 为了隐藏调度时延，应满足 $t_{\text{Prefill}} \geq t_{\text{Decode}}$ 。
 
-**3. **
+**3. 碎片率对 Chunk Size 的影响**
 
 Chunked Prefill 的碎片率：
 $$碎片率 \approx \frac {B-1} {2C}$$
 Chunked Size 对 GEMM 效率的影响：
-H100 Tensor Core 的高效计算要求 $Chunk Size \ge 128 (Wave Quantization 效应)$
+H100 Tensor Core 的高效计算要求 $\text{Chunk Size} \ge 128 \: (Wave Quantization 效应)$
 
 Chunked Size 要达到计算时延可以覆盖通信时延，最优数值要参考 $TPOT_{SLO}$。
 
 P/D 同置下，Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算时间。
 
-**3. 主流推理框架常见配置（会随模型、GPU、调度策略变化）：**
+**4. 主流推理框架常见配置（会随模型、GPU、调度策略变化）：**
 
 |Chunk Size|特点|
 |---|---|
@@ -166,7 +166,7 @@ P/D 同置下，Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算�
 
 ---
 
-## 11. Chunked Prefill 与 Continuous Batching 的关系
+## 7. Chunked Prefill 与 Continuous Batching 的关系
 
 两者经常同时出现，但关注点不同：
 
@@ -180,32 +180,20 @@ P/D 同置下，Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算�
 ```
 Request A
 Chunk0
-
 ↓
-
 Request B
 Chunk0
-
 ↓
-
 Decode Batch
-
 ↓
-
 Request C
 Chunk0
-
 ↓
-
 Request A
 Chunk1
-
 ↓
-
 Decode Batch
-
 ↓
-
 Request B
 Chunk1
 ```
@@ -214,7 +202,7 @@ Continuous Batching 提供**动态批处理能力**，Chunked Prefill 提供**�
 
 ---
 
-## 12. Chunked Prefill 与 P/D 分离（Prefill/Decode Disaggregation）
+## 8. Chunked Prefill 与 P/D 分离（Prefill/Decode Disaggregation）
 
 在 **P/D 分离**架构中：
 
