@@ -12,7 +12,18 @@ Chunked Prefill（分块 Prefill）是一种**将长 Prompt 的 Prefill 阶段�
 
 ---
 
-## 2. 为什么需要 Chunked Prefill
+## 2. Chunked Prefill  与 Chunked Tile 的区别
+
+两者虽然都有 **Chunked**，但属于**不同层次**的优化，解决的问题完全不同。
+
+|名称|优化层次|切分对象|目的|
+|---|---|---|---|
+|**Chunked Prefill**|**调度（Scheduling）**|Token 序列|降低 TTFT、与 Decode 交错执行|
+|**Chunked Tile**|**Kernel/GEMM 实现**|矩阵 Tile|提高 GPU 利用率、减少访存|
+
+---
+
+## 3. 为什么需要 Chunked Prefill
 
 **普通 Prefill 的问题：**
 
@@ -37,7 +48,7 @@ Chunked Prefill（分块 Prefill）是一种**将长 Prompt 的 Prefill 阶段�
 
 ---
 
-## 3.  每个 Chunk 做什么
+## 4.  每个 Chunk 做什么
 
 上一 Chunk 已经写好了 KV Cache，于是：
 
@@ -61,7 +72,7 @@ Chunk2
 
 ---
 
-## 4. Chunk 的收益
+## 5. Chunk 的收益
 
 TTFT：
 
@@ -74,7 +85,7 @@ Chunk 之后，调度粒度缩小，TTFT 显著下降。
 
 ---
 
-## 5. Chunk Size 的影响
+## 6. Chunk Size 的影响
 
 **Chunk 很大时：**
 
@@ -100,7 +111,7 @@ Chunk 之后，调度粒度缩小，TTFT 显著下降。
 
 ---
 
-## 6. Chunk Size 选择
+## 7. Chunk Size 选择
 
 **1. 计算 FLOPs**
 
@@ -166,7 +177,7 @@ P/D 同置下，Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算�
 
 ---
 
-## 7. Chunked Prefill 与 Continuous Batching 的关系
+## 8. Chunked Prefill 与 Continuous Batching 的关系
 
 两者经常同时出现，但关注点不同：
 
@@ -202,15 +213,12 @@ Continuous Batching 提供**动态批处理能力**，Chunked Prefill 提供**�
 
 ---
 
-## 8. Chunked Prefill 与 P/D 分离（Prefill/Decode Disaggregation）
+## 9. Chunked Prefill 与 P/D 分离（Prefill/Decode Disaggregation）
 
 在 **P/D 分离**架构中：
-
 - Prefill GPU 专门负责计算 Prompt 并生成 KV Cache。
-    
 - Decode GPU 专门负责自回归生成。
     
-
 由于两类计算运行在不同 GPU 上，Decode 不再需要等待 Prefill GPU 释放计算资源，因此**Chunked Prefill 的主要价值不再是让 Decode 插队**。
 
 此时 Chunked Prefill 的作用主要体现在：
@@ -221,5 +229,4 @@ Continuous Batching 提供**动态批处理能力**，Chunked Prefill 提供**�
     
 - **减少首次可解码时间**：如果系统支持分块传输和提前消费 KV，Decode 侧可以更早开始工作（具体取决于实现）。
     
-
 因此，在 P/D 分离系统中，Chunked Prefill 更多是一种**Prefill 流水化和 KV 流式传输机制**，而不是用于缓解 Decode 延迟的调度手段。
