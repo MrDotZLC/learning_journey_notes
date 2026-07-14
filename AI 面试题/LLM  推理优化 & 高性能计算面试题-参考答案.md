@@ -7402,7 +7402,7 @@ $$L(N, D) = \frac{A}{N^\alpha} + \frac{B}{D^\beta} + L_\infty$$
 
 其中 $N$ 为模型参数量，$D$ 为训练 Token 数，$L_\infty$ 为不可约损失下界。提升路径为：扩大模型参数（更大的 $N$）、增加训练数据（更大的 $D$）、增加训练 FLOPs（$C \approx 6ND$）。
 
-**1.1.1 Training-Time Scaling 的边界**
+**1.1 Training-Time Scaling 的边界**
 
 2023—2024 年观察到的主要瓶颈：
 
