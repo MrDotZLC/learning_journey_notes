@@ -7394,7 +7394,7 @@ SSD 分级存储由于延迟极高（>100 ms/GB），在生产环境中仅适用
 
 #### **Q169. 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？**
 
-**1.1 Training-Time Scaling（训练时计算扩展）**
+**1. Training-Time Scaling（训练时计算扩展）**
 
 通过增大训练计算量提升模型能力，遵循 Chinchilla Scaling Law（Hoffmann et al., 2022）：
 
