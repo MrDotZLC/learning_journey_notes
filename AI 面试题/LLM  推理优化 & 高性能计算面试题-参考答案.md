@@ -7205,7 +7205,7 @@ $$t_{\text{prefill}} \approx \frac{2.2 \times 10^{17}}{7.9 \times 10^{15} \times
 
 ---
 
-#### Q165. 128k+ 上下文显存压力量化分析
+#### **Q165. 128k+ 上下文显存压力量化分析**
 
 **9.1 基线计算（LLaMA-3 70B GQA FP16，全局 KV Cache 视角）**
 
