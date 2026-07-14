@@ -7257,7 +7257,7 @@ Batch Size 恢复至 4–5，无精度损失。引入跨 GPU Ring 通信（节�
 
 **1. 内部碎片率**
 
-PagedAttention 中，Block 大小为 $B$ tokens，Chunk Size 为 $C$ tokens。每个请求的最后一个 KV Block 平均浪费约 $B/2$ tokens（均匀分布假设）。当 Chunked Prefill 运行中途请求被中止时，已分配但未完全填充的 Block 产生内部碎片，碎片率近似为：
+PagedAttention 中，Block 大小为 $B$ tokens，Chunk Size 为 $C$ tokens。每个请求的最后一个 KV Block 平均浪费约 $(B-1)/2$ tokens（均匀分布假设）。当 Chunked Prefill 运行中途请求被中止时，已分配但未完全填充的 Block 产生内部碎片，碎片率近似为：
 
 $$\text{碎片率} \approx \frac{B - 1}{2C}$$
 
