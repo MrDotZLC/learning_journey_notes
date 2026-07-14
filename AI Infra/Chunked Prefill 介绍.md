@@ -74,73 +74,84 @@ Chunk 之后，调度粒度缩小，TTFT 显著下降。
 
 ---
 
-## 9. Chunk Size 的影响
+## 5. Chunk Size 的影响
 
-设：
-
-Chunk
-
-$$  
-C  
-$$
-
-### Chunk 很大
-
-例如：
-
-```
-4096
-```
+**Chunk 很大时：**
 
 优点：
-
 - GEMM 大
-    
 - GPU 利用率高
-    
 
 缺点：
-
 - Decode 等待长
-    
 - TTFT 高
-    
 
----
-
-### Chunk 很小
-
-例如：
-
-```
-64
-```
+**Chunk 很小时：**
 
 优点：
-
 - Decode 几乎实时
     
 
 缺点：
-
 - Kernel 数量暴增
-    
 - Launch Overhead 增加
-    
 - GEMM 太小
-    
 - Tensor Core 利用率下降
-    
-
-因此：
-
-Chunk 不宜过小。
 
 ---
 
-## 10. Chunk Size 的经验值
+## 6. Chunk Size 选择
 
-主流推理框架常见配置（会随模型、GPU、调度策略变化）：
+**1. 计算 FLOPs**
+
+一次乘加算两个FLOPs
+
+1. QKV Linear
+   $$XW_Q \in (S \times d)(d \times d)$$
+   $$FLOPs_{QKV} = 3 \times 2 \times S \times d^2$$
+2. Attention Scroe
+   $$QK^T \in (S \times d)(d \times S)$$
+   $$FLOPs_{QK}=2 \times S^2 \times d$$
+3. Attention Value
+   $$O_{attn} = Attention \times V \in (S \times S)(S \times d)$$
+   $$FLOPs_{AV}=2 \times S^2 \times d$$
+4. Attention
+   $$FLOPs_{Attn} = FLOPs_{QK} + FLOPs_{AV} = 4S^2d$$
+5. Output Projection（特征空间映射）
+   融合所有头，使每个向量都包含所有头的信息
+   $$O = O_{attn} \times W_O \in (S \times d)(d \times d)$$
+   $$FLOPs_{O} = 2 \times S \times d^2$$
+6. FFN
+   第一层：
+   $$XW_1 \in (S \times d)(d \times d_{ff})$$
+   第二层：
+   $$X_2W_2 \in (S \times d_{ff})(d_{ff} \times d)$$
+   $$FLOPs_{FFN} = 2 \times S \times d \times d_{ff}$$
+7. Prefill 的 FLOPs
+   $$FLOPs_{Prefill}^{layer} = 6Sd^2 + 4S^2d + 2Sd^2 + 4Sdd_{ff} = 8Sd^2 + 4S^2d + 4Sdd_{ff}$$
+   $$FLOPs_{Prefill} = L \times (8Sd^2 + 4S^2d + 4Sdd_{ff})$$
+8. Decode 的 FLOPs
+   $$FLOPs_{Decode} = L \times (8d^2 + 4Sd + 4dd_{ff})$$
+
+**2. 计算Prefill 时延
+
+在 H100 $\times$ 8（TP=8）上理论峰值约 $8 \times 989 \text{ TFLOPS} \approx 7.9 \text{ PFLOPS}$，MFU 约 $30\text{–}50\%$，实际耗时约：
+$$t_{\text{Prefill}} \approx \frac{FLOPs_{Prefill}} {7.9 \times 10^{15} \times 0.4}$$
+
+为了隐藏调度时延，应满足 $t_{\text{Prefill}} \geq t_{\text{Decode}}$ 。
+
+**3. **
+
+Chunked Prefill 的碎片率：
+$$碎片率 \approx \frac {B-1} {2C}$$
+Chunked Size 对 GEMM 效率的影响：
+H100 Tensor Core 的高效计算要求 $Chunk Size \ge 128 (Wave Quantization 效应)$
+
+Chunked Size 要达到计算时延可以覆盖通信时延，最优数值要参考 $TPOT_{SLO}$。
+
+P/D 同置下，Decode 请求的 P99 TPOT 约等于单 Chunk Prefill 的计算时间。
+
+**3. 主流推理框架常见配置（会随模型、GPU、调度策略变化）：**
 
 |Chunk Size|特点|
 |---|---|
