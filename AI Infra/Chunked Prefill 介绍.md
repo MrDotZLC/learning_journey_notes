@@ -101,7 +101,6 @@ Chunk 之后，调度粒度缩小，TTFT 显著下降。
 
 优点：
 - Decode 几乎实时
-    
 
 缺点：
 - Kernel 数量暴增
@@ -224,9 +223,7 @@ Continuous Batching 提供**动态批处理能力**，Chunked Prefill 提供**�
 此时 Chunked Prefill 的作用主要体现在：
 
 - **降低 Prefill GPU 的单请求阻塞时间**，提高多个 Prefill 请求之间的公平性。
-    
 - **支持流式 KV Cache Transfer**：每完成一个 Chunk，即可将对应 KV Cache 发送到 Decode GPU，而无需等待整个 Prompt 完成。
-    
 - **减少首次可解码时间**：如果系统支持分块传输和提前消费 KV，Decode 侧可以更早开始工作（具体取决于实现）。
     
 因此，在 P/D 分离系统中，Chunked Prefill 更多是一种**Prefill 流水化和 KV 流式传输机制**，而不是用于缓解 Decode 延迟的调度手段。

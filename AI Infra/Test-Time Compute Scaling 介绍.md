@@ -541,17 +541,13 @@ y^*
 R(x,y)  
 $$
 
-其中：
-
-$R$：
-
-Reward Model。
+其中，$R$ 为 Reward Model。
 
 ---
 
 ## 8. Test-Time Scaling 与 RL 的关系
 
-现代 Reasoning Model 通常结合：
+现代 Reasoning Model 通常结合 RL 和 Test-Time Compute 。
 
 ### 8.1 Reinforcement Learning
 
@@ -574,48 +570,13 @@ $$
 
 ### 8.2 Test-Time Compute 是动态策略
 
-普通模型：
-
-固定：
-
-$$  
-C_{test}=C  
-$$
-
-Reasoning Model：
-
-$$  
-C_{test}=g(x)  
-$$
-
-即：
-
-问题越难：
-
-投入更多计算。
+普通模型是固定的，Reasoning Model 则是动态的，即：问题越难，投入更多计算。
 
 例如：
 
-简单问题：
+简单问题：`2 + 2 = ?` 消耗 10 tokens
 
-```
-2+2=?
-```
-
-消耗：
-
-10 tokens
-
-复杂问题：
-
-```
-证明黎曼猜想
-
-```
-
-消耗：
-
-10000 tokens。
+复杂问题：`证明黎曼猜想`  消耗 10000 tokens。
 
 ---
 
@@ -759,15 +720,7 @@ $$
 ## 11. 当前研究方向
 ### 11.1 Compute Optimal Scaling
 
-目标：
-
-不是：
-
-> 越想越好
-
-而是：
-
-> 给定 FLOPs，获得最大收益。
+目标：不是`越想越好`，而是 `给定 FLOPs，获得最大收益`。
 
 优化：
 
