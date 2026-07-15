@@ -278,11 +278,13 @@ loop: π_θ 采样 → RM 打分 → 构造 (y_w, y_l) → DPO 更新 π_θ
 
 ### 3.4 Test-Time Compute Scaling
 
-| 方法 | 思路 |
-|---|---|
-| Best-of-N | 多次采样，取最高 RM 分 |
-| Beam Search + RM | RM 引导束搜索 |
-| MCTS | 蒙特卡洛树搜索引导解码 |
+[Test-Time Compute Scaling 介绍](Test-Time%20Compute%20Scaling%20介绍.md)
+
+| 方法               | 思路            |
+| ---------------- | ------------- |
+| Best-of-N        | 多次采样，取最高 RM 分 |
+| Beam Search + RM | RM 引导束搜索      |
+| MCTS             | 蒙特卡洛树搜索引导解码   |
 
 ---
 

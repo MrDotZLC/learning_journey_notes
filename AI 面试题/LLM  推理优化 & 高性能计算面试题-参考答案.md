@@ -1240,7 +1240,6 @@ $$M_{\text{alloc}} = 2 \times 32 \times 32 \times 128 \times 4096 \times 2 \appr
 1. **Internal Fragmentation（内部碎片）：** 请求实际生成长度 $S_{\text{actual}} \ll S_{\max}$，大量预分配空间浪费。
 2. **External Fragmentation（外部碎片）：** 不同长度的请求释放后产生零散空洞，无法被新请求利用。
 3. **Over-reservation（过度预留）：** 推理时序列长度未知，必须保守预留，进一步降低并发度。
-
 4. PagedAttention 的分页机制
 
 借鉴操作系统虚拟内存的分页思想：将 KV Cache 切分为固定大小的**物理块（Block）**，每块存放 $B$ 个 Token 的 KV（$B$ 典型值为 16）。每个请求维护一张**块表（Block Table）**，记录逻辑块号到物理块号的映射。
@@ -7429,8 +7428,6 @@ $$\text{质量} = f\bigl(\text{模型参数},\; \underbrace{\text{推理时计�
 | Best-of-N             | 生成 $N$ 个答案，用 Reward Model 评分选最优 | AlphaCode 2（过滤策略之一）                               |
 | Tree-of-Thought（ToT）  | 树状搜索，评估中间推理节点                   | Yao et al. 2023                                   |
 | MCTS 引导搜索             | 用价值函数引导推理路径，经典算法                | rStar-Math, AlphaProof（使用 formal search，非标准 MCTS） |
-
-> **纠错**：AlphaCode 2 的候选过滤使用 tournament-style filtering + clustering，非严格意义的 Best-of-N（单一 RM 打分）；AlphaProof 使用 Lean 形式化证明搜索，算法上接近 proof-tree search，与通用 MCTS 有本质差异，不应直接等同。
 
 **1.4 本质区别**
 
