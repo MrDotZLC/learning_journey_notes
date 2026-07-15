@@ -7441,9 +7441,9 @@ $$\text{质量} = f\bigl(\text{模型参数},\; \underbrace{\text{推理时计�
 
 ---
 
-#### 2. Q105. Chain-of-Thought / Extended Thinking 对推理系统的负载特征有何改变？
+#### **Q170. Chain-of-Thought / Extended Thinking 对推理系统的负载特征有何改变？**
 
-**2.1 标准生成 vs. CoT / Extended Thinking 的负载对比**
+**1. 标准生成 vs. CoT / Extended Thinking 的负载对比**
 
 |特征|标准生成|CoT / Extended Thinking|
 |---|---|---|
@@ -7455,7 +7455,7 @@ $$\text{质量} = f\bigl(\text{模型参数},\; \underbrace{\text{推理时计�
 |TTFT 重要性|高|相对降低|
 |TPOT 重要性|中|**极高**（决定用户总等待时长）|
 
-**2.2 KV Cache 显存压力量化**
+**2. KV Cache 显存压力量化**
 
 以 LLaMA-3 70B（GQA，$L=80$，$H_{\text{KV}}=8$，$d=128$，BF16）为例，单请求 Extended Thinking 的 KV Cache 显存：
 
@@ -7467,7 +7467,7 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 33792 \times 2\;\text{B
 
 > **重要说明**：LLaMA-3 70B 的 BF16 权重本身约 140 GB，无法在单张 H100（80 GB）上运行。实际部署需多卡（如 2× H100 TP=2，权重占用约 140 GB 分散后每卡 70 GB）或使用 FP8 量化（权重约 70 GB，可单卡装载）。以下并发估算基于 **FP8 量化模型（权重约 70 GB）**，剩余约 10 GB 可用于 KV Cache，每请求 KV 约 5.5 GB（FP8 降半），最大并发约 **1–2 个**此类超长请求。标准 OSL 场景（OSL=512）每请求 KV 约 0.17 GB，并发可达 50+。
 
-**2.3 Decode Batch Size 下降对 MBU 的影响**
+**3. Decode Batch Size 下降对 MBU 的影响**
 
 KV Cache 被少数长请求占满时，并发 Decode 请求数 $B_{\text{eff}}$ 减少：
 
@@ -7475,7 +7475,7 @@ $$\text{MBU} = \frac{B_{\text{eff}} \times 2N}{\text{HBM BW} \times T_{\text{ste
 
 $B_{\text{eff}}$ 从 64 降至 4 时，MBU 从约 70% 跌至 10% 以下，GPU 计算资源严重浪费。
 
-**2.4 系统层应对策略**
+**4. 系统层应对策略**
 
 | 问题               | 应对方案                                        |
 | ---------------- | ------------------------------------------- |
