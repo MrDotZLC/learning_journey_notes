@@ -7627,9 +7627,9 @@ for step in decode_steps:
 
 ---
 
-#### 5. Q108. 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？
+#### **Q173. 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？**
 
-**5.1 标准 LLM 服务 SLO 体系**
+**1. 标准 LLM 服务 SLO 体系**
 
 ```
 TTFT P99 < 500ms   — 用户等待首字时间，决定交互感受
@@ -7637,23 +7637,23 @@ TPOT P99 < 50ms    — 流式输出流畅度
 E2E Latency = TTFT + TPOT × OSL
 ```
 
-**5.2 推理模型的 SLO 体系变化**
+**2. 推理模型的 SLO 体系变化**
 
 推理模型（R1、o1）在输出最终答案前生成大量"思考 Token"，这些 Token 通常不直接展示给用户（或折叠展示），用户实际关注的是**最终答案完成时刻**，而非首个思考 Token 的到达时刻。
 
 **SLO 体系迁移**：
 
-|SLO 指标|标准 LLM|推理模型|
-|---|---|---|
-|TTFT|极重要|**重要性降低**（用户预期需等待思考）|
-|TPOT|重要|仍重要（答案输出阶段）|
-|Time to Answer（TTA）|$\approx$ E2E Latency|**新核心指标**：首个答案 Token 的绝对等待时间|
-|Total Latency|次要（OSL 短）|**最重要**（总等待可达分钟级）|
-|Thinking Budget|不适用|**关键调控旋钮**|
+| SLO 指标              | 标准 LLM                | 推理模型                         |
+| ------------------- | --------------------- | ---------------------------- |
+| TTFT                | 极重要                   | **重要性降低**（用户预期需等待思考）         |
+| TPOT                | 重要                    | 仍重要（答案输出阶段）                  |
+| Time to Answer（TTA） | $\approx$ E2E Latency | **新核心指标**：首个答案 Token 的绝对等待时间 |
+| Total Latency       | 次要（OSL 短）             | **最重要**（总等待可达分钟级）            |
+| Thinking Budget     | 不适用                   | **关键调控旋钮**                   |
 
 > **术语说明**：TTA（Time to Answer）为部分团队使用的非标准术语，学术文献与工程文档中命名不统一（有时称 Time to First Answer Token 或 Answer Latency），使用时需明确定义。
 
-**5.3 SLO 设计建议（推理模型专用）**
+**3. SLO 设计建议（推理模型专用）**
 
 **交互场景（对话）**：
 
@@ -7674,7 +7674,7 @@ Total Latency P99 < 5min
 Thinking Budget          — 最大值（质量优先）
 ```
 
-**5.4 Thinking Budget 与质量-延迟权衡**
+**4. Thinking Budget 与质量-延迟权衡**
 
 实验表明（以 AIME 数学竞赛题类问题为参考，具体模型版本影响显著），推理质量与 Thinking Budget 之间呈**递减边际收益**关系：
 
@@ -7689,7 +7689,7 @@ $$\frac{d,\text{Accuracy}}{d,\text{Budget}} > 0, \quad \frac{d^2,\text{Accuracy}
 |较高（8k–16k tokens）|较好，收益递减|较长|
 |极高（> 32k tokens）|边际提升极小|极长|
 
-**5.5 自适应 Thinking Budget 的实现思路**
+**5. 自适应 Thinking Budget 的实现思路**
 
 固定 `max_tokens` 的简单限制存在两个问题：简单问题浪费计算，困难问题被截断。自适应方案：
 
