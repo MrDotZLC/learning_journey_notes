@@ -119,8 +119,6 @@ Answer
 巴黎
 ```
 
----
-
 损失函数：
 
 $$  
@@ -138,8 +136,6 @@ $$
 ```
 
 映射。
-
----
 
 ### 4.2 推理模型
 
@@ -191,8 +187,6 @@ SFT
 RL
 ```
 
----
-
 例如 DeepSeek-R1：
 
 训练奖励：
@@ -223,8 +217,6 @@ Step2
 Step3
 ```
 
----
-
 本质：
 
 RL 学会：
@@ -240,8 +232,6 @@ $$
 ## 6. Test-Time Compute Scaling
 
 这是两类模型最大的工程区别。
-
----
 
 ### 标准 LLM
 
@@ -307,8 +297,6 @@ Token。
 
 Token。
 
----
-
 即：
 
 $$  
@@ -345,8 +333,6 @@ $$
 ```text
 7B → 70B → 700B
 ```
-
----
 
 ### 推理模型
 
@@ -398,19 +384,11 @@ Prompt > Answer
 
 Prefill 占主导。
 
----
-
 优化重点：
-
 - FlashAttention
-    
 - Chunked Prefill
-    
 - Prefix Cache
     
-
----
-
 ### 推理模型
 
 Token 分布：
@@ -442,26 +420,16 @@ L_{CoT}
 10L_{Prompt}  
 $$
 
----
-
 因此 Decode 成为瓶颈。
 
 优化重点变成：
-
 - Speculative Decoding
-    
 - Adaptive γ
-    
 - Medusa
-    
 - EAGLE
-    
 - KV Cache 管理
-    
 - PD Disaggregation
-    
 - Continuous Batching
-    
 
 ---
 
@@ -471,7 +439,7 @@ $$
 
 总时间：
 
-# $$  
+$$  
 T
 
 T_{prefill}  
@@ -487,8 +455,6 @@ T_{prefill}
 T_{decode}  
 \text{ 或更大}  
 $$
-
----
 
 对于推理模型：
 
@@ -533,9 +499,7 @@ KV Cache优化
 Speculative Decoding
 ```
 
----
-
-### 10. 核心总结
+## 10. 核心总结
 
 |维度|标准 LLM|推理模型|
 |---|---|---|
