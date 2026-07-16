@@ -7465,8 +7465,6 @@ $$M_{\text{KV}} = 2 \times L \times H_{\text{KV}} \times d \times S_{\text{total
 
 $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 33792 \times 2\;\text{B} \approx 11.1\;\text{GB}$$
 
-> **重要说明**：LLaMA-3 70B 的 BF16 权重本身约 140 GB，无法在单张 H100（80 GB）上运行。实际部署需多卡（如 2× H100 TP=2，权重占用约 140 GB 分散后每卡 70 GB）或使用 FP8 量化（权重约 70 GB，可单卡装载）。以下并发估算基于 **FP8 量化模型（权重约 70 GB）**，剩余约 10 GB 可用于 KV Cache，每请求 KV 约 5.5 GB（FP8 降半），最大并发约 **1–2 个**此类超长请求。标准 OSL 场景（OSL=512）每请求 KV 约 0.17 GB，并发可达 50+。
-
 **3. Decode Batch Size 下降对 MBU 的影响**
 
 KV Cache 被少数长请求占满时，并发 Decode 请求数 $B_{\text{eff}}$ 减少：
