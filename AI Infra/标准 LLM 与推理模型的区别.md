@@ -47,8 +47,6 @@ $$
 
 没有显式推理过程。
 
----
-
 ### 2.2 特点
 
 优点：
@@ -69,47 +67,7 @@ $$
 
 ### 3.1 显式生成推理过程
 
-推理模型学习：
-
-```text
-Question
- ↓
-Reasoning Trace
- ↓
-Answer
-```
-
-例如：
-
-```text
-37 × 48
-```
-
-模型生成：
-
-```text
-37×40=1480
-
-37×8=296
-
-1480+296=1776
-
-Answer:1776
-```
-
-即：
-
-$$  
-\boxed{  
-Q \rightarrow CoT \rightarrow A  
-}  
-$$
-
-而不是：
-
-$$  
-Q \rightarrow A  
-$$
+显式推理过程（Explicit Reasoning Trace）定义更宽泛：只要模型显式输出中间思考内容即可，CoT、ToT、自纠错、搜索轨迹等。
 
 ### 3.2 Chain of Thought
 
@@ -140,24 +98,6 @@ B>C
 A 与 C 的关系？
 ```
 
-标准 LLM：
-
-```text
-A>C
-```
-
-推理模型：
-
-```text
-A>B
-
-B>C
-
-根据传递性：
-
-A>C
-```
-
 ---
 
 ## 4. 训练过程差异
@@ -183,7 +123,7 @@ Answer
 
 损失函数：
 
-## $$  
+$$  
 \mathcal L_{SFT}
 
 -\sum_t \log P(x_t)  
@@ -327,8 +267,6 @@ $$
 O(20)  
 $$
 
----
-
 ### 推理模型
 
 动态计算量：
@@ -393,7 +331,7 @@ Test-Time Compute Scaling。
 
 依赖：
 
-# $$  
+$$  
 \text{Performance}
 
 f(  
@@ -414,7 +352,7 @@ $$
 
 增加新维度：
 
-## $$  
+$$  
 \text{Performance}
 
 f(  
@@ -427,8 +365,6 @@ $$
 即：
 
 推理阶段继续扩展计算。
-
----
 
 例如：
 
