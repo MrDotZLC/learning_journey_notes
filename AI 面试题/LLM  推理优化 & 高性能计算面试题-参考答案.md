@@ -7469,7 +7469,7 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 33792 \times 2\;\text{B
 
 KV Cache 被少数长请求占满时，并发 Decode 请求数 $B_{\text{eff}}$ 减少：
 
-$$\text{MBU} = \frac{B_{\text{eff}} \times 2N}{\text{HBM BW} \times T_{\text{step}}}$$
+$$\text{MBU} = \frac{B_{\text{eff}} \times N \times dtype}{\text{HBM BW} \times T_{\text{step}}}$$
 
 $B_{\text{eff}}$ 从 64 降至 4 时，MBU 从约 70% 跌至 10% 以下，GPU 计算资源严重浪费。
 
@@ -7486,9 +7486,9 @@ $B_{\text{eff}}$ 从 64 降至 4 时，MBU 从约 70% 跌至 10% 以下，GPU �
 
 ---
 
-#### 3. Q106. o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？
+#### **Q171. o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？**
 
-**3.1 OSL 分布特征**
+**1. OSL 分布特征**
 
 推理模型在处理复杂任务时，思考 Token 数高度依赖问题难度，呈**重尾分布**：
 
@@ -7502,7 +7502,7 @@ P50 可能仅 1000 tokens，P99 超过 20000 tokens。
 
 > **数据说明**：以上区间为公开 benchmark 报告（DeepSeek-R1 技术报告、AIME 评测）的观测参考值，具体数值随模型版本变化；生产流量的 OSL 分布与 benchmark 分布可能存在显著差异，部署前应基于实际流量采样统计。
 
-**3.2 KV Cache 规划的三个核心矛盾**
+**2. KV Cache 规划的三个核心矛盾**
 
 **矛盾 1**：按 P50 规划 → P99 请求被截断，影响质量。
 
