@@ -7516,7 +7516,7 @@ FP8 量化后权重约 70 GB，H100 剩余约 10 GB，最大并发约 **3 个请
 
 **矛盾 3**：OSL 方差极大导致调度不公平（短请求等待长请求释放 KV Block）。
 
-**3.3 工程平衡策略**
+**3. 工程平衡策略**
 
 **策略 A：动态 KV Block 分配 + 抢占**
 
@@ -7546,7 +7546,7 @@ response = client.chat.completions.create(
 
 > **说明**：`thinking_budget` 等参数的实际名称与可用性因框架版本而异，使用前应查阅对应框架的最新 API 文档，不应直接照搬示例字段名。
 
-**3.4 硬件选型建议**
+**4. 硬件选型建议**
 
 |组件|常规 LLM 服务|推理模型（R1/o1 类）|
 |---|---|---|
@@ -7561,15 +7561,15 @@ response = client.chat.completions.create(
 
 ---
 
-#### 4. Q107. 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？
+#### **Q172. 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？**
 
-**4.1 理论分析**
+**1. 理论分析**
 
 Speculative Decoding 的接受率 $\alpha$ 衡量 Draft 分布 $q(x)$ 与 Target 分布 $p(x)$ 的匹配程度。对于推理模型的长 CoT：
 
 $$\alpha = \mathbb{E}_{x \sim q}\left[\min\!\left(1,\frac{p(x)}{q(x)}\right)\right]$$
 
-**4.2 长推理链的挑战**
+**2. 长推理链的挑战**
 
 **挑战 1：推理链内部分布异质**
 
@@ -7594,7 +7594,7 @@ CoT 内容并非均匀分布，不同阶段 $q$ 与 $p$ 的 KL 散度差异显�
 |数学推理（CoT）|0.62–0.78|1.5–2.2×|
 |长思考链（Thinking Token）|0.50–0.70|1.2–1.8×|
 
-**4.3 应对策略**
+**3. 应对策略**
 
 **策略 1：使用同系列蒸馏小模型**
 
