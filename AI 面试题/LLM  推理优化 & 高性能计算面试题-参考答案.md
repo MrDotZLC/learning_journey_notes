@@ -7995,7 +7995,7 @@ D 节点时序：
 
 ---
 
-#### 1.1 Q109. 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？
+#### **Q179. 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？**
 
 **知识蒸馏的基本框架：**
 
