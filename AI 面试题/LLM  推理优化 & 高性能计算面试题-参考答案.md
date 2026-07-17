@@ -7878,7 +7878,7 @@ $$\Delta M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 1\;\text{B} = 16
 
 生成 16000 个思考 Token 累计增长：$163\;\text{KB} \times 16000 \approx 2.6\;\text{GB}$。
 
-**9.2 动态 Block 扩容机制**
+**2. 动态 Block 扩容机制**
 
 vLLM / SGLang 的 PagedAttention 使用固定大小的 KV Block（典型值 16 tokens/block）按需分配：
 
@@ -7890,7 +7890,7 @@ vLLM / SGLang 的 PagedAttention 使用固定大小的 KV Block（典型值 16 t
 
 动态扩容无需预分配全量显存，Block Pool 空闲时扩容开销约为一次内存分配（纳秒级），瓶颈在于**Block Pool 是否有空闲**，而非分配速度。
 
-**9.3 Block Pool 耗尽与抢占触发**
+**3. Block Pool 耗尽与抢占触发**
 
 当 Block Pool 空闲 Block 数低于阈值（通常为 1–2 个 Block）时：
 
@@ -7911,7 +7911,7 @@ vLLM / SGLang 的 PagedAttention 使用固定大小的 KV Block（典型值 16 t
 2. 被抢占请求恢复时：从头 Prefill 重新计算全量 KV（开销更大，但无需 CPU 显存）
 ```
 
-**9.4 Swap 延迟量化**
+**4. Swap 延迟量化**
 
 |路径|实测带宽（参考值）|换出 1 GB KV 延迟|换出 2.6 GB 延迟|
 |---|---|---|---|
@@ -7922,9 +7922,9 @@ vLLM / SGLang 的 PagedAttention 使用固定大小的 KV Block（典型值 16 t
 
 ---
 
-#### 10. Q113-TTC. Test-Time Compute Scaling 与 P/D 分离架构的联动
+#### **Q178. Test-Time Compute Scaling 与 P/D 分离架构的联动**
 
-**10.1 长 CoT 对 P/D 分离的影响**
+**1. 长 CoT 对 P/D 分离的影响**
 
 标准 P/D 分离场景中，P 节点负责 Prefill（固定计算量），D 节点负责 Decode（持续运行直到 EOS）。长 CoT（OSL > 8k）的核心变化：
 
@@ -7934,7 +7934,7 @@ $$M_{\text{KV, D}} = 2 \times L \times H_{\text{KV}} \times d \times (S_{\text{I
 
 其中 $S_{\text{OSL, target}}$ 在请求到达时**未知**（重尾分布，P99 可能是 P50 的 20 倍）。
 
-**10.2 D 节点 Block Pool 的动态规划**
+**2. D 节点 Block Pool 的动态规划**
 
 **静态预留方案**：按最大 OSL（如 32k tokens）预留 Block Pool。
 
@@ -7958,7 +7958,7 @@ $$M_{\text{KV, D}} = 2 \times L \times H_{\text{KV}} \times d \times (S_{\text{I
   模型生成到上限时输出部分答案（截断）或重新路由到大显存节点
 ```
 
-**10.3 P 节点 KV Transfer 的时机**
+**3. P 节点 KV Transfer 的时机**
 
 P 节点完成 Prefill 后需立即将 KV 传输到 D 节点：
 
@@ -7972,7 +7972,7 @@ $$T_{\text{transfer}} = \frac{671\;\text{MB}}{25\;\text{GB/s}} \approx 26.8\;\te
 
 **D 节点需在 Transfer 完成后才能开始 Decode**，因此长 ISL 的跨节点 Transfer 延迟直接叠加到 TTFT，是长 CoT P/D 分离场景的关键优化点。
 
-**10.4 KV Block 时序图**
+**4. KV Block 时序图**
 
 ```
 P 节点时序：
