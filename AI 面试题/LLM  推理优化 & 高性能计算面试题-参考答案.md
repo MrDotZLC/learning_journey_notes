@@ -8036,7 +8036,7 @@ $$\mathcal{L}_{\text{feat}} = \sum_{l \in \mathcal{L}} \bigl| f_S^l(x) - \phi\!\
 
 Attention 图蒸馏（TinyBERT 等）通过对齐每个头的注意力权重矩阵实现：
 
-$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h,; A_T^h\right)$$
+$$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h,\; A_T^h\right)$$
 
 **优点：**
 
@@ -8062,7 +8062,7 @@ $$\mathcal{L}_{\text{attn}} = \frac{1}{H} \sum_{h=1}^{H} \text{MSE}\!\left(A_S^h
 
 ---
 
-#### 1.2 Q110. 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？
+#### **Q180. 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？**
 
 **推理模型蒸馏的特殊性：**
 
