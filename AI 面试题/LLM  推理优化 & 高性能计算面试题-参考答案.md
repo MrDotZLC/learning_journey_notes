@@ -7711,15 +7711,15 @@ $$\frac{d,\text{Accuracy}}{d,\text{Budget}} > 0, \quad \frac{d^2,\text{Accuracy}
 
 ---
 
-#### 6. Q109-TTC. Best-of-N 与 Self-Consistency 的系统资源对比
+#### **Q174. Best-of-N 与 Self-Consistency 的系统资源对比**
 
-**6.1 两种策略的定义**
+**1. 两种策略的定义**
 
 **Best-of-N（BoN）**：生成 $N$ 个独立答案，用 Reward Model（RM）或 Verifier 对每个答案评分，选取得分最高的结果。
 
 **Self-Consistency（SC）**：生成 $N$ 个独立答案（通常使用 Temperature > 0 采样），通过**多数投票**选取出现频率最高的答案，无需 RM。
 
-**6.2 实现方式对比**
+**2. 实现方式对比**
 
 | 维度     | Best-of-N          | Self-Consistency |
 | ------ | ------------------ | ---------------- |
@@ -7729,7 +7729,7 @@ $$\frac{d,\text{Accuracy}}{d,\text{Budget}} > 0, \quad \frac{d^2,\text{Accuracy}
 | 并行实现   | $N$ 个独立请求并行        | $N$ 个独立请求并行      |
 | 串行实现   | 顺序生成，边生成边评分        | 顺序生成后批量投票        |
 
-**6.3 系统资源分析**
+**3. 系统资源分析**
 
 **并行采样**（$N$ 个独立请求同时进入调度队列）：
 
@@ -7756,7 +7756,7 @@ $$M_{\text{peak}} = 1 \times M_{\text{KV per request}}$$
 离线批处理（吞吐优先）：串行采样（or 小批量并行），N 可设为 16–64
 ```
 
-**6.4 RM 推理开销**
+**4. RM 推理开销**
 
 Best-of-N 需要对每个候选答案运行 RM 推理：
 
@@ -7766,7 +7766,7 @@ Best-of-N 需要对每个候选答案运行 RM 推理：
 
 Process RM（逐步评分）在 Decode 阶段每步评分一次，开销更高，通常与 beam search / MCTS 联合使用，而非独立 BoN。
 
-**6.5 收益边际分析**
+**5. 收益边际分析**
 
 $$\text{Pass@1}(N) \approx 1 - (1 - p_{\text{single}})^N$$
 
