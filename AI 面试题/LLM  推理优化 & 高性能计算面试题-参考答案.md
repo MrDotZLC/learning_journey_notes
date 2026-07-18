@@ -8090,7 +8090,7 @@ Student 自身生成推理链，Teacher 实时在 Student 的 Token 分布上计
 
 $$\mathcal{L}_{\text{online}} = \mathbb{E}_{x \sim \mathcal{D}} \left[ \sum_t \text{KL}\!\left(p_T(\cdot \mid x, y_{<t}) \;|\; p_S(\cdot \mid x, y_{<t})\right) \right]$$
 
-其中 $y_{<t}$ 为 Student 自身生成的历史，而非固定的 Teacher 输出。在线蒸馏可缓解 Exposure Bias（见 Q110-b），但需要 Teacher 实时推理，计算成本极高。
+其中 $y_{<t}$ 为 Student 自身生成的历史，而非固定的 Teacher 输出。在线蒸馏可缓解 Exposure Bias（见 Q181），但需要 Teacher 实时推理，计算成本极高。
 
 **方法 3：RLVR 配合蒸馏（两阶段方案）**
 
