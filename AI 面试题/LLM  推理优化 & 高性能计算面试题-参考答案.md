@@ -8234,7 +8234,7 @@ $$\Delta \mathcal{L} \approx -\frac{\partial \mathcal{L}}{\partial \mathbf{h}} \
 
 ---
 
-#### 2.3 Q112. 2:4 稀疏格式的激活方式与精度损失分析
+#### **Q185. 2:4 稀疏格式的激活方式与精度损失分析**
 
 **2:4 稀疏存储格式：**
 
