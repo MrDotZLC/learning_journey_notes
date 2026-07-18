@@ -8134,7 +8134,7 @@ $$\mathcal{L}_{\text{RLVR}} = -\mathbb{E}_{y \sim \pi_\theta} \left[ r(y) \cdot 
 
 ---
 
-#### 1.4 Q110-c. 温度参数 $\tau$ 的作用分析
+#### **Q182. 温度参数 $\tau$ 的作用分析**
 
 **正式推导：**
 
