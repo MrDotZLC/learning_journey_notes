@@ -8203,7 +8203,7 @@ $$p_T(j \mid \tau) = \frac{\exp(z_j^T / \tau)}{\sum_k \exp(z_k^T / \tau)} \appro
 
 ---
 
-#### 2.2 Q111-b. Head Importance 评估与恢复微调
+#### **Q184. Head Importance 评估与恢复微调**
 
 **Head Importance 的常用评估方法：**
 
