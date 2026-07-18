@@ -8114,7 +8114,7 @@ Phase 2: RL with rule-based reward → 强化推理准确性
 
 ---
 
-#### 1.3 Q110-b. Exposure Bias 问题与 RLVR 修正
+#### **Q181. Exposure Bias 问题与 RLVR 修正**
 
 **Exposure Bias 的来源：**
 
@@ -8167,7 +8167,7 @@ $$p_T(j \mid \tau) = \frac{\exp(z_j^T / \tau)}{\sum_k \exp(z_k^T / \tau)} \appro
 
 ---
 
-#### 2.1 Q111. Unstructured Pruning vs. Structured Pruning 对推理加速的实际贡献差异？
+#### **Q183. Unstructured Pruning vs. Structured Pruning 对推理加速的实际贡献差异？**
 
 **Unstructured Pruning（非结构化剪枝）：**
 
