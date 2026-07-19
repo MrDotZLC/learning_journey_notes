@@ -8501,7 +8501,7 @@ python benchmark_serving.py \
 
 ---
 
-#### 3.2 Q113-b. 多目标约束下的轻量化决策
+#### **Q189. 多目标约束下的轻量化决策**
 
 **约束设定：**
 
@@ -8555,7 +8555,7 @@ $$\text{Score} = w_1 \cdot \frac{\text{TTFT\_target}}{\text{TTFT\_actual}} + w_2
 
 ### 17.1 Vision Encoder 与 Token 化
 
-#### Q114. Vision Encoder 输出 Token 数量对 Prefill 显存和计算的影响
+#### **Q190. Vision Encoder 输出 Token 数量对 Prefill 显存和计算的影响**
 
 1. ViT 的 Patch Token 化原理
 
