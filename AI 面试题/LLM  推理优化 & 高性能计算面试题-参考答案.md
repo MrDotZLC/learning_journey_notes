@@ -8629,7 +8629,7 @@ $$\text{FLOPs}_{\text{ViT}} = O(N_p^2 \cdot d_{\text{ViT}}) + O(N_p \cdot d_{\te
 
 ---
 
-#### Q192. ViT 在 VLM 推理中的 TTFT 占比
+#### **Q192. ViT 在 VLM 推理中的 TTFT 占比**
 
 Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$4096^2$），基于 NaViT 的 ViT 编码耗时占整体 TTFT 的 **86%**，LLM Prefill 反而是次要瓶颈。这在低分辨率（$224^2$）场景下截然不同（ViT 占比 < 10%）。
 
@@ -8646,7 +8646,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 ### 17.2 Image Token KV Cache 管理
 
-#### Q115. Image Token 与 Text Token 的差异化 KV Cache 策略
+#### **Q193. Image Token 与 Text Token 的差异化 KV Cache 策略**
 
 1. Image Token 在 LLM 层的注意力行为
 
