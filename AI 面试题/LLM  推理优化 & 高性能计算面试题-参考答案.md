@@ -8673,7 +8673,7 @@ Apple FastVLM（CVPR 2025）的实测数据表明，对于高分辨率输入（$
 
 ---
 
-#### Q115-b. Image Token 的 Prefix Caching 可行性
+#### **Q194. Image Token 的 Prefix Caching 可行性**
 
 1. 理论可行性
 
