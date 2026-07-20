@@ -8609,7 +8609,7 @@ Image Token 的引入将有效序列长度从 $S_{\text{text}}$ 扩展至 $S_{\t
 
 ---
 
-#### Q114-b. 动态分辨率的工程实现
+#### **Q191. 动态分辨率的工程实现**
 
 1. 变长序列的 Batch 打包（Sequence Packing）
 
