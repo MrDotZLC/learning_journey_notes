@@ -8910,7 +8910,7 @@ $$y_i = \bigoplus_{j=0}^{N-1} x_j!\left[,i \cdot \frac{M}{N} : (i+1) \cdot \frac
 
 ---
 
-**Q118. Ring-AllReduce 的通信量分析：总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？**
+#### **Q202. Ring-AllReduce 的通信量分析：总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？**
 
 **Ring-AllReduce 两阶段详解：**
 
