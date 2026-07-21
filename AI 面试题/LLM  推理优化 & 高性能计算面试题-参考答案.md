@@ -8777,7 +8777,7 @@ vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal i
 
 ### 17.4 多模态 KV Cache 量化与位置编码
 
-#### Q117-VLM. 多模态位置编码（M-RoPE）的推理影响
+#### **199. 多模态位置编码（M-RoPE）的推理影响**
 
 1. M-RoPE 的分解结构
 
