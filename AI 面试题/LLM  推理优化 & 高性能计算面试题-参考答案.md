@@ -8697,7 +8697,7 @@ VLCache 将 ViT 编码输出（Vision Encoder 特征向量）与 LLM 层 KV Cach
 
 ---
 
-#### Q115-c. 多帧视频 VLM 的 KV Cache 管理
+#### **Q195. 多帧视频 VLM 的 KV Cache 管理**
 
 **显存压力量化**：以 LLaVA-Video 风格、64 帧 × 256 Token/帧 = 16384 Image Token 为例，对 LLaMA-3 8B GQA（$L=32$，$H_{\text{KV}}=8$，$d=128$，BF16）：
 
