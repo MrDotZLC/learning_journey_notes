@@ -8711,7 +8711,7 @@ $$M_{\text{KV,video}} = 2 \times 32 \times 8 \times 128 \times 16384 \times 2 \a
 
 ### 17.3 VLM 推理的 Prefill 优化
 
-#### Q116. Chunked Prefill 的 Chunk Size 调整策略
+#### **Q196. Chunked Prefill 的 Chunk Size 调整策略**
 
 1. Image Token 不可拆分的根本原因
 
