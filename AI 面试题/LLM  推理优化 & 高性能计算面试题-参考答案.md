@@ -8777,7 +8777,7 @@ vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal i
 
 ### 17.4 多模态 KV Cache 量化与位置编码
 
-#### **199. 多模态位置编码（M-RoPE）的推理影响**
+#### **Q199. 多模态位置编码（M-RoPE）的推理影响**
 
 1. M-RoPE 的分解结构
 
@@ -8798,7 +8798,7 @@ $$\mathbf{q}_m = \text{concat}\!\left[\mathbf{q}^{(t)} e^{i t_m \theta}, \; \mat
 
 ---
 
-#### Q200. VLM 中混合模态批处理的 Attention Mask 结构
+#### **Q200. VLM 中混合模态批处理的 Attention Mask 结构**
 
 1. 混合 Causal Mask 设计
 
@@ -8964,7 +8964,7 @@ $$T = 2(N-1)\alpha + \frac{2M(N-1)}{NB}$$
 
 ---
 
-**Q128（新）. GPUDirect RDMA 的工作原理：P 节点如何零拷贝地将 KV Cache 直接写入 D 节点的 HBM？**
+#### **Q203. GPUDirect RDMA 的工作原理：P 节点如何零拷贝地将 KV Cache 直接写入 D 节点的 HBM？**
 
 **标准 RDMA（无 GPUDirect）的数据路径：**
 
