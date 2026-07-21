@@ -8749,7 +8749,7 @@ $$T_{\text{img}} \approx \frac{4 \cdot L \cdot H \cdot d \cdot (S_{\text{prev}} 
 
 ---
 
-#### Q116-b. vLLM 对 VLM Chunked Prefill 的工程支持现状（2024-2025）
+#### **Q197. vLLM 对 VLM Chunked Prefill 的工程支持现状（2024-2025）**
 
 vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal input"列为 P0 任务。核心工程约束：
 
@@ -8761,7 +8761,7 @@ vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal i
 
 ---
 
-#### Q116-c. Visual Token Compression 作为 Prefill 加速路径
+#### **Q198. Visual Token Compression 作为 Prefill 加速路径**
 
 | 压缩方案                | 代表模型            | 输出 Token 数       | 压缩机制                     | KV Cache 节省 |
 | ------------------- | --------------- | ---------------- | ------------------------ | ----------- |
