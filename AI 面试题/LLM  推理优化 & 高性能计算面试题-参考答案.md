@@ -8798,7 +8798,7 @@ $$\mathbf{q}_m = \text{concat}\!\left[\mathbf{q}^{(t)} e^{i t_m \theta}, \; \mat
 
 ---
 
-#### Q118-VLM. VLM 中混合模态批处理的 Attention Mask 结构
+#### Q200. VLM 中混合模态批处理的 Attention Mask 结构
 
 1. 混合 Causal Mask 设计
 
@@ -8834,7 +8834,7 @@ FlashAttention-2 的 `varlen` 接口通过 `cu_seqlens` 参数区分不同子序
 
 ---
 
-**Q117. AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？**
+#### **Q201. AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？**
 
 **四种集合通信原语的语义：**
 
