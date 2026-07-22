@@ -322,7 +322,7 @@ $$
 | $\mathbf{k}_n$             | 第 (n) 个 Key         | (d_h)         |
 | $H$                        | 共轭转置（Hermitian）     |               |
 | $\odot$                    | 按元素乘                |               |
-| $\operatorname{Re}(\cdot)$ | 取实部                 |               |
+| $\operatorname{Re}(\cdot)$ | 取实部，实际计算中不涉及虚部      |               |
 | $i$                        | 虚数单位，满足 (i^2=-1)    |               |
 | $\theta$                   | 每一维对应的旋转频率          |               |
 
