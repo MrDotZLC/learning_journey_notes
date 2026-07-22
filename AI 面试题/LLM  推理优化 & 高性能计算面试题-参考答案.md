@@ -9082,7 +9082,7 @@ InfiniBand 交换机可根据**实时端口队列深度**动态选择下一跳�
 
 ---
 
-**Q119. Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？**
+#### **Q205. Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？**
 
 **传统 TP 的串行瓶颈：**
 
@@ -9111,7 +9111,7 @@ Stream 1（通信）:              [RS Tile 0]   [RS Tile 1]   [RS Tile 2]   [RS
 
 **AllGather-GEMM Overlap（第一个线性层 W1）：**
 
-上一层 ReduceScatter 结束后，每个节点持有 $1/N$ 的激活分片。AllGather 按 Chunk 传输，每收到一个 Chunk 立即对该 Chunk 执行 GEMM，无需等待 AllGather 全部完成：
+上一层 ReduceScatter 完全结束后，每个节点持有 $1/N$ 的激活分片。AllGather 按 Chunk 传输，每收到一个 Chunk 立即对该 Chunk 执行 GEMM，无需等待 AllGather 全部完成：
 
 ```
 时间轴：
@@ -9156,7 +9156,7 @@ cudaStreamSynchronize(comm_stream);
 
 ---
 
-**Q120. NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？**
+#### **Q206. NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？**
 
 **NVLink 通信（GPU 直连）：**
 
@@ -9219,7 +9219,7 @@ NCCL 初始化时调用 ncclGetUniqueId 并探测拓扑：
 
 ---
 
-**Q121. NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？**
+#### **Q207. NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？**
 
 **NCCL 的设计定位与局限：**
 
@@ -9290,11 +9290,11 @@ NIXL 在 KV Transfer 场景端到端延迟比 NCCL 低约 40–50%，收益来�
 
 ---
 
-### 3. H100 新特性
+### 1. H100 新特性
 
 ---
 
-**Q122. TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？**
+#### **Q208. TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？**
 
 **`cp.async` 的局限（Ampere 时代）：**
 
@@ -9379,7 +9379,7 @@ FA-3 利用 TMA 将 Q、K、V 的 Tile 加载完全交给 Producer Warp 中的�
 
 ---
 
-**Q123. Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？**
+#### **Q209. Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？**
 
 **背景：传统 CUDA Kernel 的 Warp 同质化瓶颈：**
 
@@ -9459,7 +9459,7 @@ Consumer:            [WGMMA buf0→acc]           [WGMMA buf1→acc]           [
 
 ---
 
-**Q124. H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？**
+#### **Q210. H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？**
 
 **FP8 的两种格式（基于 Nvidia 标准）：**
 
@@ -9515,7 +9515,7 @@ $$x_{\text{fp8}} = \text{round\_to\_fp8}(x \cdot \text{scale})$$
 
 ---
 
-**Q130（新）. H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理及在 FlashAttention-3 中的应用？**
+#### **Q211. H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理及在 FlashAttention-3 中的应用？**
 
 **背景：传统 Shared Memory 的局限**
 
@@ -9560,11 +9560,11 @@ Cluster（2 SM）：
 
 ---
 
-### 4. Blackwell 新特性
+### 2. Blackwell 新特性
 
 ---
 
-**Q125. NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持。**
+#### **Q212. NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持。**
 
 **NVFP4 的数值格式：**
 
@@ -9636,7 +9636,7 @@ wgmma.mma_async.sync.aligned.m64n256k128.f32.e2m1.e4m3
 
 ---
 
-**Q126. GB200 NVL72 系统的硬件规格与推理意义。**
+#### **Q213. GB200 NVL72 系统的硬件规格与推理意义。**
 
 **GB200 NVL72 规格：**
 
@@ -9682,7 +9682,7 @@ Decode 阶段受 HBM 带宽主导（Memory-bound）。B200 每 GPU HBM 带宽为
 
 ---
 
-**Q127. NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？**
+#### **Q214. NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？**
 
 **推算原理：**
 
@@ -9735,7 +9735,7 @@ $$\frac{\text{B200 NVFP4 Sparse}}{\text{H100 FP8 Sparse}} = \frac{18{,}000}{1979
 
 ---
 
-**Q131（新）. Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源？**
+#### **Q215. Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源？**
 
 **NVSwitch 演进对比：**
 
