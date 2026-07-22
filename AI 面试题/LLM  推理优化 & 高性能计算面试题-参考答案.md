@@ -9363,15 +9363,15 @@ wgmma::mma_async(smem_tile, ...);
 
 **TMA vs `cp.async` 对比：**
 
-|维度|`cp.async`（Ampere）|TMA（Hopper）|
-|---|---|---|
-|地址计算|软件线程（消耗 ALU/寄存器）|**硬件 TMA 单元**（零软件开销）|
-|多维支持|仅 1D（需手动 Stride 循环）|**原生 1D–5D**（硬件处理）|
-|单次传输大小|4–16 Bytes|**整个 Tile（任意大小，上限约 256 KB）**|
-|同步机制|`cp.async.wait_group/wait_all`|**mbarrier（细粒度，Tile 级，支持 Phase）**|
-|Warp 指令开销|每个 Warp 均需发射 $n$ 条|**单线程发射 1 条指令**（TMA 硬件自主完成）|
-|Swizzle 支持|无（Bank Conflict 需软件处理）|**硬件原生支持 128B Swizzle**|
-|与 WGMMA 配合|间接（需手动调度 Ping-Pong）|**深度集成**（TMA + WGMMA + mbarrier 三件套）|
+| 维度         | `cp.async`（Ampere）             | TMA（Hopper）                          |
+| ---------- | ------------------------------ | ------------------------------------ |
+| 地址计算       | 软件线程（消耗 ALU/寄存器）               | **硬件 TMA 单元**（零软件开销）                 |
+| 多维支持       | 仅 1D（需手动 Stride 循环）            | **原生 1D–5D**（硬件处理）                   |
+| 单次传输大小     | 4–16 Bytes                     | **整个 Tile（任意大小，上限约 256 KB）**         |
+| 同步机制       | `cp.async.wait_group/wait_all` | **mbarrier（细粒度，Tile 级，支持 Phase）**    |
+| Warp 指令开销  | 每个 Warp 均需发射 $n$ 条             | **单线程发射 1 条指令**（TMA 硬件自主完成）          |
+| Swizzle 支持 | 无（Bank Conflict 需软件处理）         | **硬件原生支持 128B Swizzle**              |
+| 与 WGMMA 配合 | 间接（需手动调度 Ping-Pong）            | **深度集成**（TMA + WGMMA + mbarrier 三件套） |
 
 **对 FlashAttention-3 的意义：**
 
@@ -9401,15 +9401,15 @@ FA-3 利用 TMA 将 Q、K、V 的 Tile 加载完全交给 Producer Warp 中的�
 │  │  Producer     │     │  Consumer       │  │
 │  │  Warp(s)      │     │  Warp Group(s)  │  │
 │  │               │     │                 │  │
-│  │ ① TMA 加载    │     │ ① WGMMA 执行   │  │
-│  │   K/V/权重    │     │   矩阵乘累加    │  │
+│  │ ① TMA 加载    │     │ ① WGMMA 执行     │  │
+│  │   K/V/权重    │     │   矩阵乘累加      │  │
 │  │   Tile        │     │                 │  │
-│  │ ② Softmax     │     │ ② 累加器维护   │  │
+│  │ ② Softmax     │     │ ② 累加器维护     │  │
 │  │   Row-max/sum │     │   输出 Tile     │  │
-│  │   标量运算    │     │                 │  │
+│  │   标量运算    │     │                  │  │
 │  └──────┬────────┘     └────────┬────────┘  │
-│         │    Shared Memory      │            │
-│         └───────────────────────┘            │
+│         │    Shared Memory      │           │
+│         └───────────────────────┘           │
 │             （mbarrier 同步）                │
 └─────────────────────────────────────────────┘
 ```
