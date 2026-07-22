@@ -9038,7 +9038,7 @@ NIXL 在跨节点 KV Transfer 场景下，其 Scatter-Gather 传输底层即依�
 
 ---
 
-**Q129（新）. InfiniBand 网络中 ECMP（等价多路径）与自适应路由对 All-to-All 通信的影响？**
+#### **Q204. InfiniBand 网络中 ECMP（等价多路径）与自适应路由对 All-to-All 通信的影响？**
 
 **背景：MoE EP All-to-All 的流量特征**
 
