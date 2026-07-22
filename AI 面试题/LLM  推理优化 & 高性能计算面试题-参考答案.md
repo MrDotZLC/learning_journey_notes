@@ -977,7 +977,7 @@ $$O = \text{Softmax}(\text{score}) \cdot V \in \mathbb{R}^{1 \times d} \quad \Ri
 | ----------- | ---------------------------------------- | --------------------------------------- |
 | 中间矩阵 $S$ 大小 | $N \times S$（可能很大）                       | $1 \times S$（仅一行，很小）                    |
 | HBM 节省      | 显著（$O(N \cdot S)$ → $O(N \cdot d)$）      | 有限（$S$ 已很小）                             |
-| 瓶颈          | Memory-bound（读 $K, V$）                   | Memory-bound（读 $K, V$）                  |
+| 瓶颈          | Compute-bound（大矩阵乘加）                     | Memory-bound（读 $K, V$）                  |
 | FA 收益       | **显著**（IO 减少为主）                          | **有限**（主要收益是数值稳定性，IO 节省较小）              |
 
 **Decode 阶段的主要优化方向**不是 FA，而是：
