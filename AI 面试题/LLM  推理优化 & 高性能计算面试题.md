@@ -67,8 +67,8 @@
 - Q35. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
 
 ### 3.4 Decode 阶段 Attention 优化
-- Q32. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
-- Q33. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
+- Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
+- Q37. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
 
 ### 3.5 长序列与分布式 Attention
 - Q34. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
