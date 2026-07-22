@@ -1238,7 +1238,7 @@ RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位�
 
 #### **Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？**
 
-1. 朴素 KV Cache 的碎片化问题
+**1. 朴素 KV Cache 的碎片化问题**
 
 朴素实现中，为每个请求**预分配连续显存**存放 KV Cache，大小为最大序列长度 $S_{\max}$：
 
@@ -1248,12 +1248,13 @@ $$M_{\text{alloc}} = 2 \times L \times H \times d \times S_{\max} \times \text{s
 
 $$M_{\text{alloc}} = 2 \times 32 \times 32 \times 128 \times 4096 \times 2 \approx 2 \text{ GB/请求}$$
 
-**三类碎片：**
+三类碎片：
 
-1. **Internal Fragmentation（内部碎片）：** 请求实际生成长度 $S_{\text{actual}} \ll S_{\max}$，大量预分配空间浪费。
-2. **External Fragmentation（外部碎片）：** 不同长度的请求释放后产生零散空洞，无法被新请求利用。
-3. **Over-reservation（过度预留）：** 推理时序列长度未知，必须保守预留，进一步降低并发度。
-4. PagedAttention 的分页机制
+- **Internal Fragmentation（内部碎片）：** 请求实际生成长度 $S_{\text{actual}} \ll S_{\max}$，大量预分配空间浪费。
+- **External Fragmentation（外部碎片）：** 不同长度的请求释放后产生零散空洞，无法被新请求利用。
+- **Over-reservation（过度预留）：** 推理时序列长度未知，必须保守预留，进一步降低并发度。
+
+**2. PagedAttention 的分页机制**
 
 借鉴操作系统虚拟内存的分页思想：将 KV Cache 切分为固定大小的**物理块（Block）**，每块存放 $B$ 个 Token 的 KV（$B$ 典型值为 16）。每个请求维护一张**块表（Block Table）**，记录逻辑块号到物理块号的映射。
 
@@ -1285,11 +1286,11 @@ Kernel 循环遍历所有物理块，在每块内做局部 Attention（类似 Fl
 | KV Cache 利用率    | ~20–40%                                   | ~95%+                         |
 | 并发请求数（A100 80G） | 基准                                        | 提升 $2\sim4\times$             |
 
-**Copy-on-Write 与 Beam Search：**
+**Copy-on-Write：**
 
 多个请求共享同一 Prefix 时，其逻辑块可映射到**同一物理块**（引用计数 > 1）。当某请求需写入新 Token 时，触发 CoW：分配新物理块，复制内容，更新块表。这使 Prefix Caching 的显存开销为零（直到分叉点才复制）。
 
-3. 额外开销：
+**3. 额外开销：**
 
 **① Block Table 查找开销：**
 
