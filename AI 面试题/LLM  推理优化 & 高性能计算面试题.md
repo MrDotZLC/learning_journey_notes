@@ -51,10 +51,10 @@
 
 ### 3.1 FlashAttention 系列
 
-- **Q23.** 标准 Attention 的内存复杂度为 $O(N^2)$，FlashAttention 如何将其降为 $O(N)$ SRAM 占用？核心思想（Tiling + Online Softmax）？
-- **Q24.** FlashAttention-2 相比 FA-1 的改进点：减少非 GEMM FLOPs、改进 Warp 并行策略？
-- **Q25.** FlashAttention-3 在 Hopper 架构上的改进：Warp Specialization、异步流水线、WGMMA 的利用？
-- **Q26.** 为什么 Decode 阶段的 Attention 退化为 GEMV 问题？此时 FA 的收益是否仍然显著？
+- **Q27.** 标准 Attention 的内存复杂度为 $O(N^2)$，FlashAttention 如何将其降为 $O(N)$ SRAM 占用？核心思想（Tiling + Online Softmax）？
+- **Q28.** FlashAttention-2 相比 FA-1 的改进点：减少非 GEMM FLOPs、改进 Warp 并行策略？
+- **Q29.** FlashAttention-3 在 Hopper 架构上的改进：Warp Specialization、异步流水线、WGMMA 的利用？
+- **Q30.** 为什么 Decode 阶段的 Attention 退化为 GEMV 问题？此时 FA 的收益是否仍然显著？
 
 ### 3.2 Attention 变体
 
