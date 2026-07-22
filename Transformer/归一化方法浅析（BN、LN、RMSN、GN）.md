@@ -176,7 +176,7 @@ ONNX Runtime 的 `ConvBNFusion` 和 `GemmActivationFusion` Graph Transformer pas
 
 ---
 
-## 3. Layer Normalization（LN）
+- ## 3. Layer Normalization（LN）
 
 ### 3.1 背景
 
@@ -184,7 +184,9 @@ Ba et al.（2016）提出，专门解决 BN 不适用于 RNN 的问题——归�
 
 ### 3.2 Pre-LN vs. Post-LN
 
-原始 Transformer（Vaswani 2017）使用 **Post-LN**（残差加法之后归一化），梯度流经 LN 层，即残差被包含在 LN中，深层训练不稳定，需要精心调整 Warmup。
+原始 Transformer（Vaswani 2017）使用 **Post-LN**（残差加法之后归一化），梯度流经 LN 层，即残差被包含在 LN中，破坏了残差连接提供的“梯度高速通道”，导致深层 Transformer 中梯度容易爆炸或消失，需要精心调整 Warmup。
+
+Warmup 的作用是**限制训练初期参数更新幅度，避免网络尚未稳定时梯度异常放大**。
 
 $$ \text{output} = \text{LN}(x + f_l(x)) $$
 

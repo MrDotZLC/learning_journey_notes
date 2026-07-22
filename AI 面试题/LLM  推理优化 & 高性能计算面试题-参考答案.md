@@ -325,6 +325,8 @@ $$O \leftarrow O \cdot e^{m^{\text{old}} - m^{\text{new}}} + e^{m_{\text{tile}} 
 
 #### **Q13. 为什么用RMS Norm？实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？**
 
+[归一化方法浅析 - 4. RMSNorm](../Transformer/归一化方法浅析（BN、LN、RMSN、GN）.md#4.%20RMSNorm)
+
 LayerNorm 每个样本的隐层向量 $\mathbf{x} \in \mathbb{R}^d$ 做：
 
 $$\text{LayerNorm}(\mathbf{x}) = \frac{\mathbf{x} - \mu}{\sqrt{\sigma^2 + \epsilon}} \odot \boldsymbol{\gamma} + \boldsymbol{\beta}$$
@@ -379,6 +381,8 @@ __global__ void fused_rms_norm(
 ---
 
 #### **Q14. LayerNorm 的 Welford 在线算法如何实现？**
+
+[归一化方法浅析 - 3. Layer Normalization（LN）](../Transformer/归一化方法浅析（BN、LN、RMSN、GN）.md#3.%20Layer%20Normalization（LN）)
 
 **问题：** 计算方差的朴素公式 $\text{Var} = E[x^2] - (E[x])^2$ 在数值上不稳定（两个大数相减）。Welford 算法以单次遍历在线更新均值与方差，数值稳定。
 
