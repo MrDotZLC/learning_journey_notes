@@ -26,24 +26,24 @@
 - **Q12.** 如何实现 numerically stable 的 Online Softmax？推导 3-pass → 2-pass → 1-pass 的演化过程。
 - **Q13.** 实现 Fused RMSNorm Kernel：为什么要 Fuse，省去了哪些 Global Memory 访问？
 - **Q14.** LayerNorm 的 Welford 在线算法如何实现？
-- **Q_J.** Warp Reduce 的 `mask` 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？
+- **Q15.** Warp Reduce 的 `mask` 参数在非满 Warp 场景（Block 尾部）如何正确处理？错误使用会导致什么问题？
 
 ### 2.2 GEMM 优化
 
-- **Q15.** 朴素 GEMM 的瓶颈是什么？Tiled GEMM 的核心思路（Shared Memory Tiling）？
-- **Q16.** 什么是 Double Buffering（Ping-Pong Buffer）？如何用 `cp.async` / TMA 实现异步数据预取？
-- **Q17.** Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper 的 WGMMA 与 Ampere MMA 的区别？
-- **Q18.** cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？何时需要手写？
-- **Q19.** GEMM-SplitK 分解的适用场景（瘦矩阵 / Decode 阶段小 Batch）？
-- **Q_K.** Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？
-- **Q_L.** 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？
+- **Q16.** 朴素 GEMM 的瓶颈是什么？Tiled GEMM 的核心思路（Shared Memory Tiling）？
+- **Q17.** Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？
+- **Q18.** 什么是 Double Buffering（Ping-Pong Buffer）？如何用 `cp.async` / TMA 实现异步数据预取？
+- **Q19.** Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper 的 WGMMA 与 Ampere MMA 的区别？
+- **Q20.** cuBLAS vs CUTLASS vs 手写 Kernel 的选型依据？何时需要手写？
+- **Q21.** GEMM-SplitK 分解的适用场景（瘦矩阵 / Decode 阶段小 Batch）？
+- **Q22.** 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？
 
 ### 2.3 Kernel Fusion
 
-- **Q20.** Kernel Fusion 的本质收益是什么（减少 HBM Round-trip）？举例说明 FlashAttention 的 Fusion 策略。
-- **Q21.** 什么样的算子适合 Fusion？什么情况下 Fusion 反而有害（Register Spilling）？
-- **Q22.** CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？
-- **Q_M.** 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？
+- **Q23.** Kernel Fusion 的本质收益是什么（减少 HBM Round-trip）？举例说明 FlashAttention 的 Fusion 策略。
+- **Q24.** 什么样的算子适合 Fusion？什么情况下 Fusion 反而有害（Register Spilling）？
+- **Q25.** CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？
+- **Q26.** 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？
 
 ---
 
