@@ -8,7 +8,7 @@
 
 #### **Q1. GPU 的 SM（Streaming Multiprocessor）内部结构是什么？Warp 如何调度？**
 
-[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)、[GPU Warp详解](../CUDA/GPU%20Warp详解.md)**、[GPU 维度解析](../CUDA/GPU%20维度解析.md)
+[🚀 CUDA 介绍 - 1.2 关键硬件构件](🚀%20CUDA%20介绍.md#1.2%20关键硬件构件)、[GPU Warp详解](../CUDA/GPU%20Warp详解.md)、[GPU 维度解析](../CUDA/GPU%20维度解析.md)
 
 **SM 核心组件（以 H100 SXM 为例）：**
 
@@ -36,7 +36,7 @@ Shared Memory 与 L1 物理上合并。
 
 #### **Q2. CUDA 的内存层次各层的带宽与延迟数量级是多少？**
 
-[🚀 CUDA 介绍](../CUDA/🚀%20CUDA%20介绍.md)
+[🚀 CUDA 介绍 - 5.1 内存层级与延迟量级](../CUDA/🚀%20CUDA%20介绍.md#5.1%20内存层级与延迟量级)
 
 |层次|带宽（H100 SXM）|访问延迟|作用域|
 |---|---|---|---|
@@ -86,6 +86,8 @@ int val = A[threadIdx.x * 32];
 
 #### **Q4. Shared Memory 的 Bank Conflict 是什么？如何消除？**
 
+[🚀 CUDA 介绍 - 5.4 Shared Memory Bank Conflict](../CUDA/🚀%20CUDA%20介绍.md#5.4%20Shared%20Memory%20Bank%20Conflict)
+
 **Bank 结构：** Shared Memory 被划分为 **32 个 Bank**，每个 Bank 宽度 4 字节（可配置为 8 字节）。同一 Warp 内多个线程若访问**同一 Bank 的不同地址**，产生 Bank Conflict，访问被串行化。
 
 **冲突判断：** 线程 $i$ 访问地址 $A_i$，若 $A_i \bmod 32$ 对多个线程相同且地址不同，则冲突。
@@ -123,6 +125,9 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 
 #### **Q6. Warp Divergence 对性能的影响及规避方法？**
 
+[CUDA 线程同步 - 3.4 Warp Divergence 与 Converge 时机](../CUDA/CUDA%20线程同步：`__syncwarp`%20与%20`__syncthreads`%20全景笔记.md#3.4%20Warp%20Divergence%20与%20Converge%20时机)
+[GPU Warp详解 - 2. Divergence处理流程（详细）](../CUDA/GPU%20Warp详解.md#2.%20Divergence处理流程（详细）)
+
 **原理：** SIMT 模型要求同 Warp 的 32 个线程执行相同指令。若线程因 `if/else`、`while` 等分支走向不同路径，GPU 将**串行执行所有分支**，非活跃线程被掩码屏蔽（Predicate Off），等待。
 
 **性能损失：** 最坏情况（32 个线程走 32 条不同分支）吞吐降至 $1/32$。
@@ -141,6 +146,8 @@ __shared__ float tile[BLOCK][BLOCK + 1];  // +1 padding
 ---
 
 #### **Q7. 什么是 Arithmetic Intensity？如何用 Roofline Model 判断瓶颈？**
+
+[TensorRT 图优化与层融合底层机制 - 1. GPU Roofline 视角：层融合的硬件本质](../TensorRT/TensorRT%20与%20TensorRT-LLM%20图优化与层融合底层机制.md#1.%20GPU%20Roofline%20视角：层融合的硬件本质)
 
 **Arithmetic Intensity（算术强度）定义：**
 
