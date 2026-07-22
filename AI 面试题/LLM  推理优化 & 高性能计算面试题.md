@@ -58,13 +58,13 @@
 
 ### 3.2 Attention 变体
 
-- **Q27.** MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？
-- **Q28.** MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？
-- **Q29.** Sparse Attention（如 Sliding Window、BigBird）的适用场景？
+- **Q31.** MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？
+- **Q32.** MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？
+- **Q33.** Sparse Attention（如 Sliding Window、BigBird）的适用场景？
 
 ### 3.3 MLA 矩阵吸收与位置编码
-- Q30. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
-- Q31. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
+- Q34. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
+- Q35. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
 
 ### 3.4 Decode 阶段 Attention 优化
 - Q32. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
