@@ -315,10 +315,13 @@ $$
 \begin{aligned}
 S_k &= \sum_{i=1}^{k}\:(x_i-M_k)^2 \\ 
 &=\sum_{i=1}^{k-1}\:\left[(x_i-M_{k-1})+(M_{k-1}-M_k)\right]^2+(x_k-M_k)^2 \\ 
-&= S_{k-1}+2(M_{k-1}-M_k)\sum_{i=1}^{k-1}\:(x_i-M_{k-1})+(n-1)(M_{k-1}-M_k)^2 \\
+&= S_{k-1}+2(M_{k-1}-M_k)\sum_{i=1}^{k-1}\:(x_i-M_{k-1})+(k-1)(M_{k-1}-M_k)^2+(x_k-M_k)^2 \\
+&= S_{k-1}+\frac{(k-1)(x_k-M_{k-1})^2}{k^2}+\delta_2^2 \\
+&= S_{k-1}+\frac{(k-1)\delta_1^2}{k^2}+\frac{(k-1)^2\delta_1}{k^2} \\
 &= S_{k-1}+\frac{(k-1)\delta_1^2}{k^2}\cdot k \\ 
 &= S_{k-1}+\delta_1\delta_2 \qquad \text{（更新平方偏差和）}
-\end{aligned} $$
+\end{aligned}
+$$
 
 **最终方差**（处理完所有 $d$ 个元素后）：
 
