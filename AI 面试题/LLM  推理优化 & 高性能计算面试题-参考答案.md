@@ -192,7 +192,7 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 
 **GEMM（$M \times N \times K$，$M, N, K$ 均大）：**
 
-$$I_{\text{GEMM}} = \frac{2MNK}{2(MK + NK + MN) \cdot \text{dtype\_bytes}} \approx \frac{M}{2} $$$$\quad (M=N=K, FP16, dtype_bytes=2)$$
+$$I_{\text{GEMM}} = \frac{2MNK}{2(MK + NK + MN) \cdot \text{dtype\_bytes}} \approx \frac{M}{2} $$$$\quad (M=N=K,\ FP16,\ dtype\_bytes=2)$$
 
 典型值：$M=4096$ 时，$I \approx 2048 \text{ FLOP/Byte}$，Compute-bound。
 
