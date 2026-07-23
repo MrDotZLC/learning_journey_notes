@@ -1635,7 +1635,11 @@ $$\Delta M_{\text{step}} = 2 \times 80 \times 8 \times 128 \times 1 \times 2 = 3
 
 **对 Chunked Prefill 的设计动机：**
 
-传统整段 Prefill 的问题在于：① 长 Prompt 的峰值 KV 占用会瞬间挤占大量 Block，阻塞同批 Decode 请求的 KV 追加；② Prefill 本身是 Compute-bound，与 Memory-bound 的 Decode 争抢 GPU 计算资源，导致 Decode 请求的 TPOT 抖动。Chunked Prefill 将大跳变拆解为多个小阶跃（每次 $C$ 个 Token），使 Block 分配压力分散到多个迭代步，从而与 Decode 请求更均匀地共享 Block Pool。
+传统整段 Prefill 的问题在于：
+① 长 Prompt 的峰值 KV 占用会瞬间挤占大量 Block，阻塞同批 Decode 请求的 KV 追加；
+② Prefill 本身是 Compute-bound，与 Memory-bound 的 Decode 争抢 GPU 计算资源，导致 Decode 请求的 TPOT 抖动。
+
+Chunked Prefill 将大跳变拆解为多个小阶跃（每次 $C$ 个 Token），使 Block 分配压力分散到多个迭代步，从而与 Decode 请求更均匀地共享 Block Pool。
 
 ---
 

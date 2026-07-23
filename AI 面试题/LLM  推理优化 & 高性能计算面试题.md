@@ -90,8 +90,8 @@
 
 ### 4.3 KV Cache 压缩
 
-- **Q35.** Token Eviction 方法（H2O、SnapKV）的基本思路：基于 Attention Score 保留"Heavy Hitter" Tokens？
-- **Q36.** KV Cache 量化（INT8 / FP8 KV）的精度损失分析？
+- **Q44.** Token Eviction 方法（H2O、SnapKV）的基本思路
+- **Q45.** KV Cache 量化（INT8 / FP8 KV）的精度损失分析？
 - **Q36-b.** H100 上 FP8 KV Cache 的量化与反量化时机：为何 H100 无需软件反量化 Kernel？与 INT8 KV Cache 方案的工程差异是什么？实测带宽节省与精度损失的数量级？
 - **Q37.** StreamingLLM 的 Attention Sink 机制是什么？
 - **Q37-b.** KV Cache 分级存储方案（HBM $\to$ CPU DRAM $\to$ NVMe SSD）：各级有效带宽的数量级，以及恢复延迟对 TTFT 的叠加影响；适用场景与精度无损的前提条件？
