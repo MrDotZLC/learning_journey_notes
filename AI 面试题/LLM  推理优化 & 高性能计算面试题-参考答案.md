@@ -1603,13 +1603,11 @@ $$M = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 = 2 \times 80 \times 
 
 ---
 
-#### **Q42 Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异**
+#### **Q42. Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异**
 
 **Prefill 阶段的增长行为：**
 
-输入 Prompt 共 $S_p$ 个 Token，Prefill 执行单次前向，同时计算所有 Token 的 $K, V$ 并写入 KV Cache。从分配器视角看，KV Cache 在 Prefill **开始前为 0**，**结束后跳变至峰值**：
-
-$$M_{\text{peak}}^{\text{Prefill}} = M_{\text{KV}}(S_p) = 2 \times L \times H_{\text{KV}} \times d \times S_p \times b$$
+输入 Prompt 共 $S_p$ 个 Token，Prefill 执行单次前向，同时计算所有 Token 的 $K, V$ 并写入 KV Cache。从分配器视角看，KV Cache 在 Prefill **开始前为 0**，**结束后跳变至峰值**。
 
 整个 Prefill 期间，该请求需要占用 $M_{\text{peak}}^{\text{Prefill}}$ 的 KV 空间（逐层写入，但调度器必须在开始前预留，否则 OOM）。
 

@@ -63,17 +63,17 @@
 - **Q33.** Sparse Attention（如 Sliding Window、BigBird）的适用场景？
 
 ### 3.3 MLA 矩阵吸收与位置编码
-- Q34. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
-- Q35. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
+- **Q34.** MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？
+- **Q35.** RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响
 
 ### 3.4 Decode 阶段 Attention 优化
-- Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
-- Q37. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
+- **Q36.** PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？
+- **Q37.** RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 有何本质改进？
+- **Q38.** Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？
 
 ### 3.5 长序列与分布式 Attention
-- Q34. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
-- Q35. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理
-- 
+- **Q39.** Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析
+- **Q40.** Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理
 
 ---
 
@@ -81,21 +81,12 @@
 
 ### 4.1 核心机制
 
-- **Q30.** KV Cache 的作用与显存增长规律：给定模型参数（层数 $L$、头数 $H$、头维度 $d$、数据类型），推导单请求 $S$ tokens 的 KV Cache 显存占用公式：
-
-$$M_{\text{KV}} = 2 \times L \times H \times d \times S \times \text{sizeof(dtype)}$$
-
-- **Q31.** 为什么传统框架的 KV Cache 存在严重的内存碎片？Internal Fragmentation 与 External Fragmentation 分别指什么？
-- **Q30-c.** MLA（Multi-head Latent Attention）的 KV Cache 压缩比推导：缓存低秩向量 $c$（维度 $d_c$）而非展开的 $K, V$，压缩比为 $d_c / (H \cdot d)$；DeepSeek-V2 中 $d_c = 512$，$H \cdot d = 16384$，压缩比约 $1/32$；与 GQA 路径对比，分析两种方案的工程取舍。（与第 3 章 Q28、Q30 形成闭环）
-- **Q30-d.** Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异：Prefill 阶段 $S_{\text{prompt}}$ 个 Token 的 KV 在单次前向中批量写入，显存在 Prefill 结束时跳变至峰值；Decode 阶段每步追加 1 个 Token，线性递增。两阶段对 Block 分配策略的要求不同，说明此差异如何驱动 Chunked Prefill（Q39）的设计。
+- **Q41.** KV Cache 的作用与显存增长规律：推导单请求 $S$ tokens 的 KV Cache 显存占用公式
+- **Q42.** Prefill 阶段与 Decode 阶段 KV Cache 增长行为的差异
 
 ### 4.2 PagedAttention
 
-- **Q32.** PagedAttention 的核心思路：类比 OS 虚拟内存页表机制，Block 大小如何选择（典型值 16 tokens/block）？
-- **Q33.** PagedAttention 如何支持 Prefix Sharing（多请求共享同一 Prompt 的 KV Block）？
-- **Q34.** 相比连续 KV Buffer，PagedAttention 的 Attention Kernel 有哪些额外开销？
-- **Q34-b.** RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 有何本质改进？Radix Tree 的最长公共前缀匹配（LCP）机制与 LRU 驱逐策略是什么？对多轮对话、Tree-of-Thought、RAG 等场景的覆盖能力如何？（与 Q66 形成闭环）
-- **Q34-c.** KV Block 的引用计数管理与安全释放时机：共享 Block 何时可以回收？显存压力下的驱逐优先级如何排序？错误提前释放会导致什么后果，为何此类 Bug 难以复现？
+- **Q43.** KV Block 的引用计数管理与安全释放时机
 
 ### 4.3 KV Cache 压缩
 
