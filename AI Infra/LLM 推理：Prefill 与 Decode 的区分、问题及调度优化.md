@@ -6,7 +6,7 @@ LLM 自回归推理由两个在计算特性上根本不同的阶段构成。
 
 输入为用户 prompt，包含 $L_p$ 个 token（$L_p \gg 1$）。所有 token 的 hidden states 在同一次 forward pass 中并行计算，Attention 需要完整的因果矩阵乘法：
 
-$$ \text{Attn}_{\text{prefill}} = \text{softmax}!\left(\frac{Q_{[L_p,, d]} \cdot K_{[L_p,, d]}^\top}{\sqrt{d}}\right) \cdot V_{[L_p,, d]} $$
+$$ \text{Attn}_{\text{prefill}} = \text{softmax}\!\left(\frac{Q_{[L_p,, d]} \cdot K_{[L_p,, d]}^\top}{\sqrt{d}}\right) \cdot V_{[L_p,, d]} $$
 
 中间矩阵形状为 $[L_p \times L_p]$，运算量为 $O(L_p^2 \cdot d)$。
 
@@ -16,7 +16,7 @@ $$ \text{Attn}_{\text{prefill}} = \text{softmax}!\left(\frac{Q_{[L_p,, d]} \cdot
 
 每步仅生成 1 个新 token，Query 退化为单行向量 $q \in \mathbb{R}^{1 \times d}$，需与 KV Cache 中已缓存的 $L_{kv}$ 条历史记录做注意力：
 
-$$ \text{Attn}_{\text{decode}} = \text{softmax}!\left(\frac{q_{[1,, d]} \cdot K_{\text{cache}[L_{kv},, d]}^\top}{\sqrt{d}}\right) \cdot V_{\text{cache}[L_{kv},, d]} $$
+$$ \text{Attn}_{\text{decode}} = \text{softmax}\!\left(\frac{q_{[1,, d]} \cdot K_{\text{cache}[L_{kv},, d]}^\top}{\sqrt{d}}\right) \cdot V_{\text{cache}[L_{kv},, d]} $$
 
 本质为一次 **GeMV（向量-矩阵乘法）**，运算量为 $O(L_{kv} \cdot d)$，远低于 Prefill。
 
