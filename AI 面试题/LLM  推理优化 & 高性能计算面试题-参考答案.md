@@ -1389,7 +1389,7 @@ FA（FA-1/2）的并行维度为 Batch Size × Head 数。Decode 阶段的典型
 
 Flash-Decoding 在 FA 的 Batch/Head 并行基础上，增加**第三个并行维度：KV 序列的分块**。
 
-设将序列 $S$ 切分为 $C$ 块，每块长度 $S/C$，不同 SM 并行处理不同 KV 块。
+设按 KV 序列 $S$ 切分为 $C$ 块，每块长度 $S/C$，不同 SM 并行处理不同 KV 块。
 
 **三步计算流程：**
 
