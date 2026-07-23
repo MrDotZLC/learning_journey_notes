@@ -1423,7 +1423,7 @@ $$o_{\text{final}} = \frac{1}{\ell_{\text{final}}} \sum_c e^{m_c - m_{\text{fina
 | Flash-Decoding | $B \times H \times C$（$C$ 可取 $128\sim512$） | $32 \times 128 / 132 \approx 3100\%$（充足过载） |
 
 Flash-Decoding 在长序列 Decode 场景下，延迟可降低 $8\times$（实测 $S=8192$，$d=64$，$B=1$）。
-
+****
 **4. 代价：额外显存与归约开销**
 
 中间缓冲区大小：$C \times H \times d \times 3$（存 $o, \ell, m$），取 $C=256$，$H=32$，$d=128$，FP32：
