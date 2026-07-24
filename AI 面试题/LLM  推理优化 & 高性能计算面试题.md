@@ -104,10 +104,8 @@
 
 - **Q49.** Static Batching 与 Continuous Batching（Iteration-level Scheduling）的区别？后者如何消除 Padding 浪费？
 - **Q50.** Chunked Prefill 的原理：将长 Prompt 的 Prefill 拆分为多个 Chunk，与 Decode 请求交错执行，有何收益与代价？
-- **Q39-KV.** Chunked Prefill 执行期间 KV Block 的按需分配策略
-- **Q40.** Prefill / Decode 分离（Disaggregated PD）架构的动机：两阶段计算特性不同，分离部署如何提升集群利用率？
-- **Q40-b.** xPyD Ratio（P 实例数 : D 实例数）的调优依据：如何根据 ISL/OSL（输入/输出序列长度）比例和计算耗时模型推导最优比值？静态配比与动态扩缩容的工程权衡？
-- **Q40-c.** KV Cache Transfer 的实现机制与延迟分析：GPUDirect RDMA、NVLink、TCP 三种传输路径的带宽与延迟量级？Transfer 延迟对 TTFT 的叠加影响？NIXL 相比 NCCL 在此场景的优化点？
+- **Q51.** Chunked Prefill 执行期间 KV Block 的按需分配策略
+- **Q52.** Prefill / Decode 分离（Disaggregated PD）架构的动机：两阶段计算特性不同，分离部署如何提升集群利用率？
 
 ### 5.2 调度指标
 

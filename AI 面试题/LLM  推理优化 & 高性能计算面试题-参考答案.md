@@ -175,6 +175,8 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 
 #### **Q8. LLM 推理的 Prefill 阶段和 Decode 阶段分别属于哪种瓶颈？**
 
+[Prefill 与 Decode 的区分、问题及调度优化 - 1. 两阶段的本质差异](../AI%20Infra/LLM%20推理：Prefill%20与%20Decode%20的区分、问题及调度优化.md#1.%20两阶段的本质差异)
+
 | 阶段          | 输入形状                                       | 主要算子        | 瓶颈类型          | 原因                                                        |
 | ----------- | ------------------------------------------ | ----------- | ------------- | --------------------------------------------------------- |
 | **Prefill** | Batch × $S_{\text{in}}$（$S_{\text{in}}$ 大） | GEMM（大矩阵）   | Compute-bound | $S_{\text{in}}$ 大时 GEMM 形状方正，Tensor Core 利用率高，$I \gg I^*$ |
@@ -189,6 +191,8 @@ $$I^* = \frac{P_{\text{peak}}}{BW_{\text{mem}}}$$
 ---
 
 #### **Q9. GEMV 与 GEMM 的计算访存比差距？为何 Decode 受限于显存带宽？**
+
+[Transformer 训练与推理的核心差异 - 8. 计算强度（Arithmetic Intensity）差异](../Transformer/Transformer%20训练与推理的核心差异.md#8.%20计算强度（Arithmetic%20Intensity）差异)
 
 **GEMM（$M \times N \times K$，$M, N, K$ 均大）：**
 
