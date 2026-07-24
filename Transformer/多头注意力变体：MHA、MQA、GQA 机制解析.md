@@ -43,7 +43,7 @@ $$\text{head}_i = \text{Attention}(XW_i^Q,\ XW_i^K,\ XW_i^V)$$
 
 $$\text{MHA}(Q,K,V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_H), W^O$$
 
-$$\text{Attention}(Q,K,V) = \text{softmax}!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$$
+$$\text{Attention}(Q,K,V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$$
 
 ### 3.2 参数量
 

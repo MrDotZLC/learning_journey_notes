@@ -1,6 +1,4 @@
-## 1. Context Parallelism 技术全景
-
-### 1.1 Context Parallelism 背景
+## 1. 背景
 
 随着 Large Language Model（LLM）支持的上下文长度从：
 - GPT-3：2K Token
@@ -29,9 +27,7 @@ Context Parallelism（CP）提出：
 
 ---
 
-## 2. Context Parallelism 核心思想
-
-### 2.1 Sequence 维度切分
+## 2. 核心思想：Sequence 维度切分
 
 Tensor Parallel（TP）切分模型参数：
 
@@ -78,8 +74,6 @@ $$
 
 ## 3. 为什么 Context Parallelism 需要通信
 
-### 3.1 局部 Attention 的问题
-
 GPU0：
 
 ```
@@ -108,101 +102,7 @@ K3,V3
 
 ---
 
-## 4. Ring Attention
-
-### 4.1 基本思想
-
-Ring Attention 是最经典 CP 实现。
-
-GPU 组成 Ring：
-
-```
-GPU0 → GPU1 → GPU2 → GPU3
- ↑                 ↓
- └─────────────────┘
-```
-
-每轮：
-1. GPU 保留自己的 Q
-2. 接收邻居 KV
-3. 计算 Attention Block
-4. 发送 KV 到下一 GPU
-
-例如：
-
-第 0 轮：
-
-```
-GPU0:
-Q0 × K0,V0
-
-GPU1:
-Q1 × K1,V1
-```
-
-交换 KV：
-
-```
-GPU0:
-Q0 × K1,V1
-
-GPU1:
-Q1 × K2,V2
-```
-
-直到所有 KV Block 被计算。
-
----
-
-### 4.2 Online Softmax
-
-不能保存完整 Attention Matrix：
-
-$$  
-S\times S  
-$$
-
-因此使用 FlashAttention 类似的 Online Softmax。
-
-维护：
-
-- 当前最大值 $m$
-- 当前归一化因子 $l$
-- 当前输出 $O$
-
-每收到一个 KV Block：
-
-更新：
-
-$$  
-m_{new}=max(m,m_i)  
-$$
-
-$$  
-l_{new}=e^{m-m_{new}}l+e^{m_i-m_{new}}l_i  
-$$
-
-最终得到完整 Attention 输出。
-
-因此：
-
-- 显存：
-
-$$  
-O(\frac{S^2}{P})  
-$$
-
-降低：
-
-$$  
-P  
-$$
-
-倍。
-
----
-
-## 5. FlashAttention 与 Context Parallelism 关系
+## 4. FlashAttention 与 Context Parallelism 关系
 
 两者解决不同问题：
 
@@ -243,28 +143,20 @@ CP + TP + PP + DP
 
 ---
 
-## 6. Context Parallelism 通信模式
+## 5. Context Parallelism 通信模式
 
-### 6.1 Ring Communication
+### 5.1 Ring Communication
 
-通信：
+[RingAttention 详细介绍](../Transformer/RingAttention%20详细介绍.md)
 
-```
-Send KV
-Receive KV
-Compute
-```
+核心思想：将 All-Gather 与 Attention 计算**流水重叠**，消除通信等待。
 
 优点：
-
 - 通信量均衡
 - GPU 利用率高
 
 缺点：
-
 - 延迟随 GPU 数增加
-
-通信量：
 
 每个 GPU 需要接收：
 
@@ -273,8 +165,6 @@ $$
 $$
 
 规模的 KV。
-
----
 
 ### 6.2 AllGather Attention
 
@@ -295,11 +185,9 @@ K0+K1+K2+K3
 2. 本地 Attention。
 
 优点：
-
 - 实现简单
 
 缺点：
-
 - KV 显存增加
 
 每张 GPU：
@@ -309,39 +197,29 @@ O(Sd)
 $$
 
 失去 CP 显存优势。
-
 因此长 Context 通常采用 Ring Attention。
 
 ---
 
 ## 7. Context Parallelism 与 Sequence Parallelism 区别
 
-容易混淆：
-
-||Context Parallelism|Sequence Parallelism|
-|---|---|---|
-|目的|扩展 Context Length|减少激活显存|
-|切分对象|输入 Token|Transformer 激活|
-|主要阶段|Attention|LayerNorm/Dropout|
-|通信|KV Exchange|AllGather|
-|代表|Ring Attention|Megatron SP|
+|      | Context Parallelism               | Sequence Parallelism                     |
+| ---- | --------------------------------- | ---------------------------------------- |
+| 目的   | 扩展 Context Length                 | 减少激活显存                                   |
+| 切分对象 | 输入 Token                          | Transformer 激活                           |
+| 主要阶段 | **Attention 算子**（QKV 计算、Score 矩阵） | **非 Attention 算子**（LayerNorm、Dropout、残差） |
+| 通信   | KV Exchange                       | AllGather                                |
+| 代表   | Ring Attention                    | Megatron SP                              |
 
 关系：
 
 ```
 Sequence Parallelism
-
       ↓
-
 减少 Transformer 激活
 
-     
-
-
 Context Parallelism
-
       ↓
-
 扩展 Attention Sequence
 ```
 
@@ -351,9 +229,9 @@ Context Parallelism
 
 现代 LLM 训练：
 
-## $$  
+$$  
 \text{GPU数量}
-
+=
 DP\times TP\times PP\times CP\times EP  
 $$
 
@@ -362,15 +240,10 @@ $$
 ```
 128 GPUs
 
-
 DP = 2
-
 TP = 8
-
 PP = 4
-
 CP = 2
-
 
 2×8×4×2=128
 ```
@@ -387,135 +260,54 @@ CP = 2
 
 ---
 
-# 9. Context Parallelism 在推理中的应用
+## 9. Context Parallelism 在推理中的应用
 
-## 9.1 长 Prompt Prefill
+Decode 阶段，主要受 KV Cache 带宽限制，不需要 CP。
 
-Decode：
-
-单 Token：
-
-$$  
-O(S)  
-$$
-
-主要受 KV Cache 带宽限制。
-
-Prefill：
-
-一次处理：
-
-$$  
-S  
-$$
-
-Token。
-
-Attention：
-
-$$  
-O(S^2)  
-$$
+Prefill 阶段，整个序列长度需要本地 GPU 访问完整的  Q/K/V 矩阵，CP 可以极大缓解 Attention 中的显存压力，能够增大序列长度上限。
 
 因此 CP 主要用于：
 
 - 长文档理解
-    
 - Agent 长上下文
-    
 - RAG 大规模输入
-    
 
 ---
 
-## 9.2 KV Cache Parallelism
+## 10. 主流实现
 
-长 Context 推理：
-
-单 GPU：
-
-```
-KV Cache:
-
-Layer × Sequence × Hidden
-```
-
-显存压力巨大。
-
-CP：
-
-```
-GPU0:
-KV token 0~N/P
-
-GPU1:
-KV token N/P~2N/P
-```
-
-减少单 GPU KV Cache。
-
----
-
-# 10. 主流实现
-
-## 10.1 Megatron-LM Context Parallel
+### 10.1 Megatron-LM Context Parallel
 
 NVIDIA Megatron-LM 支持：
-
 - Context Parallel
-    
 - Tensor Parallel
-    
 - Pipeline Parallel
-    
 
 核心：
-
 - Ring Attention
-    
 - P2P KV Communication
-    
 
----
+### 10.2 DeepSpeed Ulysses
 
-## 10.2 DeepSpeed Ulysses
-
-DeepSpeed Ulysses 使用：
-
-```
-All-to-All
-```
-
-重新分布 Attention Head。
+DeepSpeed Ulysses 使用：All-to-All，重新分布 Attention Head。
 
 流程：
 
 ```
 Sequence Parallel
-
-        |
-        v
-
-All-to-All
-
-        |
-        v
-
+        ↓
+   All-to-All
+        ↓
 Head Parallel Attention
 ```
 
 特点：
-
 - 通信一次完成
-    
 - 适合中等 CP degree
-    
 
----
+### 10.3 Ring Attention vs Ulysses
 
-# 11. Ring Attention vs Ulysses
-
-||Ring Attention|Ulysses|
+| |Ring Attention|Ulysses|
 |---|---|---|
 |通信|P2P Ring|All-to-All|
 |显存|低|中|
@@ -525,93 +317,15 @@ Head Parallel Attention
 
 ---
 
-# 12. Context Parallelism 优缺点
+## 11. Context Parallelism 优缺点
 
-## 优点
-
+**优点：**
 - 支持百万级 Context
-    
 - 降低单 GPU 显存
-    
 - 与 FlashAttention 兼容
-    
 - 支持大模型训练
-    
 
-## 缺点
-
+**缺点：**
 - 增加 GPU 通信
-    
 - 通信隐藏困难
-    
 - 小 Context 收益有限
-    
-
----
-
-# 13. 发展趋势
-
-## 13.1 CP 与 Attention Kernel 深度融合
-
-未来趋势：
-
-```
-CP Communication
-
-        +
-
-FlashAttention Kernel
-
-        +
-
-NVLink / InfiniBand
-
-
-=> Distributed Attention
-```
-
-目标：
-
-- 通信计算完全 Overlap
-    
-- 减少 KV Movement
-    
-
-## 13.2 Hierarchical Context Parallelism
-
-针对大规模集群：
-
-```
-Node 内:
-
-NVLink CP
-
-
-Node 间:
-
-InfiniBand CP
-```
-
-根据通信距离选择不同策略。
-
-## 13.3 长上下文推理架构
-
-未来推理系统：
-
-```
-Request Scheduler
-
-       |
-
-Context Parallel Engine
-
-       |
-
-FlashAttention
-
-       |
-
-Distributed KV Cache
-```
-
-Context Parallelism 将成为百万 Token LLM 服务的重要基础组件。

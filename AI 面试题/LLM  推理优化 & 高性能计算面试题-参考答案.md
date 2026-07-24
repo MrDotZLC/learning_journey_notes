@@ -1491,6 +1491,7 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 
 #### **Q39. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析**
 
+[CP 技术全景笔记](../并发与分布式推理/CP%20技术全景笔记.md)
 [RingAttention 详细介绍](../Transformer/RingAttention%20详细介绍.md)
 
 **1. 问题背景**
@@ -7141,6 +7142,8 @@ $$K_i^{\text{RoPE}} = \mathbf{W}_K \mathbf{x}_i \odot e^{i \cdot \text{pos}(i) \
 ---
 
 #### **Q161. Ring Attention 原理**
+
+[RingAttention 详细介绍](../Transformer/RingAttention%20详细介绍.md)
 
 **1. 动机**
 
