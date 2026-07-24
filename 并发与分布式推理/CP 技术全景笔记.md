@@ -4,7 +4,7 @@
 
 Transformer 的 Self-Attention：
 
-# $$  
+$$  
 \mathrm{Attention}(Q,K,V)
 
 \mathrm{Softmax}  
@@ -14,98 +14,19 @@ Transformer 的 Self-Attention：
 $$
 
 其中：
-
 - $Q \in \mathbb{R}^{S \times d_h}$：Query
-    
 - $K \in \mathbb{R}^{S \times d_h}$：Key
-    
 - $V \in \mathbb{R}^{S \times d_h}$：Value
-    
 - $S$：Sequence Length
-    
 - $d_h$：Head Dimension
-    
 
 Attention Score：
 
-$$  
-A=QK^T  
-$$
+$$A=QK^T\in\mathbb{R}^{S\times S}$$
 
-维度：
+计算复杂度：$O(S^2d_h)$，显存复杂度：$O(S^2)$。
 
-$$  
-A\in\mathbb{R}^{S\times S}  
-$$
-
-因此：
-
-计算复杂度：
-
-$$  
-O(S^2d_h)  
-$$
-
-显存复杂度：
-
-$$  
-O(S^2)  
-$$
-
----
-
-传统 Transformer 在短文本时代：
-
-|模型|上下文长度|
-|---|--:|
-|GPT-2|1024|
-|GPT-3|2048|
-|LLaMA-1|2048|
-|LLaMA-2|4096|
-
-Attention 矩阵规模尚可接受。
-
-但进入长上下文时代：
-
-|模型|上下文长度|
-|---|--:|
-|GPT-4 Turbo|128K|
-|Claude 3|200K|
-|Gemini 1.5|1M|
-|部分 Long Context LLM|1M+|
-
-例如：
-
-$$  
-S=128K  
-$$
-
-Attention Matrix：
-
-# $$  
-S^2
-
-(131072)^2  
-$$
-
-约：
-
-$$  
-1.7\times10^{10}  
-$$
-
-如果 FP16：
-
-$$  
-1.7\times10^{10}\times2  
-\approx34GB  
-$$
-
-仅 Attention Matrix 就超过单张 GPU HBM。
-
----
-
-因此长上下文带来三个核心问题：
+长上下文可能仅 Attention Matrix 就超过单张 GPU HBM。因此长上下文带来三个核心问题：
 
 |问题|本质|
 |---|---|
@@ -113,28 +34,11 @@ $$
 |显存不足|KV Cache 和 Attention 激增|
 |单卡无法承载|Sequence 维度成为瓶颈|
 
-Tensor Parallelism（TP）主要切：
-
-$$  
-Hidden Dimension  
-$$
-
-Pipeline Parallelism（PP）切：
-
-$$  
-Layer Dimension  
-$$
-
-但：
-
-$$  
-Sequence Dimension  
-$$
-
-仍然集中在单个 GPU。
+Tensor Parallelism（TP）主要切：$Hidden Dimension$
+Pipeline Parallelism（PP）切：$Layer Dimension$
+$Sequence Dimension$ 仍然集中在单个 GPU。
 
 因此提出：
-
 > Context Parallelism：沿 Sequence 维度切分上下文，使多个 GPU 协同完成长序列计算。
 
 ---
@@ -143,69 +47,17 @@ $$
 
 ## 2.1 Sequence Dimension 切分
 
-假设：
-
-输入：
-
-$$  
-X\in R^{S\times d}  
-$$
-
-使用：
-
-$$  
-P  
-$$
-
-张 GPU。
-
-CP 将 Sequence 进行切分：
-
-$$  
-S=S_0+S_1+\cdots+S_{P-1}  
-$$
-
-每张 GPU 保存：
+假设有 $P$ 张 GPU，对 Sequence 进行切分，每张 GPU 保存：
 
 $$  
 X_i\in R^{S/P\times d}  
 $$
 
-例如：
-
-8 GPU：
-
-128K context：
-
-$$  
-S=131072  
-$$
-
-每 GPU：
-
-$$  
-S_i=  
-\frac{131072}{8}  
-=16384  
-$$
-
-即：
-
-```
-GPU0 : token 0~16383
-GPU1 : token 16384~32767
-GPU2 : token 32768~49151
-...
-GPU7 : token 114688~131071
-```
-
----
-
 ## 2.2 CP 与普通 Attention 的矛盾
 
 Attention：
 
-# $$  
+$$  
 Attention(Q,K,V)
 
 Softmax(QK^T)V  
@@ -285,7 +137,7 @@ $$
 
 得到：
 
-# $$  
+$$  
 Q_iK^T
 
 [  
@@ -1023,7 +875,7 @@ Decode 快。
 
 显存：
 
-# $$  
+$$  
 Memory
 
 P\times KV  
@@ -1141,7 +993,7 @@ $$
 
 总通信：
 
-# $$  
+$$  
 T_{comm}
 
 (P-1)  
@@ -1225,7 +1077,7 @@ $$
 
 计算：
 
-# $$  
+$$  
 T_{compute}
 
 \frac{FLOPs}  
@@ -1234,7 +1086,7 @@ $$
 
 通信：
 
-# $$  
+$$  
 T_{comm}
 
 \frac{Bytes}  
