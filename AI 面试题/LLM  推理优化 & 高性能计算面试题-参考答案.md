@@ -562,7 +562,7 @@ CUTLASS 的计算层次为：Grid → CTA（协程组，对应Thread Block）→
 
 #### **Q18. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？**
 
-[2.6 cuda_core_sgemm_v5_double_buf](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md#2.6%20cuda_core_sgemm_v5_double_buf)
+[GEMM优化学习路径 - 2.6 cuda_core_sgemm_v5_double_buf](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md#2.6%20cuda_core_sgemm_v5_double_buf)
 
 **Double Buffering 原理：**
 
@@ -596,6 +596,8 @@ __pipeline_wait_prior(0); // 等待最近一次提交完成
 ---
 
 #### **Q19. Tensor Core（WMMA / MMA / WGMMA）的使用方式与限制？Hopper WGMMA 与 Ampere MMA 的区别？**
+
+[GEMM优化学习路径（CUDA Core、WMMA、MMA、CUTLASS）](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md)
 
 **三代 API 对比：**
 
@@ -653,6 +655,9 @@ $$C = \sum_{s=0}^{S-1} A[:, s \cdot K/S : (s+1) \cdot K/S] \times B[s \cdot K/S 
 ---
 
 #### **Q22. 什么是 Epilogue Fusion？CUTLASS 的 Epilogue Visitor Tree（EVT）如何将 Bias、Activation、量化融合进 GEMM Kernel？**
+
+[Cutlass 源码浅析 - 六、Epilogue 后处理](../CUDA/Cutlass%20源码浅析.md#六、Epilogue%20后处理)
+[GEMM优化学习路径 - 5.2 cutlass_hgemm_v2_epilogue](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md#5.2%20cutlass_hgemm_v2_epilogue)
 
 **问题动机：**
 
@@ -719,6 +724,9 @@ CUTLASS 编译器将 EVT 展开为 Epilogue 代码，直接操作累加器寄存
 
 #### **Q23. Kernel Fusion 的本质收益？FlashAttention 的 Fusion 策略？**
 
+[算子融合 (Operator Fusion)](../AI%20Infra/算子融合%20(Operator%20Fusion).md)
+[算子融合 - 7. FlashAttention 的 IO Complexity](../AI%20Infra/算子融合%20(Operator%20Fusion).md#7.%20FlashAttention%20的%20IO%20Complexity)
+
 **本质收益：消除中间张量的 HBM Round-trip。**
 
 以 `Softmax(QK^T/√d) · V` 为例，非 Fused 实现：
@@ -740,6 +748,8 @@ Q, K → [HBM写] S = QK^T → [HBM读] P = Softmax(S) → [HBM写] → [HBM读]
 
 #### **Q24. 什么样的算子适合 Fusion？什么情况下 Fusion 有害？**
 
+[算子融合 - 2. 算子融合合法性条件](../AI%20Infra/算子融合%20(Operator%20Fusion).md#2.%20算子融合合法性条件)
+
 **适合 Fusion 的条件：**
 
 - 相邻算子均为 **Memory-bound**（如 Elementwise、Norm、Activation），Fusion 将多次 HBM 读写压缩为一次。
@@ -758,6 +768,8 @@ Q, K → [HBM写] S = QK^T → [HBM读] P = Softmax(S) → [HBM写] → [HBM读]
 ---
 
 #### **Q25. CUDA Graph 的作用：如何消除 Kernel Launch Overhead？适用哪些场景？**
+
+[TensorRT 与 TensorRT-LLM 图优化与层融合底层机制](../TensorRT/TensorRT%20与%20TensorRT-LLM%20图优化与层融合底层机制.md)
 
 **Kernel Launch Overhead 来源：**
 
