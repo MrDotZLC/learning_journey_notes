@@ -810,6 +810,8 @@ cudaGraphLaunch(graphExec, stream);
 
 #### **Q26. 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？**
 
+[Token Permutation + Segmented GEMM（高效变体）](../并发与分布式推理/Token%20Permutation%20+%20Segmented%20GEMM（高效变体）.md)
+
 **普通 Kernel 的执行模型：**
 
 标准 CUDA Kernel 的生命周期：
@@ -882,6 +884,8 @@ Stream-K 是 CUTLASS 引入的调度策略，本质是在 Persistent Kernel 框�
 
 #### **Q27. 标准 Attention 的内存复杂度为 $O(N^2)$，FlashAttention 如何将其降为 $O(N)$ SRAM 占用？核心思想（Tiling + Online Softmax）？**
 
+[FlashAttention 详细介绍](../Transformer/FlashAttention%20详细介绍.md)
+
 **标准 Attention 的问题：**
 
 $$\text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V$$
@@ -925,6 +929,8 @@ $$O_j = \text{diag}(e^{m_{j-1} - m_j}) \cdot O_{j-1} + e^{\tilde{S}_j - m_j} \cd
 
 #### **Q28. FlashAttention-2 相比 FA-1 的改进点？**
 
+[FlashAttention 详细介绍 - 4.5 FA-2：推迟归一化到最后一步](../Transformer/FlashAttention%20详细介绍.md#4.5%20FA-2：推迟归一化到最后一步)
+
 FA-1 存在两个主要低效问题，FA-2 针对性解决：
 
 **改进 1：减少非 GEMM FLOPs（Rescaling 操作优化）**
@@ -948,6 +954,8 @@ FA-2 改为：**按 $Q$ 的行分块分配给不同 Warp**，每个 Warp 独立�
 ---
 
 #### **Q29. FlashAttention-3 在 Hopper 架构上的改进：Warp Specialization、异步流水线、WGMMA？**
+
+[FlashAttention 详细介绍 - 4.6 FA-3：专为 H100 新硬件特性而设计](../Transformer/FlashAttention%20详细介绍.md#4.6%20FA-3：专为%20H100%20新硬件特性而设计)
 
 FA-3 专为 H100 的三项新硬件特性设计：
 
@@ -1019,6 +1027,8 @@ $$O = \text{Softmax}(\text{score}) \cdot V \in \mathbb{R}^{1 \times d} \quad \Ri
 
 #### **Q31. MHA vs GQA vs MQA 的区别？GQA 在 KV Cache 占用上的收益推导？**
 
+[多头注意力变体：MHA、MQA、GQA 机制解析](../Transformer/多头注意力变体：MHA、MQA、GQA%20机制解析.md)
+
 **三种 Attention 的 KV 头数对比：**
 
 | 方案                           | Q 头数 | K/V 头数            | KV Cache 大小  | 代表模型              |
@@ -1044,6 +1054,8 @@ $$M_{\text{GQA}} = 2 \times L \times \frac{H}{G} \times d \times S \times \text{
 ---
 
 #### **Q32. MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？**
+
+[多头注意力变体 - 6.6 MLA 与 GQA/MQA 的本质差异](../Transformer/多头注意力变体：MHA、MQA、GQA%20机制解析.md#6.6%20MLA%20与%20GQA/MQA%20的本质差异)
 
 **动机：** GQA 通过减少 KV 头数降低 KV Cache，但以牺牲模型表达能力为代价。MLA 在**保持完整模型容量**的前提下压缩 KV Cache。
 

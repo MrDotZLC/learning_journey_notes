@@ -189,6 +189,38 @@ $$ O = \frac{\sum_{(x,V) \in S_{\leq T}} e^{x - m_T} V}{\sum_{j \leq T} e^{x_j -
 
 与标准 Softmax Attention 完全等价。
 
+### 4.6 FA-3：专为 H100 新硬件特性而设计
+
+FA-3 在 H100 上的 FP8 Attention 吞吐接近硬件峰值带宽的 **75%**。
+
+#### 4.6.1 Warp Specialization（Warp 专业化）
+
+将 Warpgroup 分为两类角色：
+
+- **Producer Warp**：专责通过 TMA 异步搬运 $Q, K, V$ 数据到 Shared Memory，不参与计算。
+- **Consumer Warp**：专责执行 WGMMA 矩阵乘计算，不参与数据搬运。
+
+两类 Warp 通过 **异步 Barrier**（`cuda::barrier`）协调，形成生产者-消费者流水。
+
+#### 4.6.2 异步流水线（两级 Double Buffering）
+
+```
+Stage 1: Producer 加载 K_0, V_0 → SRAM_A
+Stage 2: Consumer 计算 QK_0^T (WGMMA)   |  Producer 加载 K_1, V_1 → SRAM_B
+Stage 3: Consumer 计算 QK_1^T (WGMMA)   |  Producer 加载 K_2, V_2 → SRAM_A
+...
+```
+
+计算与数据搬运完全重叠，消除等待气泡。
+
+#### 4.6.3 WGMMA（Warpgroup-level MMA）
+
+相比 Ampere 的 Warp 级 MMA，WGMMA 以 128 线程（4 Warp）为单位执行，直接从 Shared Memory 读取数据，寄存器使用更高效，峰值 Tensor Core 利用率更高。
+
+#### 4.6.4 Softmax 与 GEMM 的流水重叠
+
+FA-3 将 Softmax（非 GEMM 操作）与下一轮 WGMMA 重叠执行，进一步隐藏非矩阵计算的延迟。
+
 ---
 
 ## 5. 方案对比：Flash Attention vs MemEff Attention
