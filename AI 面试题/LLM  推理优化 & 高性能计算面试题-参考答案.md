@@ -810,7 +810,7 @@ cudaGraphLaunch(graphExec, stream);
 
 #### **Q26. 什么是 Persistent Kernel？与普通 Kernel 的区别是什么？在 LLM 推理中如何应用？**
 
-[Token Permutation + Segmented GEMM（高效变体）](../并发与分布式推理/Token%20Permutation%20+%20Segmented%20GEMM（高效变体）.md)
+[Token Permutation + Segmented GEMM（高效变体）](../Transformer/Token%20Permutation%20+%20Segmented%20GEMM（高效变体）.md)
 
 **普通 Kernel 的执行模型：**
 
@@ -1280,6 +1280,9 @@ RoPE 的问题：K 的计算为 $k_m = \text{RoPE}(m, x W^K)$，包含绝对位�
 
 #### **Q36. PagedAttention 原理：为何 KV Cache 存在碎片化问题？分页机制如何解决？**
 
+[PagedAttention 详细介绍 - 2. 原始方案的缺陷与内存碎片](../Transformer/PagedAttention%20详细介绍.md#2.%20原始方案的缺陷与内存碎片)
+[PagedAttention 详细介绍 - 3. Paged Attention 核心思想与内存映射](../Transformer/PagedAttention%20详细介绍.md#3.%20Paged%20Attention%20核心思想与内存映射)
+
 **1. 朴素 KV Cache 的碎片化问题**
 
 朴素实现中，为每个请求**预分配连续显存**存放 KV Cache，大小为最大序列长度 $S_{\max}$：
@@ -1376,6 +1379,8 @@ $B = 16$ 时，每个 Block 的 KV 数据大小为 $16 \times H \times d \times 
 
 #### **Q37. RadixAttention（SGLang）相比 PagedAttention 的 Prefix Sharing 的本质改进**
 
+[KV Cache 优化策略 04 - 4. RadixAttention（SGLang，OSDI 2024）](../KV%20Cache/KV%20Cache%20优化策略%2004：系统与存储优化.md#4.%20RadixAttention（SGLang，OSDI%202024）)
+
 **PagedAttention Prefix Sharing 的局限：**
 
 vLLM 的 Prefix Sharing 依赖**调度器手动标注**公共前缀范围，且要求前缀在 Token 级别完全对齐、Block 边界对齐。这意味着：
@@ -1415,6 +1420,8 @@ SGLang 将所有历史 KV Block 组织为 **Radix Tree**（基数树，又称压
 ---
 
 #### **Q38. Flash-Decoding：为何 FA 在 Decode 阶段并行度不足？分块归约如何提升吞吐？**
+
+[Flash-Decoding 浅析](../Transformer/Flash-Decoding%20浅析.md)
 
 **1. Decode 阶段 FA 的并行度瓶颈**
 
@@ -1465,7 +1472,9 @@ $$o_{\text{final}} = \frac{1}{\ell_{\text{final}}} \sum_c e^{m_c - m_{\text{fina
 | Flash-Decoding | $B \times H \times C$（$C$ 可取 $128\sim512$） | $32 \times 128 / 132 \approx 3100\%$（充足过载） |
 
 Flash-Decoding 在长序列 Decode 场景下，延迟可降低 $8\times$（实测 $S=8192$，$d=64$，$B=1$）。
+
 ****
+
 **4. 代价：额外显存与归约开销**
 
 中间缓冲区大小：$C \times H \times d \times 3$（存 $o, \ell, m$），取 $C=256$，$H=32$，$d=128$，FP32：
