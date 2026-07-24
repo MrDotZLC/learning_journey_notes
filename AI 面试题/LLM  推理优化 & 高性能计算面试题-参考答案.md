@@ -1491,6 +1491,8 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 
 #### **Q39. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析**
 
+[RingAttention 详细介绍](../Transformer/RingAttention%20详细介绍.md)
+
 **1. 问题背景**
 
 序列长度 $N > 128k$ 时，单卡显存无法容纳完整的 Q/K/V 矩阵（FP16，$d=128$，$H=32$，$N=128k$，单矩阵 $= 128k \times 32 \times 128 \times 2 \approx 1\text{ GB}$，三矩阵 $\approx 3\text{ GB}$，还不含激活）。
@@ -1542,13 +1544,13 @@ $$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 5
 
 即每卡分配 $\geq 550k$ Token 时通信可被完全隐藏，Ring Attention 对**超长序列**（单卡 $> 64k$）最为有效。
 
-**4.4 Causal Mask 下的负载均衡问题**
+**4. Causal Mask 下的负载均衡问题**
 
 因果掩码下，第 $i$ 个 Token 仅 Attend 前 $i$ 个 Token，序列前部 Token 的计算量远小于后部，朴素 CP 切分导致负载不均。
 
 **解决方案：** 将序列按"锯齿形"分配给各卡（Zigzag 分配），每卡同时持有一段头部 Token 和一段尾部 Token，使各卡的有效计算量近似相等。
 
-**4.5 与 Tensor Parallelism 的组合**
+**5. 与 Tensor Parallelism 的组合**
 
 实际系统（如 Megatron-LM）同时使用 TP（按头切分）和 CP（按序列切分），形成二维并行：
 
