@@ -1145,8 +1145,8 @@ __shared__ float smem_B[BK][BN];
 
 padding 消除了 smem_A 写入的 8-way conflict，但 conflict 本身不在关键路径上，消除它的收益接近零，而引入的非 2 的幂次行宽开销在小规模下反而成为负担。
 
-### 2.6 cuda_core_sgemm_v5_double_buf
-#### 2.6.1 方案分析
+### 2.7 cuda_core_sgemm_v5_double_buf
+#### 2.7.1 方案分析
 
 v4 每个 tile 迭代的执行时间线：
 
@@ -1181,7 +1181,7 @@ $$ \left\lfloor \frac{65536}{32768} \right\rfloor = 2\ \text{block},\quad \text{
 
 warp 调度掩盖延迟的能力减半。**净收益取决于 overlap 节省的时间是否覆盖 Occupancy 损失，需实测判断。**
 
-#### 2.6.2 代码
+#### 2.7.2 代码
 
 ```cuda
 #include "gemm.h"
@@ -1392,7 +1392,7 @@ void sgemm_v5_double_buf(
 }
 ```
 
-#### 2.6.3 数据分析
+#### 2.7.3 数据分析
 
 |M=N=K|v4_vec (TFLOPS)|v5_double_buf (TFLOPS)|增量|vs 峰值 (5.44T)|
 |---|---|---|---|---|
@@ -1432,7 +1432,7 @@ loop k:
 
 第一个 `__syncthreads()` 是全 block 屏障，若某个 warp 的 FMA 先完成，它必须等待最慢的 warp。在 256 线程（8 个 warp）下，warp divergence 使实际等待时间接近最坏情况。**两次 sync 仍然将搬运和计算串行化**，仅将 LDG latency 从 sync 之后移到 sync 之前，并未真正重叠。
 
-#### 2.6.4 瓶颈分析
+#### 2.7.4 瓶颈分析
 
 在 M=N=K=1024 时，v5 达到 1.9253 TFLOPS，对应峰值利用率 35.4%，主要瓶颈：
 
@@ -1441,8 +1441,8 @@ loop k:
 3. **寄存器压力升高**：`pA[2]/pB[2]` 额外占用 8 个寄存器，`--launch_bounds__(256,2)` 约束上限 64 个，marginal occupancy 不改善
 4. **M=2048 性能断崖**：1.1466 TFLOPS，远低于 1024 规模的 1.9253，推测 L2 cache 失效（BM=64 的 block tile 数量增大，L2 working set 超出 2MB）
 
-### 2.7 cuda_core_sgemm_v6_large_tile
-#### 2.7.1 方案分析
+### 2.8 cuda_core_sgemm_v6_large_tile
+#### 2.8.1 方案分析
 
 v5（BM=BN=64, BK=32, TM=TN=4）在 M=N=K=1024 达到 1.9253 TFLOPS，占峰值 35.4%。剩余 64.6% 的损失来源需要逐层定位。
 
@@ -1476,7 +1476,7 @@ $$ \text{reg/thread} \leq \frac{65536}{256 \times 2} = 128 $$
 
 `acc[TM][TN] = acc[8][8]` 占 64 个寄存器，加上 `reg_A[8]`、`reg_B[8]`、prefetch 寄存器，总计约 85–90 个，**满足 128 的上限**。
 
-#### 2.7.2 代码
+#### 2.8.2 代码
 ```cuda
 #include "gemm.h"
 
@@ -1694,7 +1694,7 @@ void sgemm_v6_large_tile(
 }
 ```
 
-#### 2.7.3 数据分析
+#### 2.8.3 数据分析
 
 |M=N=K|v4_vec|v5_double_buf|v6 (BK=16)|峰值利用率|vs v4|
 |---|---|---|---|---|---|
@@ -1739,8 +1739,8 @@ $$ (A + B + C) = 3 \times 2048^2 \times 4\ \text{B} = 48\ \text{MB} \gg 1.5\ \te
 
 每次 LDG 均为 DRAM miss，实际带宽受 288 GB/s 限制。此时 AI=32 的优势部分被 DRAM 延迟抵消，但大 tile 减少了 block 总数（256 blocks vs v4 的 1024 blocks），**总 LDG 次数降低 4 倍**，仍保留显著优势。
 
-#### 2.7.4 瓶颈分析
-##### 2.7.4.1 理论上限
+#### 2.8.4 瓶颈分析
+##### 2.8.4.1 理论上限
 
 SM75（GTX 1660 Ti）的硬件参数：
 
@@ -1760,7 +1760,7 @@ $$ \text{Roofline} = 5.44\ \text{TFLOPS} $$
 
 $$ \underbrace{5.44}_{\text{Peak}} \xrightarrow{-\text{occupancy}} \xrightarrow{-\text{bank conflict}} \xrightarrow{-\text{loop overhead}} \xrightarrow{-\text{其他}} 2.53 $$
 
-##### 2.7.4.2 Occupancy 损失
+##### 2.8.4.2 Occupancy 损失
 
 SM75 资源上限：65536 寄存器/SM，64 KB smem/SM，32 warps/SM，1024 线程/SM。
 
@@ -1786,7 +1786,7 @@ $$ 5.44 \times 50\% = 2.72\ \text{TFLOPS} $$
 
 实测 2.53，说明 **occupancy 是主导损失**，将上界从 5.44 压缩到 2.72。
 
-##### 2.7.4.3 bank conflict 
+##### 2.8.4.3 bank conflict 
 
 smem_A 布局 `[2][BK][BN] = [2][16][128]`。
 写入阶段：按列写入，4 路冲突；
@@ -1800,7 +1800,7 @@ smem_B 布局 `[2][BK][BN] = [2][16][128]`：
 
 smem 读基本被 FMA 掩盖，bank conflict 对 TFLOPS 几乎无影响。
 
-##### 2.7.4.4 Loop Overhead 损失
+##### 2.8.4.4 Loop Overhead 损失
 
 每次迭代两次 `__syncthreads()`，共 $K/BK = 64$ 次迭代：
 
@@ -1812,7 +1812,7 @@ $$ \frac{2 \times 1024^3}{5.44 \times 10^{12}} \times 1.8 \times 10^9 \approx 70
 
 overhead 占比 $\approx 0.4\%$，可忽略。
 
-##### 2.7.4.5 Wave quantization（1024 规模）
+##### 2.8.4.5 Wave quantization（1024 规模）
 
 $$ \text{grid} = \frac{1024}{128} \times \frac{1024}{128} = 64\ \text{blocks} $$
 
@@ -1830,7 +1830,7 @@ $$ \frac{8}{24} \times \frac{1}{3} \approx 11\%\ \text{的 SM 利用率损失} $
 
 这是 2.72 → 2.5315 之间 7.2% 损失的主要来源。
 
-##### 2.7.4.5 总结
+##### 2.8.4.5 总结
 
 | 瓶颈                   | 当前损失     | 可解决性  | 解决方案                      |
 | -------------------- | -------- | ----- | ------------------------- |
@@ -2112,7 +2112,7 @@ v2 用 `half2`，v3 升级为 `float4`，向量化宽度翻倍。
 ### 3.4 wmma_hgemm_v4_double_buf
 #### 3.4.1 设计思路
 
-参考 2.6.1。
+参考 2.7.1。
 
 #### 3.4.2 代码
 ```cuda

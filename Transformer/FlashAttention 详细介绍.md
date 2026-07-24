@@ -2,9 +2,13 @@
 
 Transformer 中的 Attention 在数学上定义为：
 
-$$ O = \sum_j \alpha_j V_j, \quad \alpha_j = \frac{e^{x_j - m}}{\sum_k e^{x_k - m}}, \quad x_j = Q \cdot K_j $$
+$$ O = \sum_j \alpha_j V_j, \quad \alpha_j = \frac{e^{x_j}}{\sum_k e^{x_k}}, \quad x_j = Q \cdot K_j $$
 
 其本质是对所有 Key 的贡献做一次**全局归一化加权和**。
+
+当 $x_i$ 较大时 $e^{x_i}$ 上溢（overflow），导致特征表达错误，利用全局最大值平移 $x_i$ 。
+
+$$\alpha_j = \frac{e^{x_j - m}}{\sum_k e^{x_k - m}}$$
 
 数学层面无任何问题，但工程上隐含了代价极高的中间量：
 

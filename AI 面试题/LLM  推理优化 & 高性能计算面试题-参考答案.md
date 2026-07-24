@@ -292,6 +292,8 @@ __device__ float block_reduce_sum(float val) {
 
 #### **Q12. 如何实现 numerically stable 的 Online Softmax？推导 3-pass → 2-pass → 1-pass 的演化。**
 
+[FlashAttention 详细介绍](../Transformer/FlashAttention%20详细介绍.md)
+
 **标准 Softmax（不稳定）：**
 
 $$\text{Softmax}(x_i) = \frac{e^{x_i}}{\sum_j e^{x_j}}$$
@@ -471,6 +473,8 @@ if (threadIdx.x < N)
 
 #### **Q16. 朴素 GEMM 的瓶颈是什么？Tiled GEMM 的核心思路？**
 
+[GEMM优化学习路径 - 2.2 cuda_core_sgemm_v2_shared_memory_tile](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md#2.2%20cuda_core_sgemm_v2_shared_memory_tile)
+
 **朴素 GEMM 瓶颈：**
 
 计算 $C = A \times B$，$A \in \mathbb{R}^{M \times K}$，$B \in \mathbb{R}^{K \times N}$。每个输出元素 $C[i][j]$ 需读取 $A$ 的第 $i$ 行（$K$ 个元素）和 $B$ 的第 $j$ 列（$K$ 个元素）。
@@ -498,6 +502,8 @@ if (threadIdx.x < N)
 ---
 
 #### **Q17. Register Tiling（Thread-level Tiling）的原理是什么？如何在 GEMM 中提升寄存器级数据复用？**
+
+[GEMM优化学习路径 - 2.3 cuda_core_sgemm_v3_coarsen](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md#2.3%20cuda_core_sgemm_v3_coarsen)
 
 **问题背景：**
 
@@ -555,6 +561,8 @@ CUTLASS 的计算层次为：Grid → CTA（协程组，对应Thread Block）→
 ---
 
 #### **Q18. 什么是 Double Buffering？如何用 cp.async / TMA 实现异步预取？**
+
+[2.6 cuda_core_sgemm_v5_double_buf](../CUDA/GEMM优化学习路径（CUDA%20Core、WMMA、MMA、CUTLASS）.md#2.6%20cuda_core_sgemm_v5_double_buf)
 
 **Double Buffering 原理：**
 
