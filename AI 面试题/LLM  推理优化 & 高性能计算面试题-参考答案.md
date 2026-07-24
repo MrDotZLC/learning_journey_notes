@@ -1055,7 +1055,7 @@ $$M_{\text{GQA}} = 2 \times L \times \frac{H}{G} \times d \times S \times \text{
 
 #### **Q32. MLA（Multi-head Latent Attention）的核心思路：低秩压缩 KV 的原理与 DeepSeek 中的实现？**
 
-[多头注意力变体 - 6.6 MLA 与 GQA/MQA 的本质差异](../Transformer/多头注意力变体：MHA、MQA、GQA%20机制解析.md#6.6%20MLA%20与%20GQA/MQA%20的本质差异)
+[多头注意力变体 -  6. MLA（Multi-head Latent Attention）](../Transformer/多头注意力变体：MHA、MQA、GQA%20机制解析.md#6.%20MLA（Multi-head%20Latent%20Attention）)
 
 **动机：** GQA 通过减少 KV 头数降低 KV Cache，但以牺牲模型表达能力为代价。MLA 在**保持完整模型容量**的前提下压缩 KV Cache。
 
@@ -1102,6 +1102,8 @@ MLA 的每步解压代价：$W_{\text{UK}}, W_{\text{UV}}$ 各一次 GEMV（$d_c
 
 #### **Q33. Sparse Attention（Sliding Window、BigBird）的适用场景？**
 
+[Sparse Attention 浅析](../Transformer/Sparse%20Attention%20浅析.md)
+
 **动机：** 标准 Attention 计算复杂度 $O(N^2)$，对超长序列（$N > 32k$）代价极高。Sparse Attention 通过**限制每个 Token 只关注部分 Token**，将复杂度降至 $O(N \cdot k)$（$k$ 为关注窗口大小）。
 
 **主要模式：**
@@ -1135,6 +1137,8 @@ MLA 的每步解压代价：$W_{\text{UK}}, W_{\text{UV}}$ 各一次 GEMV（$d_c
 ---
 
 #### **Q34. MLA 的矩阵吸收（Absorption）推导：为何推理时可消除 Up-projection 的计算开销？**
+
+[多头注意力变体 - 6.4 Absorption Trick（推理加速）](../Transformer/多头注意力变体：MHA、MQA、GQA%20机制解析.md#6.4%20Absorption%20Trick（推理加速）)
 
 **背景回顾**
 
@@ -1219,6 +1223,8 @@ $$s = q^C (c^{KV})^\top + q^R (\tilde{k}^R)^\top$$
 ---
 
 #### **Q35. RoPE 与 ALiBi 的原理对比，及其对 KV Cache 复用策略（Prefix Caching）的影响**
+
+[多头注意力变体 - 6.3 Decoupled RoPE](../Transformer/多头注意力变体：MHA、MQA、GQA%20机制解析.md#6.3%20Decoupled%20RoPE)
 
 **1. 位置编码的本质问题**
 
@@ -1846,6 +1852,8 @@ Key 的数值分布中存在少量异常值（Outlier），Per-tensor FP8 量化
 ---
 
 #### **Q47. StreamingLLM 的 Attention Sink 机制是什么？**
+
+[Sparse Attention 浅析 - **四、StreamingLLM**](../Transformer/Sparse%20Attention%20浅析.md#**四、StreamingLLM**)
 
 **问题背景：**
 
