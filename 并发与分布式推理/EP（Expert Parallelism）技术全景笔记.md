@@ -154,9 +154,7 @@ $$
 
 的 Expert 参数。
 
----
-
-## 2.2 Expert 计算负载不均衡
+### 2.2 Expert 计算负载不均衡
 
 Router 输出：
 
@@ -168,7 +166,7 @@ $$
 
 $$  
 tokens_i
-
+=
 \frac{T\times K}{N_E}  
 $$
 
@@ -191,8 +189,6 @@ $$
 该问题称：
 
 **Expert Load Imbalance。**
-
----
 
 ### 2.3 Token Dispatch 通信
 
