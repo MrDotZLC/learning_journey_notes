@@ -551,46 +551,36 @@ $$
 
 ---
 
-# 9. Megatron-LM TP 架构
+# 7. Megatron-LM TP 架构
 
 一个 Transformer Block：
 
 ```
              X
              ↓
-        LayerNorm
+         LayerNorm
              ↓
-       QKV Projection
-        Column TP
+      QKV Projection
+             |
+         Column TP
              ↓
-       Attention
+		 Attention
              ↓
-       Output Projection
-        Row TP
-
+     Output Projection
              |
-
-        Residual
-
-
+          Row TP
+             ↓
+         Residual
+             ↓
+            FFN
+			 |
+       W1 Column TP
+             ↓
+            GELU
              |
-
-          FFN
-
-    W1 Column TP
-
-             |
-
-          GELU
-
-             |
-
-    W2 Row TP
-
-             |
-
-        Residual
-
+	     W2 Row TP
+             ↓
+          Residual
 ```
 
 通信位置：
@@ -610,48 +600,11 @@ $$
 
 ---
 
-# 10. TP 通信原理
+# 8. TP 通信原理
 
-## 10.1 为什么需要通信
+**Column Parallel：**$GPU_i$ 拥有 $Y_i$ ，而下一层需要 $Y=[Y_0,Y_1]$，所以需要 $AllGather$。
 
-TP 切 Tensor 后：
-
-每张 GPU 只拥有部分结果。
-
-例如：
-
-Column Parallel：
-
-GPU0:
-
-$$  
-Y_0  
-$$
-
-GPU1:
-
-$$  
-Y_1  
-$$
-
-下一层需要：
-
-$$  
-Y=[Y_0,Y_1]  
-$$
-
-所以：
-
-需要：
-
-$$  
-AllGather  
-$$
-
----
-
-## 10.2 AllReduce
-
+**Row Parallel：**
 AllReduce：
 
 输入：
@@ -676,7 +629,7 @@ GPU2 ----/
 
 用于：
 
-Row Parallel。
+。
 
 ---
 
