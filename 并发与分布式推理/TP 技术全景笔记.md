@@ -333,9 +333,9 @@ $$
 
 ---
 
-# 6. Transformer 中 TP 如何应用
+# 4. Transformer 中 TP 如何应用
 
-## 6.1 Attention TP
+## 4.1 Attention TP
 
 Attention：
 
@@ -351,11 +351,7 @@ $$
 V=XW_V  
 $$
 
-通常采用：
-
-## QKV Column Parallel
-
-切：
+通常采用 QKV Column Parallel，切权重
 
 $$  
 W_Q=  
@@ -376,15 +372,11 @@ $$
 Q=[Q_0,...,Q_p]  
 $$
 
-同理：
-
-$$  
-K,V  
-$$
+$K,V$ 同理。
 
 ---
 
-## 6.2 Attention Head 切分
+## 4.2 Attention Head 切分
 
 Multi Head Attention：
 
@@ -447,7 +439,7 @@ Attention 内部：
 
 ---
 
-# 7. Attention 输出投影 TP
+# 7. Attention 输出投影 TP （Row Parallel）
 
 Attention：
 
@@ -455,25 +447,13 @@ $$
 O=Attention(Q,K,V)W_O  
 $$
 
-因为：
-
-Concat 后：
+因为 Concat 后：
 
 $$  
 O\in R^{S\times H}  
 $$
 
-通常：
-
-$$  
-W_O  
-$$
-
-采用：
-
-## Row Parallel
-
-即：
+通常 $W_O$，采用 **Row Parallel**，即：
 
 $$  
 W_O=  
@@ -483,9 +463,7 @@ W_1
 \end{bmatrix}  
 $$
 
-每 GPU：
-
-计算部分：
+每 GPU 计算部分：
 
 $$  
 O_i=X_iW_i  
