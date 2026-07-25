@@ -1491,7 +1491,7 @@ $$256 \times 32 \times 128 \times 3 \times 4 \approx 12 \text{ MB}$$
 
 #### **Q39. Ring Attention / Context Parallelism：超长序列跨设备 Attention 的切分方案与通信分析**
 
-[CP 技术全景笔记](../并发与分布式推理/CP%20技术全景笔记.md)
+[CP（Context Parallelism）技术全景笔记](../并发与分布式推理/CP（Context%20Parallelism）技术全景笔记.md)
 [RingAttention 详细介绍](../Transformer/RingAttention%20详细介绍.md)
 
 **1. 问题背景**
@@ -1564,7 +1564,7 @@ $$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 5
 
 #### **Q40. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理**
 
-[10. 多头注意力的 TP 切分](../并发与分布式推理/TP%20技术全景笔记.md#10.%20多头注意力的%20TP%20切分)
+[10. 多头注意力的 TP 切分](../并发与分布式推理/TP%20（Tensor%20Parallelism）技术全景笔记.md#10.%20多头注意力的%20TP%20切分)
 
 **1. MHA 的标准 TP 切分（Megatron-LM 方案）**
 

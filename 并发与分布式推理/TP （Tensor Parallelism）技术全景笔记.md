@@ -1,4 +1,4 @@
-## 1. Tensor Parallelism 定义
+## 1. 定义
 
 Tensor Parallelism（张量并行，TP）是一种**模型并行（Model Parallelism）技术**，核心思想是：
 

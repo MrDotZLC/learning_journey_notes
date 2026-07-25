@@ -7,11 +7,11 @@
 
 Transformer 的 Attention 计算和激活显存成为训练长序列的主要瓶颈。
 
-|项目|复杂度|
-|---|---|
-|Attention 计算|$O(S^2d)$|
-|Attention 显存|$O(S^2)$|
-|KV Cache|$O(Sd)$|
+| 项目           | 复杂度       |
+| ------------ | --------- |
+| Attention 计算 | $O(S^2d)$ |
+| Attention 显存 | $O(S^2)$  |
+| KV Cache     | $O(Sd)$   |
 
 当 $S=128K$ 时：
 
