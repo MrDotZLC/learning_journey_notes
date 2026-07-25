@@ -1564,6 +1564,8 @@ $$\frac{N}{P} \geq \frac{989 \times 10^{12}}{900 \times 10^9 \times 2} \approx 5
 
 #### **Q40. Multi-head Attention 的 Tensor Parallelism 切分：Column/Row 并行与 GQA 下的特殊处理**
 
+[10. 多头注意力的 TP 切分](../并发与分布式推理/TP%20技术全景笔记.md#10.%20多头注意力的%20TP%20切分)
+
 **1. MHA 的标准 TP 切分（Megatron-LM 方案）**
 
 MHA 中 Q/K/V 投影和输出投影的切分遵循 **Column Parallel → Row Parallel** 的经典模式。
