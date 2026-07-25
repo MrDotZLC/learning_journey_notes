@@ -168,7 +168,7 @@ TP 有两种主要切分方式：
 
 # 3.2 Column Parallel Linear（列并行）
 
-## 3.21 基本思想
+## 3.2.1 基本思想
 
 按照权重矩阵的列切分：
 
@@ -221,7 +221,7 @@ $$
 
 ---
 
-## 3.22 Column Parallel 通信
+## 3.2.2 Column Parallel 通信
 
 计算：
 
@@ -248,9 +248,9 @@ $$
 
 ---
 
-# 5. Row Parallel Linear（行并行）
+# 3.3 Row Parallel Linear（行并行）
 
-## 5.1 基本思想
+## 3.3.1 基本思想
 
 按照权重矩阵行切分：
 
@@ -303,7 +303,7 @@ $$
 
 ---
 
-## 5.2 Row Parallel 通信
+## 3.3.2 Row Parallel 通信
 
 ```
           X
