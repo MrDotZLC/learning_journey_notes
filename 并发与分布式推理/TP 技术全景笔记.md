@@ -557,21 +557,14 @@ $$
 
 ```
              X
-
-             |
+             ↓
         LayerNorm
-
-             |
-
+             ↓
        QKV Projection
         Column TP
-
-             |
-
+             ↓
        Attention
-
-             |
-
+             ↓
        Output Projection
         Row TP
 
