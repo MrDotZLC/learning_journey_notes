@@ -13,13 +13,9 @@ $$
 其中：
 
 - $X\in R^{T\times d}$：输入 token hidden states；
-    
 - $T$：token 数量；
-    
 - $d$：hidden dimension；
-    
 - $W_{1},W_{2}$：FFN 权重。
-    
 
 FFN 参数量：
 
@@ -30,9 +26,7 @@ $$
 其中：
 
 - $L$：Transformer Layer 数量；
-    
 - $d_{ff}$：FFN intermediate dimension。
-    
 
 随着模型规模增加：
 
@@ -43,11 +37,8 @@ $$
 导致：
 
 - 参数量增加；
-    
 - 显存需求增加；
-    
 - 推理成本增加。
-    
 
 ---
 
@@ -64,9 +55,7 @@ $$
 其中：
 
 - $N_E$：Expert 数量；
-    
 - $E_i$：第 $i$ 个 Expert。
-    
 
 Router 根据 token 动态选择 Expert：
 
@@ -96,9 +85,7 @@ $$
 当：
 
 - Expert 数量 $N_E$ 很大；
-    
 - 每个 token 激活 $K$ 个 Expert；
-    
 
 则：
 
@@ -120,16 +107,14 @@ $$
 
 ---
 
-# 2. EP 问题来源
+## 2. EP 问题来源
 
-## 2.1 Expert 参数无法单卡存储
+### 2.1 Expert 参数无法单卡存储
 
 假设：
 
 - Expert 数量：$N_E$
-    
 - 单 Expert 参数量：$P_E$
-    
 
 总参数：
 
@@ -155,9 +140,9 @@ EP 将 Expert 分布到多个 GPU：
 
 当 EP degree 为 $P_E$ 时：
 
-# $$  
+$$  
 Memory_{GPU}
-
+=
 \frac{N_EP_E}{P_E}  
 $$
 
@@ -181,7 +166,7 @@ $$
 
 理想情况：
 
-# $$  
+$$  
 tokens_i
 
 \frac{T\times K}{N_E}  
@@ -200,11 +185,8 @@ $$
 导致：
 
 - 部分 GPU 计算饱和；
-    
 - 部分 GPU 空闲；
-    
 - 通信等待增加。
-    
 
 该问题称：
 
@@ -212,7 +194,7 @@ $$
 
 ---
 
-## 2.3 Token Dispatch 通信
+### 2.3 Token Dispatch 通信
 
 由于 Expert 分布在不同 GPU，token 需要发送到对应 Expert：
 
@@ -255,22 +237,20 @@ $$
 
 ---
 
-# 3. EP 核心思想
+## 3. EP 核心思想
 
-## 3.1 Expert 参数切分
+### 3.1 Expert 参数切分
 
 EP 将 Expert 沿 GPU 维度划分。
 
 当：
 
 - Expert 数量 $N_E$；
-    
 - EP degree $P_E$；
-    
 
 每 GPU Expert 数：
 
-# $$  
+$$  
 N_{local}
 
 \frac{N_E}{P_E}  
@@ -349,7 +329,7 @@ $$
 
 Softmax：
 
-# $$  
+$$  
 P_i
 
 \frac{e^{G_i}}  
@@ -372,7 +352,7 @@ $$
 
 ---
 
-## 4.2 Capacity Factor
+### 4.2 Capacity Factor
 
 为了限制 Expert 最大 token 数，引入 Capacity：
 
@@ -385,30 +365,22 @@ $$
 其中：
 
 - $T$：token 数；
-    
 - $K$：激活 Expert 数；
-    
 - $N_E$：Expert 总数；
-    
 - $CF$：capacity factor。
-    
 
 例如：
 
 当：
 
 - $T=8192$
-    
 - $K=2$
-    
 - $N_E=64$
-    
 - $CF=1.25$
-    
 
 则：
 
-# $$  
+$$  
 C=  
 \frac{8192\times2}{64}  
 \times1.25
@@ -901,7 +873,7 @@ Expert Parallelism 的本质：
 
 参数存储：
 
-# $$  
+$$  
 Memory_{GPU}
 
 \frac{N_EP_E}{EP}  
@@ -926,11 +898,7 @@ $$
 工程核心：
 
 1. Router 决定 token 到 Expert 的映射；
-    
 2. All-to-All 完成跨 GPU token Dispatch；
-    
 3. Grouped GEMM 提升 Expert 计算效率；
-    
 4. Load Balance 决定大规模 EP 扩展效率；
-    
 5. EP 通常与 TP、PP、DP 组合形成现代 LLM 分布式推理与训练架构。
