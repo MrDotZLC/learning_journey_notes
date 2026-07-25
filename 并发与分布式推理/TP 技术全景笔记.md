@@ -439,7 +439,7 @@ Attention 内部：
 
 ---
 
-# 7. Attention 输出投影 TP （Row Parallel）
+# 5. Attention 输出投影 TP （Row Parallel）
 
 Attention：
 
@@ -477,7 +477,7 @@ $$
 
 ---
 
-# 8. FFN 中 TP
+# 6. FFN 中 TP
 
 Transformer FFN：
 
