@@ -501,7 +501,7 @@ $$
 
 ---
 
-## 8.1 第一层 Column Parallel
+## 6.1 第一层 Column Parallel
 
 切：
 
@@ -522,7 +522,7 @@ $$
 
 ---
 
-## 8.2 第二层 Row Parallel
+## 6.2 第二层 Row Parallel
 
 输入：
 
