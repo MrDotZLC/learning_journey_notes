@@ -4,7 +4,7 @@
 - “什么是 Transformer”[🚀 Transformer解析](../Transformer/🚀%20Transformer解析.md)
 - “自注意力如何工作”[注意力和自注意力（Attention vs Self-Attention）](../Transformer/注意力和自注意力（Attention%20vs%20Self-Attention）.md)
 - “什么是 KV Cache”[KV Cache介绍](../Transformer/KV%20Cache介绍.md)
-- “prefill vs decode”[🚀 大模型推理流程](%F0%9F%9A%80%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E6%8E%A8%E7%90%86%E6%B5%81%E7%A8%8B.md)第3章、[动态批处理（Continuous Batching）](动态批处理（Continuous%20Batching）.md)
+- “prefill vs decode”[🚀 大模型推理流程](%F0%9F%9A%80%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E6%8E%A8%E7%90%86%E6%B5%81%E7%A8%8B.md)第3章、[连续批处理（Continuous Batching）技术全景笔记](连续批处理（Continuous%20Batching）技术全景笔记.md)
 - “显存带宽瓶颈是什么”[🚀 大模型推理优化技术（显存带宽瓶颈优化）](%F0%9F%9A%80%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E6%8E%A8%E7%90%86%E4%BC%98%E5%8C%96%E6%8A%80%E6%9C%AF%EF%BC%88%E6%98%BE%E5%AD%98%E5%B8%A6%E5%AE%BD%E7%93%B6%E9%A2%88%E4%BC%98%E5%8C%96%EF%BC%89.md)
 
 ---
@@ -27,7 +27,7 @@
 ### 🎯 第 3 阶段（3–4 周）：LLM Serving（核心）
 
 学：
-- 动态批处理（Continuous Batching）[动态批处理（Continuous Batching）](动态批处理（Continuous%20Batching）.md)
+- 动态批处理（Continuous Batching）[连续批处理（Continuous Batching）技术全景笔记](连续批处理（Continuous%20Batching）技术全景笔记.md)
 - KV Cache 分块与管理
 - PagedAttention 原理
 - 一个推理 loop 怎么写？
