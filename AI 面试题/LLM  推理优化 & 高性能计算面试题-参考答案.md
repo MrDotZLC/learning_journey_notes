@@ -2087,7 +2087,6 @@ $$\rho_{\text{frag}} = \frac{15}{1024} \approx 1.46\%$$
 **传统混合部署的问题：**
 
 Prefill 和 Decode 共享同一 GPU 时相互干扰：
-
 - Prefill 的大计算量占用 GPU，阻塞 Decode 请求，TPOT 抖动（即 Q50 所述问题）。
 - 为保证 TPOT SLA 而限制 Prefill 并发，导致 GPU 利用率低。
 - 两阶段对显存的需求模式不同，共享时调度困难。
