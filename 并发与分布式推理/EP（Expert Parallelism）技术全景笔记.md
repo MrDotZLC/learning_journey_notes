@@ -260,8 +260,6 @@ $$
 |EP degree|8|
 |每 GPU Expert|8|
 
----
-
 ## 3.2 Token Routing
 
 完整流程：
@@ -307,9 +305,9 @@ Input Tokens
 
 ---
 
-# 4. 数学原理
+## 4. 数学原理
 
-## 4.1 Router
+### 4.1 Router
 
 输入：
 
@@ -327,7 +325,7 @@ Softmax：
 
 $$  
 P_i
-
+=
 \frac{e^{G_i}}  
 {\sum_j e^{G_j}}  
 $$
@@ -346,9 +344,7 @@ Y=
 P_iE_i(X)  
 $$
 
----
-
-### 4.2 Capacity Factor
+#### 4.2 Capacity Factor
 
 为了限制 Expert 最大 token 数，引入 Capacity：
 
@@ -395,19 +391,16 @@ $$
 超过容量：
 
 - drop token；
-    
 - reroute；
-    
 - padding。
-    
 
 ---
 
-# 5. EP 算法流程
+## 5. EP 算法流程
 
-## 5.1 Token Dispatch
+### 5.1 Token Dispatch
 
-### Step 1：Router 计算
+#### Step 1：Router 计算
 
 得到：
 
@@ -425,9 +418,7 @@ T1 → Expert1
 T2 → Expert3
 ```
 
----
-
-### Step 2：Token Permutation
+#### Step 2：Token Permutation
 
 按照 Expert 排序：
 
@@ -458,9 +449,7 @@ T0,T2
 
 让相同 Expert token 连续，提高 GEMM 效率。
 
----
-
-### Step 3：All-to-All Dispatch
+#### Step 3：All-to-All Dispatch
 
 将 token 发送到 Expert 所在 GPU。
 
@@ -475,13 +464,9 @@ $$
 其中：
 
 - 第一次 All-to-All：Dispatch；
-    
 - 第二次 All-to-All：Combine。
-    
 
----
-
-### Step 4：Expert Computation
+#### Step 4：Expert Computation
 
 每个 Expert 执行 FFN：
 
@@ -509,9 +494,9 @@ $$
 
 ---
 
-# 6. Grouped GEMM
+## 6. Grouped GEMM
 
-## 6.1 问题来源
+### 6.1 问题来源
 
 普通 GEMM：
 
@@ -534,15 +519,10 @@ GEMM(X2,W2)
 问题：
 
 - 多次 Kernel Launch；
-    
 - 小矩阵效率低；
-    
 - Tensor Core 利用率下降。
-    
 
----
-
-## 6.2 核心思想
+### 6.2 核心思想
 
 Grouped GEMM 将多个 Expert GEMM 合并：
 
@@ -561,9 +541,7 @@ Grouped GEMM Kernel
  └── ...
 ```
 
----
-
-## 6.3 性能收益
+### 6.3 性能收益
 
 普通 GEMM：
 
@@ -586,17 +564,14 @@ $$
 减少：
 
 - Kernel Launch overhead；
-    
 - SM 空闲；
-    
 - 小矩阵计算损失。
-    
 
 ---
 
-# 7. EP 工程实现
+## 7. EP 工程实现
 
-## 7.1 EP 与其他并行组合
+### 7.1 EP 与其他并行组合
 
 大模型通常采用：
 
@@ -623,26 +598,18 @@ GPU Cluster
  TP × PP × EP
 ```
 
----
-
-## 7.2 DeepSpeed-MoE
+### 7.2 DeepSpeed-MoE
 
 Microsoft DeepSpeed
 
 核心组件：
 
 - Router；
-    
 - Token Dispatcher；
-    
 - All-to-All；
-    
 - Expert GEMM。
-    
 
----
-
-## 7.3 Megatron-LM EP
+### 7.3 Megatron-LM EP
 
 NVIDIA Megatron-LM
 
@@ -674,9 +641,9 @@ $$
 
 ---
 
-# 8. 性能分析
+## 8. 性能分析
 
-## 8.1 计算复杂度
+### 8.1 计算复杂度
 
 Dense FFN：
 
@@ -711,9 +678,7 @@ $$
 
 MoE 获得更高参数容量。
 
----
-
-## 8.2 通信瓶颈
+### 8.2 通信瓶颈
 
 EP 通信：
 
@@ -726,18 +691,14 @@ $$
 Prefill：
 
 - token 数量大；
-    
 - GEMM 计算充分；
-    
 
 通信容易隐藏。
 
 Decode：
 
 - batch 小；
-    
 - token 少；
-    
 
 计算降低：
 
@@ -756,7 +717,7 @@ $$
 
 ---
 
-# 9. 优缺点
+## 9. 优缺点
 
 |优点|说明|
 |---|---|
@@ -773,9 +734,9 @@ $$
 
 ---
 
-# 10. 应用场景
+## 10. 应用场景
 
-## 10.1 MoE 大模型训练
+### 10.1 MoE 大模型训练
 
 代表：
 
@@ -785,9 +746,7 @@ $$
 |Mixtral|Sparse MoE|
 |DeepSeek MoE 系列|大规模 Expert Parallel|
 
----
-
-## 10.2 推理部署
+### 10.2 推理部署
 
 典型：
 
@@ -804,19 +763,15 @@ EP 通信压力较大
 优化方向：
 
 - Expert Placement；
-    
 - Expert Cache；
-    
 - Dynamic Batching；
-    
 - Communication Compute Overlap。
-    
 
 ---
 
-# 11. 发展趋势
+## 11. 发展趋势
 
-## 11.1 Fine-grained MoE
+### 11.1 Fine-grained MoE
 
 趋势：
 
@@ -835,18 +790,15 @@ $$
 优势：
 
 - 更精细能力分工；
-    
 - 提升参数容量。
-    
 
 问题：
 
 - All-to-All 通信增加。
-    
 
 ---
 
-## 11.2 EP 与硬件协同
+### 11.2 EP 与硬件协同
 
 优化方向：
 
@@ -859,7 +811,7 @@ $$
 
 ---
 
-# 12. 总结
+## 12. 总结
 
 Expert Parallelism 的本质：
 
