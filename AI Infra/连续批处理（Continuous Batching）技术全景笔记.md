@@ -141,6 +141,9 @@ $$
 ---
 
 ## 3. Prefill 与 Decode 分离
+
+[[LLM 推理：Prefill 与 Decode 的区分、问题及调度优化.md]]
+
 ### 3.1 为什么 LLM 推理需要拆分？
 
 LLM 推理天然分为两个阶段：
@@ -885,6 +888,45 @@ $$
 $$
 
 其中：$\lambda$ 表示系统对 Decode 延迟的权重。
+
+### 12.5 Chunked Prefill 执行期间 KV Block 的按需分配策略
+
+#### 与 Decode 请求共批时的 Block 隔离机制
+
+调度器维护全局 Block Pool，Prefill 请求和 Decode 请求共享。防止 Decode 请求因 Block 耗尽而中断的典型策略如下：
+
+```
+调度决策（每次迭代前）：
+  available_blocks = total_blocks - used_blocks
+
+  // 先为所有活跃 Decode 请求预留下一步所需 Block
+  reserved_for_decode = num_active_decode_requests × 1 Block/step
+  
+  // 剩余 Block 分配给 Chunked Prefill
+  prefill_budget = (available_blocks - reserved_for_decode) × B tokens
+  actual_chunk_size = min(C, prefill_budget)
+
+  if actual_chunk_size == 0:
+    本迭代跳过所有 Prefill 请求，仅执行 Decode
+```
+
+若可用 Block 不足以同时满足 Decode 预留和 Prefill 需求，调度器优先保障 Decode（TPOT 稳定性高于 TTFT）。
+
+#### Chunk 大小与内部碎片率的量化关系
+
+每个 Chunk 末尾的最后一个 Block 可能只有部分 Token 槽被填充（$\leq B-1$ 个 Token 的内部碎片）。对单个 Chunk：
+
+$$\text{期望碎片} = \frac{B - 1}{2} \text{ 个 Token 槽}$$
+
+Chunk 内的有效 Token 数为 $C$，内部碎片率：
+
+$$\rho_{\text{frag}} = \frac{(B-1)/2}{C} = \frac{B-1}{2C}$$
+
+代入典型值（$C = 512$，$B = 16$）：
+
+$$\rho_{\text{frag}} = \frac{15}{1024} \approx 1.46\%$$
+
+**结论：** 只要 $C \gg B$（Chunk 远大于 Block），内部碎片率可忽略不计。实践中 $C$ 通常取 512–2048 tokens，而 $B = 16$ tokens，碎片率 $\leq 1.5\%$。
 
 ---
 
