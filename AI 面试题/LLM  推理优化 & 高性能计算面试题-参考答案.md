@@ -2072,6 +2072,8 @@ $$\rho_{\text{frag}} = \frac{15}{1024} \approx 1.46\%$$
 
 #### **Q52. Prefill / Decode 分离（Disaggregated PD）架构的动机：两阶段分离部署如何提升集群利用率？**
 
+[[../AI Infra/LLM 推理：Prefill 与 Decode 的区分、问题及调度优化.md|LLM 推理：Prefill 与 Decode 的区分、问题及调度优化]]]
+
 **两阶段计算特性差异：**
 
 |特性|Prefill|Decode|
