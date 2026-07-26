@@ -2102,13 +2102,11 @@ Prefill 和 Decode 共享同一 GPU 时相互干扰：
 ```
 
 **工作流程：**
-
 1. 请求到达 → 路由到 P 节点执行 Prefill，生成首 Token 和完整 KV Cache。
 2. KV Cache 通过高速互联（GPUDirect RDMA，延迟 ~10–100 μs）传输到 D 节点。
 3. D 节点接管，持续 Decode 生成后续 Token，直至请求完成。
 
 **收益：**
-
 - P 节点专注大 Batch Prefill，持续高 MFU（Compute-bound 充分利用算力）。
 - D 节点专注大 Batch Decode，KV Cache 常驻，HBM 带宽充分利用。
 - P/D 实例数比例（xPyD Ratio）可根据负载动态调整（见 Q150）。
