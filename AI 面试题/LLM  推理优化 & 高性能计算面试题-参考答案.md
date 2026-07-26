@@ -1939,6 +1939,10 @@ $$\text{TTFT} = T_{\text{KV load}} + T_{\text{Prefill（未缓存部分）}} + T
 
 #### **Q49. Static Batching 与 Continuous Batching 的区别？后者如何消除 Padding 浪费？**
 
+[连续批处理（Continuous Batching）技术全景笔记 - 7. Static Batching](../AI%20Infra/连续批处理（Continuous%20Batching）技术全景笔记.md#7.%20Static%20Batching)
+[连续批处理（Continuous Batching）技术全景笔记 - 8. Dynamic Batching](../AI%20Infra/连续批处理（Continuous%20Batching）技术全景笔记.md#8.%20Dynamic%20Batching)
+[连续批处理（Continuous Batching）技术全景笔记 - 9. Continuous Batching 核心机制](../AI%20Infra/连续批处理（Continuous%20Batching）技术全景笔记.md#9.%20Continuous%20Batching%20核心机制)
+
 **Static Batching（静态批处理）：**
 
 将若干请求组成一个固定 Batch，等待 Batch 内**所有请求全部完成**后才释放资源，接受下一批。
@@ -1980,6 +1984,8 @@ Slot 2: 请求C ████                   (50步完成)  → 请求F ██
 ---
 
 #### **Q50. Chunked Prefill 的原理：将 Prefill 拆分为多个 Chunk 与 Decode 交错执行，有何收益与代价？**
+
+[连续批处理（Continuous Batching）技术全景笔记 - 12. Chunked Prefill](../AI%20Infra/连续批处理（Continuous%20Batching）技术全景笔记.md#12.%20Chunked%20Prefill)
 
 **背景问题：**
 

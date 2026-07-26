@@ -5,7 +5,6 @@
 **LLM Serving（Large Language Model Serving）** 指在在线系统中，为大量并发用户请求提供大语言模型推理服务，并在满足延迟约束的情况下返回生成结果。
 
 与训练（Training）和离线推理（Offline Inference）不同，Serving 具有以下特点：
-
 - 请求实时到达，无法提前批量规划；
 - Prompt 长度未知，输入规模变化大；
 - 输出长度未知，生成过程具有随机性；
@@ -14,8 +13,6 @@
 因此，LLM Serving 的核心问题不是单次推理速度最大化，而是：
 
 > 在动态请求环境下，通过调度策略最大化 GPU 利用率，同时保证 TTFT、TPOT 和 p99 latency 满足 SLA。
-
----
 
 ### 1.2 LLM Serving 核心性能指标
 
@@ -33,13 +30,10 @@ $$
 $$
 
 其中：
-
 - $N_{\text{output tokens}}$ 表示生成 token 总数量；
 - $T_{\text{total}}$ 表示服务运行时间。
 
 当并发请求增加时，Continuous Batching 通过提高 GPU batch 利用率提升 Throughput。
-
----
 
 #### TTFT（Time To First Token）
 
@@ -49,26 +43,17 @@ $$
 \begin{aligned}  
 \text{TTFT}  
 &= T_{\text{queue}}
-
 - T_{\text{prefill}}
-    
 - T_{\text{schedule}}  
     \end{aligned}  
     $$
-    
 
 其中：
-
 - $T_{\text{queue}}$ 表示请求等待调度时间；
-    
 - $T_{\text{prefill}}$ 表示 Prompt Encoding 计算时间；
-    
 - $T_{\text{schedule}}$ 表示调度器等待执行时间。
-    
 
 TTFT 主要影响用户首次响应体验。
-
----
 
 #### TPOT（Time Per Output Token）
 
@@ -82,15 +67,11 @@ $$
 $$
 
 其中：
-
 - $T_{\text{decode}}$ 表示整个 Decode 阶段耗时；
-    
 - $N_{\text{output tokens}}$ 表示生成 token 数。
-    
+
 
 TPOT 决定 Streaming 输出的连续性。
-
----
 
 #### p99 Latency
 
@@ -99,9 +80,7 @@ TPOT 决定 Streaming 输出的连续性。
 相比平均延迟：
 
 - 平均 latency 反映整体性能；
-    
 - p99 latency 反映系统长尾稳定性。
-    
 
 LLM Serving 中，由于请求长度和生成长度存在巨大差异，p99 通常比平均值更重要。
 
@@ -131,15 +110,10 @@ T_{\text{batch}}
 $$
 
 其中：
-
 - $B$ 表示 batch size；
-    
 - $L_{i}$ 表示第 $i$ 个请求需要生成的 token 数。
-    
 
 当存在一个长请求时，短请求完成后仍然占用 batch slot，导致 GPU 利用率下降。
-
----
 
 ### 2.2 Serving 优化目标
 
@@ -160,38 +134,24 @@ $$
 $$
 
 其中：
-
 - $S_{\text{TTFT}}$ 表示 TTFT 服务约束；
-    
 - $S_{\text{TPOT}}$ 表示 TPOT 服务约束；
-    
 - $S_{\text{p99}}$ 表示尾延迟约束。
-    
 
 ---
 
 ## 3. Prefill 与 Decode 分离
-
 ### 3.1 为什么 LLM 推理需要拆分？
 
 LLM 推理天然分为两个阶段：
-
 1. Prefill：
-    
     - 输入阶段；
-        
     - 一次处理整个 Prompt；
-        
     - 计算并保存 KV Cache。
-        
 2. Decode：
-    
     - 自回归生成阶段；
-        
     - 每次生成一个 token；
-        
     - 重复执行直到 EOS。
-        
 
 两个阶段具有完全不同的硬件特征：
 
@@ -220,15 +180,9 @@ $$
 其中 $L$ 为 Prompt token 数。
 
 模型一次 forward：
-
 - 计算所有 token 的隐藏状态；
-    
 - 生成 Key Cache 和 Value Cache；
-    
 - 为后续 Decode 提供 Attention 历史信息。
-    
-
----
 
 ### 4.2 Prefill 计算特征
 
@@ -243,15 +197,10 @@ Softmax(\frac{QK^{T}}{\sqrt{d}})V
 $$
 
 其中：
-
 - $Q$ 表示 Query；
-    
 - $K$ 表示 Key；
-    
 - $V$ 表示 Value；
-    
 - $d$ 表示 Head Dimension。
-    
 
 由于 Prompt 内 token 两两交互：
 
@@ -263,26 +212,16 @@ $$
 $$
 
 因此 Prefill：
-
 - 计算量大；
-    
 - GPU Tensor Core 利用率高；
-    
 - 更适合大 batch。
-    
-
----
 
 ### 4.3 Prefill 调度原则
 
 Prefill Scheduler 负责：
-
 - 决定哪些请求进入 Prefill；
-    
 - 控制 Prefill batch 大小；
-    
 - 避免阻塞 Decode。
-    
 
 核心原则：
 
@@ -290,16 +229,15 @@ Prefill Scheduler 负责：
 
 常见优化：
 
-|优化方式|作用|
-|---|---|
-|Prompt Length Bucket|减少不同长度 Prompt padding|
-|Admission Control|Decode 压力高时限制新 Prefill|
-|Chunked Prefill|拆分长 Prompt，避免阻塞|
+| 优化方式                 | 作用                     |
+| -------------------- | ---------------------- |
+| Prompt Length Bucket | 减少不同长度 Prompt padding  |
+| Admission Control    | Decode 压力高时限制新 Prefill |
+| Chunked Prefill      | 拆分长 Prompt，避免阻塞        |
 
 ---
 
 ## 5. Decode 阶段
-
 ### 5.1 Decode 定义
 
 Decode 指在已有 KV Cache 的基础上，每次生成一个新的 token。
@@ -324,18 +262,12 @@ $$
 x_{t+1}  
 $$
 
----
-
 ### 5.2 Decode 计算特征
 
 Decode 每一步只计算一个 token：
-
 - GEMM batch 较小；
-    
 - Tensor Core 利用率降低；
-    
 - 大量时间消耗在读取 KV Cache。
-    
 
 Attention：
 
@@ -348,11 +280,8 @@ Softmax(\frac{q_{t}K_{1:t}^{T}}{\sqrt{d}})V_{1:t}
 $$
 
 其中：
-
 - 当前 Query 数量固定为 1；
-    
 - KV 长度随着生成增长。
-    
 
 因此：
 
@@ -365,20 +294,13 @@ $$
 
 其中 $T$ 表示当前序列历史 token 总长度。
 
----
-
 ### 5.3 为什么 Prefill 和 Decode 必须拆分？
 
 如果二者混合执行：
-
 - 长 Prompt Prefill 会占用 GPU；
-    
 - Decode token 无法及时生成；
-    
 - Streaming 延迟增加；
-    
 - p99 latency 恶化。
-    
 
 因此：
 
@@ -410,7 +332,7 @@ Continuous Batching
 
 ---
 
-## 7. Static Batching（连续批处理）
+## 7. Static Batching
 
 ### 7.1 根本问题
 
@@ -462,20 +384,15 @@ L_{1}\gg L_{2},L_{3},...,L_{B}
 $$
 
 则短请求完成后：
-
 - GPU slot 无法释放；
-    
 - KV Cache 持续占用；
-    
 - batch 有效利用率下降。
-    
 
 因此 Static Batching 不适合在线 LLM Serving。
 
 ---
 
 ## 8. Dynamic Batching
-
 ### 8.1 定义
 
 Dynamic Batching（动态批处理）在请求进入模型前进行聚合。
@@ -487,8 +404,6 @@ Dynamic Batching（动态批处理）在请求进入模型前进行聚合。
 |batch 形成时间|固定|动态|
 |等待策略|等待固定数量|时间窗口或数量触发|
 |调度粒度|request|request|
-
----
 
 ### 8.2 Dynamic Batching 调度条件
 
@@ -511,15 +426,9 @@ $$
 $$
 
 其中：
-
 - $B_{\max}$ 表示最大 batch size；
-    
 - $\Delta T$ 表示最大等待时间；
-    
 - $t_{\text{oldest}}$ 表示最早请求时间。
-    
-
----
 
 ### 8.3 限制
 
@@ -542,11 +451,8 @@ Seq3  ██████░░░░░░░░░░░░░░░░░
 ```
 
 其中：
-
 - `█` 表示有效计算；
-    
 - `░` 表示等待最长请求。
-    
 
 根本原因：
 
@@ -554,16 +460,12 @@ Seq3  ██████░░░░░░░░░░░░░░░░░
 
 ---
 
-# 9. Continuous Batching 核心机制
-
-## 9.1 定义
+## 9. Continuous Batching 核心机制
+### 9.1 定义
 
 **Continuous Batching（连续批处理）** 又称：
-
 - In-flight Batching；
-    
 - Iteration-level Scheduling。
-    
 
 核心思想：
 
@@ -593,9 +495,7 @@ Iteration 2
 Iteration 3
 ```
 
----
-
-## 9.2 核心调度流程
+### 9.2 核心调度流程
 
 Decode iteration 执行：
 
@@ -635,26 +535,20 @@ void scheduler_step(RequestPool& pool,
 
 核心变化：
 
-|操作|Static Batching|Continuous Batching|
-|---|---|---|
-|请求加入|batch 开始前|任意 iteration|
-|请求退出|整个 batch 完成|生成结束立即退出|
-|KV Cache释放|延迟|立即|
+| 操作         | Static Batching | Continuous Batching |
+| ---------- | --------------- | ------------------- |
+| 请求加入       | batch 开始前       | 任意 iteration        |
+| 请求退出       | 整个 batch 完成     | 生成结束立即退出            |
+| KV Cache释放 | 延迟              | 立即                  |
 
----
+### 9.3 Continuous Batching 的收益
 
-## 9.3 Continuous Batching 的收益
-
-### GPU 利用率提升
+**GPU 利用率提升**
 
 假设：
-
 - batch size 为 $B$；
-    
 - 平均请求长度为 $\bar{L}$；
-    
 - 最大请求长度为 $L_{\max}$。
-    
 
 Static Batching 有效利用率：
 
@@ -680,20 +574,16 @@ $$
 
 ---
 
-# 10. Ragged Batching
+## 10. Ragged Batching
 
-## 10.1 为什么需要 Ragged Batching？
+### 10.1 为什么需要 Ragged Batching？
 
 Continuous Batching 后：
 
 同一个 batch 中：
-
 - 请求 A 已生成 100 token；
-    
 - 请求 B 已生成 500 token；
-    
 - 请求 C 已生成 20 token。
-    
 
 因此无法构造规则矩阵：
 
@@ -719,18 +609,12 @@ $$
 L_{1}\neq L_{2}\neq ...\neq L_{B}  
 $$
 
----
-
-## 10.2 Ragged Batching
+### 10.2 Ragged Batching
 
 Ragged Batching（非规则 Batch）通过：
-
 - Flatten token；
-    
 - 保存序列边界；
-    
 - Kernel 内恢复关系。
-    
 
 例如：
 
@@ -763,28 +647,15 @@ $$
 $$
 
 其中：
-
 - `cu_seqlens` 表示每个 sequence 的起止位置；
-    
 - Attention Kernel 根据边界恢复不同序列。
-    
 
----
+### 10.3 FlashAttention 对 Ragged Batching 的支持
 
-## 10.3 FlashAttention 对 Ragged Batching 的支持
-
-FlashAttention-2 提供：
-
-`varlen attention`
-
-接口支持：
-
+FlashAttention-2 提供：`varlen attention` 接口支持：
 - 不同长度序列；
-    
 - 无 padding；
-    
 - 直接使用 `cu_seqlens`。
-    
 
 相比 padding：
 
@@ -812,9 +683,9 @@ $$
 
 ---
 
-# 11. Decode 阶段 Position Batching
+## 11. Decode 阶段 Position Batching
 
-## 11.1 问题来源
+### 11.1 问题来源
 
 Continuous Batching 解决：
 
@@ -834,10 +705,7 @@ Softmax(q_{i}K_{1:L_{i}}^{T})V_{1:L_{i}}
 \end{aligned}  
 $$
 
-其中：
-
-- $L_{i}$ 表示第 $i$ 个请求当前 KV Cache 长度。
-    
+其中：$L_{i}$ 表示第 $i$ 个请求当前 KV Cache 长度。
 
 若：
 
@@ -846,15 +714,10 @@ L_{1}\gg L_{2}
 $$
 
 则：
-
 - 长请求读取更多 KV Cache；
-    
 - batch 内 kernel 执行时间由最长 Attention 决定。
-    
 
----
-
-## 11.2 Position Batching 定义
+### 11.2 Position Batching 定义
 
 **Position Batching**：
 
@@ -868,9 +731,7 @@ $$
 \max(L_{i})-\min(L_{i})  
 $$
 
----
-
-## 11.3 Step Tolerance
+### 11.3 Step Tolerance
 
 定义：
 
@@ -900,9 +761,9 @@ $$
 
 ---
 
-# 12. Chunked Prefill
+## 12. Chunked Prefill
 
-## 12.1 Prefill Stall 问题
+### 12.1 Prefill Stall 问题
 
 Continuous Batching 主要优化 Decode 阶段，但仍存在一个问题：
 
@@ -922,30 +783,21 @@ Decode Request C
 ```
 
 如果 Request B 的 Prompt 长度为数万 token：
-
 - Prefill kernel 执行时间较长；
-    
 - Decode token 无法及时生成；
-    
 - TTFT 和 TPOT 恶化。
-    
 
 因此需要将 Prefill 从“一次性执行”改为“分段执行”。
 
----
-
-## 12.2 Chunked Prefill 定义
+### 12.2 Chunked Prefill 定义
 
 **Chunked Prefill**：
 
 > 将长 Prompt 切分为多个固定大小 chunk，每次 iteration 只处理部分 Prompt，使 Prefill 与 Decode 在时间维度交错执行。
 
 设：
-
 - Prompt 长度为 $N$；
-    
 - Chunk size 为 $C$。
-    
 
 需要执行的 chunk 数：
 
@@ -966,15 +818,10 @@ $$
 $$
 
 其中：
-
 - $k\in[1,K]$；
-    
 - $C$ 控制单次 Prefill 计算规模。
-    
 
----
-
-## 12.3 Chunked Prefill 执行流程
+### 12.3 Chunked Prefill 执行流程
 
 普通 Prefill：
 
@@ -1010,19 +857,12 @@ Chunk K
 ```
 
 每个 iteration：
-
 1. Scheduler 检查 Decode 请求；
-    
 2. 优先执行 Decode；
-    
 3. 剩余 GPU 预算执行 Prefill chunk；
-    
 4. 更新 KV Cache。
-    
 
----
-
-## 12.4 Chunked Prefill 的优化目标
+### 12.4 Chunked Prefill 的优化目标
 
 Chunk size 存在 Trade-off：
 
@@ -1044,48 +884,33 @@ $$
 \end{aligned}  
 $$
 
-其中：
-
-- $\lambda$ 表示系统对 Decode 延迟的权重。
-    
+其中：$\lambda$ 表示系统对 Decode 延迟的权重。
 
 ---
 
-# 13. KV Cache 显存管理
+## 13. KV Cache 显存管理
 
-## 13.1 KV Cache 为什么成为核心瓶颈？
+### 13.1 KV Cache 为什么成为核心瓶颈？
 
 LLM Serving 中：
-
 - 权重（Weights）固定；
-    
 - Activation 生命周期短；
-    
 - KV Cache 随请求数量和长度动态增长。
-    
 
 因此：
 
 > Continuous Batching 的最大 batch size 通常由 KV Cache 显存决定。
 
----
-
-## 13.2 单请求 KV Cache 大小
+### 13.2 单请求 KV Cache 大小
 
 对于 Transformer：
 
 设：
-
 - $L_{seq}$：当前序列长度；
-    
 - $N_{layer}$：Transformer 层数；
-    
 - $N_{head}$：Attention Head 数量；
-    
 - $d_{head}$：单个 Head 维度；
-    
 - FP16 数据类型大小为 $2$ bytes。
-    
 
 KV Cache：
 
@@ -1109,22 +934,10 @@ d_{head}
 $$
 
 其中：
+- 第一个 $2$ 表示：Key 和 Value。
+- 第二个 $2$ 表示：FP16 byte size。
 
-第一个 $2$：
-
-- Key；
-    
-- Value。
-    
-
-第二个 $2$：
-
-- FP16 byte size。
-    
-
----
-
-## 13.3 Batch KV Cache 总量
+### 13.3 Batch KV Cache 总量
 
 对于 batch：
 
@@ -1138,20 +951,19 @@ $$
 
 必须满足：
 
-## $$  
+$$  
 \begin{aligned}  
 M_{kv,total}  
 &\leq  
 M_{GPU}
-
-## M_{weights}
-
+-
+M_{weights}
+-
 M_{activation}  
 \end{aligned}  
 $$
 
 其中：
-
 - $M_{GPU}$：GPU 总显存；
 - $M_{weights}$：模型权重占用；
 - $M_{activation}$：运行时激活占用。
@@ -1182,7 +994,6 @@ Request C:
 #### 内部碎片
 
 需要按照最大长度预留：
-
 - 实际生成 500 token；
 - 预留 4096 token。
 
@@ -1202,15 +1013,11 @@ AAAA DDDD CCCC
 
 释放后产生不连续空间。
 
----
-
 ### 14.2 PagedAttention 核心思想
 
 PagedAttention 借鉴操作系统 Virtual Memory：
 
-将 KV Cache 划分为固定大小 Block。
-
-结构：
+将 KV Cache 划分为固定大小 Block，结构：
 
 ```text
 Logical KV Cache
@@ -1223,7 +1030,6 @@ Block Table
 Logical Block
       |
       ↓
-
 Physical Block Pool
 
 GPU Memory:
@@ -1231,11 +1037,8 @@ B0 B1 B2 B3 B4 B5 ...
 ```
 
 每个请求维护：
-
 - Block Table；
 - 逻辑 Block 到物理 Block 映射。
-
----
 
 ### 14.3 PagedAttention 优势
 
@@ -1249,27 +1052,20 @@ $$
 
 PagedAttention：
 
-## $$  
+$$  
 M_{alloc}
-
+=
 \lceil  
 \frac{L_{seq}}{B_{block}}  
 \rceil  
 \times size  
 $$
 
-其中：
+其中：$B_{block}$ 为 block token 数。
 
-- $B_{block}$ 为 block token 数。
-    
+#### 支持动态请求生命周期
 
----
-
-### 支持动态请求生命周期
-
-请求结束：
-
-立即释放 Block：
+请求结束，立即释放 Block：
 
 ```text
 Before:
@@ -1287,9 +1083,9 @@ A A A _ _ _ C C C
 
 ---
 
-# 15. Memory-aware Dynamic Batching
+## 15. Memory-aware Dynamic Batching
 
-## 15.1 静态 Batch Size 的问题
+### 15.1 静态 Batch Size 的问题
 
 传统 Serving：
 
@@ -1300,19 +1096,13 @@ max_batch_size = 128
 ```
 
 但是实际：
-
 - 请求长度变化；
-    
 - KV Cache 占用变化；
-    
 - GPU 空闲程度变化。
-    
 
 固定 batch 无法适应动态负载。
 
----
-
-## 15.2 Memory-aware Scheduling
+### 15.2 Memory-aware Scheduling
 
 核心思想：
 
@@ -1326,14 +1116,14 @@ $$
 \quad  
 &  
 \text{Throughput}(B(t))  
-\  
+\\  
 \text{s.t.}  
 \quad  
-&  
+& 
 M_{kv}(B(t))  
 \leq  
 M_{available}(t)  
-\  
+\\  
 &  
 Latency(B(t))  
 \leq  
@@ -1342,26 +1132,16 @@ SLA
 $$
 
 其中：
-
 - $B(t)$：时间 $t$ 时刻 batch size；
-    
 - $M_{available}(t)$：当前可用显存。
-    
 
----
-
-## 15.3 调度策略
+### 15.3 调度策略
 
 Scheduler 持续监控：
-
 - KV Cache 使用量；
-    
 - 活跃请求数量；
-    
 - Decode latency；
-    
 - GPU 利用率。
-    
 
 动态调整：
 
@@ -1377,7 +1157,7 @@ GPU Memory Available
 
 ---
 
-# 16. 主流框架实现
+## 16. 主流框架实现
 
 |框架|Continuous Batching 实现|核心特点|
 |---|---|---|
@@ -1389,7 +1169,7 @@ GPU Memory Available
 
 ---
 
-# 17. 完整演进路线
+## 17. 完整演进路线
 
 ```text
 Static Batching
@@ -1449,7 +1229,7 @@ Memory-aware Scheduling
 
 ---
 
-# 18. 工程调优参数
+## 18. 工程调优参数
 
 以 vLLM 类系统为例：
 
@@ -1463,11 +1243,11 @@ Memory-aware Scheduling
 
 ---
 
-# 19. 性能分析
+## 19. 性能分析
 
-Continuous Batching 的收益来源：
+Continuous Batching 的收益：提升 GPU 利用率、降低长尾延迟。
 
-## 19.1 提升 GPU 利用率
+### 19.1 提升 GPU 利用率
 
 Static Batching：
 
@@ -1483,9 +1263,7 @@ $$
 长度差异越大：
 
 - 空闲 slot 越多；
-    
 - 利用率越低。
-    
 
 Continuous Batching：
 
@@ -1495,18 +1273,13 @@ $$
 U\rightarrow1  
 $$
 
----
-
-## 19.2 降低长尾延迟
+### 19.2 降低长尾延迟
 
 p99 latency 的主要来源：
 
 - 长请求；
-    
 - Prefill 阻塞；
-    
 - KV Cache 分配等待。
-    
 
 解决方式：
 
@@ -1519,22 +1292,15 @@ p99 latency 的主要来源：
 
 ---
 
-# 20. 工程铁律
+## 20. 工程铁律
 
 1. **Prefill 与 Decode 必须逻辑分离。**
-    
 2. **Decode 优先级高于 Prefill。**
-    
 3. **Continuous Batching 是在线 Serving 的核心调度机制。**
-    
 4. **Ragged Batching 用于解决动态 batch 的长度不规则问题。**
-    
 5. **Chunked Prefill 用于解决长 Prompt 阻塞 Decode。**
-    
 6. **PagedAttention 是大规模并发 Serving 的显存管理基础。**
-    
 7. **优化目标不是最大 batch，而是在 SLA 约束下最大化吞吐。**
-    
 
 最终：
 
