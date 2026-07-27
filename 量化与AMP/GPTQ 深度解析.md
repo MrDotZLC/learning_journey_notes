@@ -34,16 +34,16 @@ GPTQ 的数学核心源自 **Optimal Brain Surgeon（OBS）** 理论。优化目
 
 ### 2.1 符号定义
 
-| 符号 | 维度 | 含义 |
-|------|------|------|
-| $W$ | $d_{\text{out}} \times d_{\text{in}}$ | 线性层原始权重矩阵 |
-| $\hat{W}$ | $d_{\text{out}} \times d_{\text{in}}$ | 量化后的权重矩阵 |
-| $X$ | $d_{\text{in}} \times n$ | 校准数据集的输入矩阵（$n$ 为样本数） |
-| $\mathbf{w}$ | $1 \times d_{\text{in}}$ | $W$ 的某一行（逐行独立优化） |
-| $\delta$ | $1 \times d_{\text{in}}$ | 权重扰动行向量，$\delta = \hat{\mathbf{w}} - \mathbf{w}$ |
-| $Q(\cdot)$ | — | 量化算子 |
-| $\mathbf{H}$ | $d_{\text{in}} \times d_{\text{in}}$ | Hessian 矩阵，$\mathbf{H} = XX^T$ |
-| $\mathbf{H}'$ | $d_{\text{in}} \times d_{\text{in}}$ | 阻尼后 Hessian，$\mathbf{H}' = \mathbf{H} + \lambda I$ |
+| 符号            | 维度                                    | 含义                                                 |
+| ------------- | ------------------------------------- | -------------------------------------------------- |
+| $W$           | $d_{\text{out}} \times d_{\text{in}}$ | 线性层原始权重矩阵                                          |
+| $\hat{W}$     | $d_{\text{out}} \times d_{\text{in}}$ | 量化后的权重矩阵                                           |
+| $X$           | $d_{\text{in}} \times n$              | 校准数据集对于每层线性层的输入矩阵（$n$ 为样本数）                        |
+| $\mathbf{w}$  | $1 \times d_{\text{in}}$              | $W$ 的某一行（逐行独立优化）                                   |
+| $\delta$      | $1 \times d_{\text{in}}$              | 权重扰动行向量，$\delta = \hat{\mathbf{w}} - \mathbf{w}$   |
+| $Q(\cdot)$    | —                                     | 量化算子                                               |
+| $\mathbf{H}$  | $d_{\text{in}} \times d_{\text{in}}$  | Hessian 矩阵，$\mathbf{H} = XX^T$                     |
+| $\mathbf{H}'$ | $d_{\text{in}} \times d_{\text{in}}$  | 阻尼后 Hessian，$\mathbf{H}' = \mathbf{H} + \lambda I$ |
 
 ### 2.2 目标函数
 
