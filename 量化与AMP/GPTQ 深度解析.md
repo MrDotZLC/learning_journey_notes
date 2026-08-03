@@ -191,12 +191,14 @@ GPTQ 不显式构造完整 $\mathbf{H}'^{-1}$，而是只计算 $L^{-1}$，在 B
 1. **收集输入**：以校准数据集跑一遍前向传播，记录该层输入 $X$（维度 $d_{\text{in}} \times n$ ，上一层的输出）。
 2. **计算 Hessian**：$\mathbf{H} = XX^T$；加阻尼 $\mathbf{H}' = \mathbf{H} + \lambda I$；对 $\mathbf{H}'$ 做 Cholesky 分解，计算 $L^{-1}$，进而计算出 $H^{-1}$。
 3. **分 Block 循环**（共 $K$ 个 Block）：
-   - **Block 内**：
-     - 读取 $[\mathbf{H}^{-1}]_{ii}$（对角元素）。
-	   - 量化当前列权重：$W_{:,i} \to \hat{W}_{:,i}$（对所有行同步量化）。
-	   - 计算误差：$\mathbf{err} = (W_{:,i} - \hat{W}_{:,i}) \;/\; [\mathbf{H}^{-1}]_{ii}$。
-	   - 误差补偿：$W_{:,\,j} \leftarrow W_{:,\,j} - \mathbf{err} \cdot (\mathbf{H}^{-1})_{i,j}$，对所有后续列 $j > i$ 执行。
-   - **Block 后**：将 Block 累计误差矩阵 $E$ 与 $\mathbf{H}'^{-1}$ 的对应子矩阵做矩阵乘，批量更新后续所有列。
+	   - **Block 内**：
+	       - 读取 $[\mathbf{H}^{-1}]_{ii}$（对角元素）。
+		   - 量化当前列权重：$W_{:,i} \to \hat{W}_{:,i}$（对所有行同步量化）。
+		   - 计算误差：$\mathbf{err} = (W_{:,i} - \hat{W}_{:,i}) \;/\; [\mathbf{H}^{-1}]_{ii}$。
+		   - 误差补偿：$W_{:,\,j} \leftarrow W_{:,\,j} - \mathbf{err} \cdot (\mathbf{H}^{-1})_{i,j}$，对所有后续列 $j > i$ 执行。
+	   - **Block 后**：
+	      - 将 Block 累计误差矩阵 $E$ 与 $\mathbf{H}'^{-1}$ 的对应子矩阵做矩阵乘，批量更新后续所有列。
+	      - 用累计误差矩阵$E$一次性更新H^-1，去除当前block所有已量化列对后续迭代的影响 $H^{-1}_{new} = H^{-1} - E \cdot E^T$，更新后的H^-1会作为下一个block迭代的初始H^-1使用。
 4. **存储**：将量化权重打包，按所选格式（INT4/INT3 等）写出。
 
 ***
