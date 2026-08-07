@@ -2892,6 +2892,10 @@ GPTQ 的 Hessian 补偿是二阶近似，在极低比特（量化误差远超二
 - **Key**：存在显著的 per-head、per-channel 分布差异；不同 Attention Head 的 Key 幅值方差较大；Outlier 通道的存在使 Per-tensor 量化容易截断正常值。
 - **Value**：分布相对 Key 更均匀，Per-tensor 量化效果优于 Key；但仍存在 per-head 幅值差异。
 
+Key 的作用是“匹配”，要关注不同的语义模式，必须在头和通道之间差生差异化特征。在计算中，梯度通过 softmax 剧烈调整 K ，使之均值、方差差异极大，形成“长尾分布”。
+
+Value 的作用是“表示”，要稳定、平滑地表达语义，不同通道间相对均衡，不同头可能仍有差异，为避免差异过大导致梯度爆炸，会自然收敛到相近尺度，最后拼接映射在一起。计算中，梯度直接与注意力权重相乘传递，差异大的权重也会被梯度平均。
+
 因此，**Key 更需要细粒度量化**（Per-head 或 Per-channel），**Value 可容忍较粗粒度**。
 
 **量化粒度对比：**
@@ -2941,7 +2945,7 @@ FlashInfer 实现了 FP8 KV Cache 的融合 Attention Kernel，兼容 Ada Lovela
 
 ---
 
-#### **Q77. Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？**
+#### **Q78. Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？**
 
 **核心动机：**
 
