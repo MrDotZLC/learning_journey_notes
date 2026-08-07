@@ -2990,11 +2990,14 @@ $$\alpha = \mathbb{E}_{\tilde{x} \sim q}\!\left[\min\!\left(1,\ \frac{p(\tilde{x
 
 其中期望对 Draft Model 的采样分布 $q$ 取。$\alpha \in [0,1]$，当 $p = q$（Draft 与 Target 分布完全一致）时 $\alpha = 1$，每轮 $\gamma$ 个候选全部接受，加速比最大。
 
+**直觉理解：**
+
+- 如果 p(x)≥q(x) ：说明大模型认为这个 token 比小模型更"好"，我们**应该全盘接受**（概率 1）。
+- 如果 p(x)<q(x)：说明小模型"过于乐观"地高估了这个 token，我们只能以 p(x)/q(x) 的比例接受它。
+
 **关键性质：** 每轮 Verify 无论接受几个 Token，**至少产出 1 个 Token**（最坏情况：全部拒绝，从修正分布采样 1 个），因此不会慢于标准解码。
 
----
-
-#### **Q78. 接受率 $\alpha$ 与加速比的关系推导。**
+##### **接受率 $\alpha$ 与加速比的关系推导。**
 
 **每轮期望接受 Token 数：**
 
@@ -3015,7 +3018,7 @@ $$\mathbb{E}[N] = \sum_{k=1}^{\gamma} k\alpha^{k-1}(1-\alpha) + (\gamma+1)\alpha
 
 令 $S = \sum_{k=1}^{\gamma} k\alpha^{k-1}(1-\alpha)$，展开：
 
-$$\mathbb{E}[N] = (1-\alpha)\cdot\frac{d}{d\alpha}!\left[\sum_{k=1}^{\gamma}\alpha^k\right] + (\gamma+1)\alpha^\gamma = (1-\alpha)\cdot\frac{\alpha - (\gamma+1)\alpha^{\gamma+1} + \gamma\alpha^{\gamma+2}}{(1-\alpha)^2} + (\gamma+1)\alpha^\gamma$$
+$$\mathbb{E}[N] = (1-\alpha)\cdot\frac{d}{d\alpha}\!\left[\sum_{k=1}^{\gamma}\alpha^k\right] + (\gamma+1)\alpha^\gamma = (1-\alpha)\cdot\frac{\alpha - (\gamma+1)\alpha^{\gamma+1} + \gamma\alpha^{\gamma+2}}{(1-\alpha)^2} + (\gamma+1)\alpha^\gamma$$
 
 化简后得到简洁形式：
 
