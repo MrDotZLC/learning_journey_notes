@@ -109,11 +109,11 @@
 
 ### 5.2 调度指标
 
-- **Q41.** TTFT（Time to First Token）与 TPOT（Time Per Output Token）的区别及各自的优化路径？
-- **Q42.** 吞吐量（Tokens/sec/GPU）与延迟（Latency）之间的根本矛盾：增大 Batch Size 如何影响两个指标？如何估算 Decode 阶段从 Memory-bound 转为 Compute-bound 的临界 Batch Size（脊点 Batch）？
-- **Q43.** 如何用 MFU（Model FLOP Utilization）评估系统效率？Decode 阶段为何应改用 MBU（Model Bandwidth Utilization）作为主要指标？
-- **Q44-Sched.** 调度器的抢占（Preemption）机制：当 KV Cache 显存耗尽时，vLLM 如何通过 Swap 或 Recompute 策略处理被抢占请求？两种策略的延迟代价与适用场景？
-- **Q45-Sched.** Goodput 的定义与 SLO 感知调度：与原始吞吐量（Throughput）的区别？在 TTFT / TPOT 双 SLO 约束下，调度器如何最大化满足 SLO 的请求比例而非最大化原始 Token 吞吐？
+- **Q53.** TTFT（Time to First Token）与 TPOT（Time Per Output Token）的区别及各自的优化路径？
+- **Q54.** 吞吐量（Tokens/sec/GPU）与延迟（Latency）之间的根本矛盾：增大 Batch Size 如何影响两个指标？如何估算 Decode 阶段从 Memory-bound 转为 Compute-bound 的临界 Batch Size（脊点 Batch）？
+- **Q55. 如何用 MFU（Model FLOP Utilization）评估系统效率？Decode 阶段为何应改用 MBU（Model Bandwidth Utilization）作为主要指标？
+- **Q56.** 调度器的抢占（Preemption）机制：当 KV Cache 显存耗尽时，vLLM 如何通过 Swap 或 Recompute 策略处理被抢占请求？两种策略的延迟代价与适用场景？
+- **Q57.** Goodput 的定义与 SLO 感知调度：与原始吞吐量（Throughput）的区别？在 TTFT / TPOT 双 SLO 约束下，调度器如何最大化满足 SLO 的请求比例而非最大化原始 Token 吞吐？
 
 ---
 
@@ -121,37 +121,38 @@
 
 ### 6.1 量化基础
 
-- **Q44.** PTQ（Post-Training Quantization）与 QAT（Quantization-Aware Training）的区别？
-- **Q45.** 对称量化与非对称量化的量化公式推导：
+- **Q58.** PTQ（Post-Training Quantization）与 QAT（Quantization-Aware Training）的区别？
+- **Q59.** 对称量化与非对称量化的量化公式推导：
 
 $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},; q_{\max}\right)$$
 
-- **Q46.** Per-tensor、Per-channel、Per-token、Per-group 量化粒度的精度-性能 Trade-off？
-- **Q46-b.** 动态量化（Dynamic Quantization）与静态量化（Static Quantization）的区别？激活值为何更常用动态量化？其推理时额外开销如何？
+- **Q60.** Per-tensor、Per-channel、Per-token、Per-group 量化粒度的精度-性能 Trade-off？
+- **Q61.** 为什么权重量化适合低精度，而激活量化不适合？
+- **Q62.** 动态量化（Dynamic Quantization）与静态量化（Static Quantization）的区别？激活值为何更常用动态量化？其推理时额外开销如何？
 
 ### 6.2 主流量化方法
 
-- **Q47.** GPTQ 的核心思路：基于 OBQ（Optimal Brain Quantization）逐层量化，使用 Hessian 信息补偿误差？
-- **Q47-b.** GPTQ 的 Lazy Batch Update 与 Cholesky 分解优化：为何朴素 OBQ 对 LLM 不可行（$O(d^3)$ 复杂度），GPTQ 如何将其降至 $O(d_{\text{in}}^2)$？
-- **Q48.** AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights 的机制？
-- **Q48-b.** AWQ 的 Per-channel 缩放因子 $s_i^{*}$ 如何搜索？为什么不能直接用梯度优化，而用 Grid Search？
-- **Q49.** SmoothQuant 的思路：将激活值的量化难度通过 per-channel 缩放迁移到权重侧？
-- **Q49-b.** SmoothQuant 的迁移系数 $\alpha$ 的选择对精度的影响？为何默认取 $\alpha = 0.5$？缩放向量 $s$ 如何在推理时做到零开销（融入 LayerNorm 或前置权重矩阵）？
-- **Q50.** W4A8 / W4A16 / FP8 / INT8 各方案的适用场景与硬件支持（A100 vs H100 vs Blackwell）？
-- **Q50-b.** W4A16 推理的 Dequantization 开销分析：权重量化存储后必须在矩阵乘前解压回 FP16，该操作在 Decode（Memory-bound）与 Prefill（Compute-bound）阶段的性能影响分别是什么？
-- **Q51.** Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？
-- **Q51-b.** NVFP4 的两级缩放方案（Block-level FP8 Scale + Tensor-level FP32 Scale）的存储格式推导：每 16 个 FP4 权重共享 1 个 FP8 Scale，有效位宽约 4.5 bits/weight；与 H100 FP8 相比，B200 的 FP4 Tensor Core 峰值算力提升倍数与实测吞吐收益的差距原因？
+- **Q63.** GPTQ 的核心思路：基于 OBQ（Optimal Brain Quantization）逐层量化，使用 Hessian 信息补偿误差？
+- **Q64.** GPTQ 的 Lazy Batch Update 与 Cholesky 分解优化：为何朴素 OBQ 对 LLM 不可行（$O(d^3)$ 复杂度），GPTQ 如何将其降至 $O(d_{\text{in}}^2)$？
+- **Q65.** AWQ（Activation-aware Weight Quantization）相比 GPTQ 的改进：保护 Salient Weights 的机制？
+- **Q66.** AWQ 的 Per-channel 缩放因子 $s_i^{*}$ 如何搜索？为什么不能直接用梯度优化，而用 Grid Search？
+- **Q67.** SmoothQuant 的思路：将激活值的量化难度通过 per-channel 缩放迁移到权重侧？
+- **Q68.** SmoothQuant 的迁移系数 $\alpha$ 的选择对精度的影响？为何默认取 $\alpha = 0.5$？缩放向量 $s$ 如何在推理时做到零开销（融入 LayerNorm 或前置权重矩阵）？
+- **Q69.** W4A8 / W4A16 / FP8 / INT8 各方案的适用场景与硬件支持（A100 vs H100 vs Blackwell）？
+- **Q70.** W4A16 推理的 Dequantization 开销分析：权重量化存储后必须在矩阵乘前解压回 FP16，该操作在 Decode（Memory-bound）与 Prefill（Compute-bound）阶段的性能影响分别是什么？
+- **Q71.** Blackwell 的 NVFP4（FP4 with block-level FP8 scale）机制与性能收益？
+- **Q72.** NVFP4 的两级缩放方案（Block-level FP8 Scale + Tensor-level FP32 Scale）的存储格式推导：每 16 个 FP4 权重共享 1 个 FP8 Scale，有效位宽约 4.5 bits/weight；与 H100 FP8 相比，B200 的 FP4 Tensor Core 峰值算力提升倍数与实测吞吐收益的差距原因？
 
 ### 6.3 旋转/变换类量化方法（新增）
 
-- **Q52-Q.** QuaRot / SpinQuant 的核心思路：通过随机 Hadamard 变换旋转权重矩阵以消除 Outlier，从而使权重、激活和 KV Cache 均可量化至 4-bit；与 SmoothQuant 的本质区别（旋转等价变换 vs. 缩放等价变换）？
-- **Q53-Q.** AutoRound（EMNLP 2024）与 GPTQ 的差异：引入可学习的 Rounding Offset $v$、Clipping Range $[\alpha, \beta]$，用 Signed Gradient Descent 最小化块级输出重建误差；为何在极低比特（W3/W2）下优于 GPTQ？
+- **Q73.** QuaRot / SpinQuant 的核心思路：通过随机 Hadamard 变换旋转权重矩阵以消除 Outlier，从而使权重、激活和 KV Cache 均可量化至 4-bit；与 SmoothQuant 的本质区别（旋转等价变换 vs. 缩放等价变换）？
+- **Q74.** AutoRound（EMNLP 2024）与 GPTQ 的差异：引入可学习的 Rounding Offset $v$、Clipping Range $[\alpha, \beta]$，用 Signed Gradient Descent 最小化块级输出重建误差；为何在极低比特（W3/W2）下优于 GPTQ？
 
 ### 6.4 KV Cache 量化（新增）
 
-- **Q54-Q.** KV Cache 量化（FP8 / INT8）的量化时机与反量化开销：KV 写入时量化、Attention 计算前反量化的完整数据流；H100 上 FP8 KV Cache 硬件原生支持与 Ampere 上软件模拟的性能差异？
-- **Q55-Q.** Per-tensor vs. Per-head vs. Per-token KV Cache 量化粒度的精度对比：Key 和 Value 的分布特性（Key 通道方差大、Value 分布较平）是否要求不同粒度？KIVI（2-bit KV Cache）的思路？
-- **Q56-Q.** KV Cache 量化与 FlashAttention 后端的兼容性问题：为何 FlashAttention-2 不支持 FP8 KV Cache，而 FlashAttention-3（FA3）与 FlashInfer 可以原生支持？
+- **Q75.** KV Cache 量化（FP8 / INT8）的量化时机与反量化开销：KV 写入时量化、Attention 计算前反量化的完整数据流；H100 上 FP8 KV Cache 硬件原生支持与 Ampere 上软件模拟的性能差异？
+- **Q76.** Per-tensor vs. Per-head vs. Per-token KV Cache 量化粒度的精度对比：Key 和 Value 的分布特性（Key 通道方差大、Value 分布较平）是否要求不同粒度？KIVI（2-bit KV Cache）的思路？
+- **Q77.** KV Cache 量化与 FlashAttention 后端的兼容性问题：为何 FlashAttention-2 不支持 FP8 KV Cache，而 FlashAttention-3（FA3）与 FlashInfer 可以原生支持？
 
 ---
 
@@ -159,19 +160,18 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 7.1 Speculative Decoding
 
-- **Q52.** Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？
-- **Q53.** 接受率 $\alpha$ 与加速比的关系推导：若 $\gamma$ 为 Draft 步数，则期望每轮接受 Token 数与加速比公式推导？
-- **Q54.** 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性证明）？
-- **Q55.** Ngram-based Draft、Medusa、EAGLE（含 EAGLE-2/3）各方案的核心思路与对比？
-- **Q55-b.** Tree-based Speculative Decoding（SpecInfer、EAGLE 树形验证）相比链式 Draft 的优势：候选树如何构建？Tree Attention 的 Mask 形式？期望接受 Token 数如何提升？
-- **Q55-c.** Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路：用目标模型自身的早退出层作为 Draft，无需额外模型的工程代价与精度损失分析？
-- **Q55-d.** Speculative Decoding 在高 Batch Size 下性能退化的根本原因：随 Batch 增大系统从 Memory-bound 转为 Compute-bound，Draft 与 Verify 的计算代价比 $c$ 如何变化？何时 Speculative Decoding 反而降低吞吐？
+- **Q78.** Speculative Decoding 的基本流程：Draft Model 生成候选 Token，Target Model 并行 Verify，Token 接受率 $\alpha$ 的定义？接受率 $\alpha$ 与加速比的关系推导：若 $\gamma$ 为 Draft 步数，则期望每轮接受 Token 数与加速比公式推导？
+- **Q79.** 为什么 Speculative Decoding 不改变输出分布（Rejection Sampling 的等效性证明）？
+- **Q80.** Ngram-based Draft、Medusa、EAGLE（含 EAGLE-2/3）各方案的核心思路与对比？
+- **Q81.** Tree-based Speculative Decoding（SpecInfer、EAGLE 树形验证）相比链式 Draft 的优势：候选树如何构建？Tree Attention 的 Mask 形式？期望接受 Token 数如何提升？
+- **Q82.** Self-Speculative Decoding（LayerSkip / Draft & Verify）的核心思路：用目标模型自身的早退出层作为 Draft，无需额外模型的工程代价与精度损失分析？
+- **Q83.** Speculative Decoding 在高 Batch Size 下性能退化的根本原因：随 Batch 增大系统从 Memory-bound 转为 Compute-bound，Draft 与 Verify 的计算代价比 $c$ 如何变化？何时 Speculative Decoding 反而降低吞吐？
 
 ### 7.2 其他解码算法
 
-- **Q56.** Beam Search 与 Greedy Search 的显存和计算差异？LLM 推理中 Beam Search 为何不常用？
-- **Q57.** Top-k / Top-p Sampling 的实现细节与 GPU 优化？Temperature 的作用？
-- **Q57-b.** Repetition Penalty 与 Min-p Sampling 的实现原理？Min-p 相比 Top-p 的自适应优势？
+- **Q84.** Beam Search 与 Greedy Search 的显存和计算差异？LLM 推理中 Beam Search 为何不常用？
+- **Q85.** Top-k / Top-p Sampling 的实现细节与 GPU 优化？Temperature 的作用？
+- **Q86.** Repetition Penalty 与 Min-p Sampling 的实现原理？Min-p 相比 Top-p 的自适应优势？
 
 ---
 
@@ -179,14 +179,14 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 8.1 并行策略
 
-- **Q58.** Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？
-- **Q58-b.** GQA 与 MQA 下 Tensor Parallelism 的特殊处理：当 KV 头数小于 TP 度时，如何避免 KV 头复制的正确性问题？与 MHA 切分方案的差异？
-- **Q59.** Pipeline Parallelism（PP）：GPipe vs 1F1B 调度的气泡率对比？训练与推理场景下气泡率公式的差异？
-- **Q59-b.** Interleaved 1F1B（虚拟流水段）相比标准 1F1B 的气泡率改进：设 $V$ 为虚拟段数，气泡率如何从 $(P-1)/(M+P-1)$ 降低？代价是什么？
-- **Q60.** Sequence Parallelism（SP）的原理及适用场景（中长序列）？与 TP 联合使用时通信模式如何从 AllReduce 变为 ReduceScatter + AllGather？
-- **Q61.** Expert Parallelism（EP）：MoE 模型中 Two-shot All-to-All 通信的开销分析？Decode 阶段（小 Batch）与 Prefill 阶段通信量的数量级差异？
-- **Q61-b.** EP 与 TP 联合部署（N-D 并行）时的通信层次：All-to-All 与 AllReduce 如何在节点内/跨节点调度？DeepSeek-V3 的 EP=320 实际配置说明了什么？
-- **Q_N.** ZeRO（Zero Redundancy Optimizer）的三个阶段（ZeRO-1/2/3）在推理中是否适用？ZeRO-Inference 与训练 ZeRO 的核心差异？
+- **Q87.** Tensor Parallelism（TP）：以 Megatron-LM 风格说明 MLP 层如何按列/行切分，需要哪些 AllReduce 通信？
+- **Q88.** GQA 与 MQA 下 Tensor Parallelism 的特殊处理：当 KV 头数小于 TP 度时，如何避免 KV 头复制的正确性问题？与 MHA 切分方案的差异？
+- **Q89.** Pipeline Parallelism（PP）：GPipe vs 1F1B 调度的气泡率对比？训练与推理场景下气泡率公式的差异？
+- **Q90.** Interleaved 1F1B（虚拟流水段）相比标准 1F1B 的气泡率改进：设 $V$ 为虚拟段数，气泡率如何从 $(P-1)/(M+P-1)$ 降低？代价是什么？
+- **Q91.** Sequence Parallelism（SP）的原理及适用场景（中长序列）？与 TP 联合使用时通信模式如何从 AllReduce 变为 ReduceScatter + AllGather？
+- **Q92.** Expert Parallelism（EP）：MoE 模型中 Two-shot All-to-All 通信的开销分析？Decode 阶段（小 Batch）与 Prefill 阶段通信量的数量级差异？
+- **Q93.** EP 与 TP 联合部署（N-D 并行）时的通信层次：All-to-All 与 AllReduce 如何在节点内/跨节点调度？DeepSeek-V3 的 EP=320 实际配置说明了什么？
+- **Q94.** ZeRO（Zero Redundancy Optimizer）的三个阶段（ZeRO-1/2/3）在推理中是否适用？ZeRO-Inference 与训练 ZeRO 的核心差异？
 
 ### 8.2 通信优化
 
