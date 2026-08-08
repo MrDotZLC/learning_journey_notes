@@ -3885,15 +3885,15 @@ $$M_{\text{KV}} = 2 \times 80 \times 8 \times 128 \times 4096 \times 2 \text{ B}
 
 **1.4 vLLM vs TensorRT-LLM 定位对比**
 
-|维度|vLLM|TensorRT-LLM|
-|---|---|---|
-|定位|通用推理服务框架|NVIDIA 官方高性能推理引擎|
-|核心优势|调度灵活、生态丰富、快速部署|Kernel 极致优化、TRT 图优化、硬件利用率最高|
-|模型支持|开箱支持 400+ 模型|需适配 Plugin（开发成本较高）|
-|Kernel 来源|CUTLASS / FlashAttention / Triton|NVIDIA 内部手写 Kernel|
-|部署复杂度|低（`pip install vllm`）|高（需编译引擎、开发 Plugin）|
-|适用场景|快速部署、研究验证、多模型服务|生产环境极限性能、NVIDIA 硬件深度绑定|
-|典型吞吐差异（注）|基准|视工作负载通常高 10–40%|
+| 维度        | vLLM                              | TensorRT-LLM                |
+| --------- | --------------------------------- | --------------------------- |
+| 定位        | 通用推理服务框架                          | NVIDIA 官方高性能推理引擎            |
+| 核心优势      | 调度灵活、生态丰富、快速部署                    | Kernel 极致优化、TRT 图优化、硬件利用率最高 |
+| 模型支持      | 开箱支持 400+ 模型                      | 需适配 Plugin（开发成本较高）          |
+| Kernel 来源 | CUTLASS / FlashAttention / Triton | NVIDIA 内部手写 Kernel          |
+| 部署复杂度     | 低（`pip install vllm`）             | 高（需编译引擎、开发 Plugin）          |
+| 适用场景      | 快速部署、研究验证、多模型服务                   | 生产环境极限性能、NVIDIA 硬件深度绑定      |
+| 典型吞吐差异（注） | 基准                                | 视工作负载通常高 10–40%             |
 
 > **注**：吞吐差异依赖模型规模、序列长度分布、Batch Size 等因素，上述区间为工程实践中常见范围，非严格基准测试结论。
 
