@@ -3793,11 +3793,15 @@ $$t_{\text{Ring}} = 2(N-1) \cdot \alpha + \frac{2(N-1)M}{NB}$$
 
 **Tree AllReduce（Recursive Halving-Doubling）：**
 
+逐层向根节点规约，向叶子结点广播。
+
 步数为 $O(\log N)$，延迟项为 $2\log_2 N \cdot \alpha$：
 
 $$t_{\text{Tree}} = 2\log_2 N \cdot \alpha + \frac{2(N-1)M}{NB} \approx 2\log_2 N \cdot \alpha + \frac{2M}{B}$$
 
 带宽项与 Ring 相同（渐近），但延迟项从 $O(N)$ 降为 $O(\log N)$。**小消息量（$< 1$ MB）场景下 Tree 远优于 Ring**。
+
+**DBT：** Double Binary Tree，数据分成两份，同一 GPU 在两棵树中的通信角色完全互换，让所有 GPU 同时参与发送与接受数据，最大化利用带宽。（GPU0 在 A 树中是根节点，在 B 树中就是叶子结点）
 
 **NCCL 的自动拓扑选择：**
 
