@@ -3676,7 +3676,7 @@ ZeRO-Inference 的通信量比 TP 高（AllGather 需传输全量参数），仅
 
 每个节点发送的总数据量：
 
-$$\text{发送量} = 2 \times M \times \frac{N-1}{N} \approx 2M \quad (N \to \infty)$$
+$$\text{发送量} = 2 \times (N-1) \times \frac{M}{N} \approx 2M \quad (N \to \infty)$$
 
 与节点数 $N$ 无关。总时间：
 
