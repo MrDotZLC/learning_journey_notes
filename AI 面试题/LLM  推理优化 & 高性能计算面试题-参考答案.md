@@ -4476,16 +4476,16 @@ $$
                     ↓
 ┌─────────────────────────────────────────────────────┐
 │  调度层（Scheduler）                                 │
-│  - Continuous Batching（Iteration-level）            │
-│  - Chunked Prefill（Chunk Size = 512）               │
-│  - P/D 分离：Prefill 实例与 Decode 实例分离部署       │
-│  - 优先级队列（短 ISL 优先以降低 TTFT）               │
+│  - Continuous Batching（Iteration-level）           │
+│  - Chunked Prefill（Chunk Size = 512）              │
+│  - P/D 分离：Prefill 实例与 Decode 实例分离部署        │
+│  - 优先级队列（短 ISL 优先以降低 TTFT）                │
 └───────────────────┬─────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────────────┐
-│  推理引擎层（vLLM / SGLang）                         │
-│  - TP = 8（单节点 NVLink 全互联）                    │
-│  - PagedAttention（Block Size = 16 tokens）          │
+│  推理引擎层（vLLM / SGLang）                          │
+│  - TP = 8（单节点 NVLink 全互联）                     │
+│  - PagedAttention（Block Size = 16 tokens）         │
 │  - CUDA Graph（Decode 阶段离散化 Batch Size）         │
 │  - FP8 KV Cache（显存节省 50%）                      │
 └─────────────────────────────────────────────────────┘
