@@ -4428,26 +4428,18 @@ $$
 
 ---
 
-#### **Q112. Triton 在 Hopper 架构上的现状与 FlashAttention-3 为何仍选择 CUDA？**
+#### **Q112. Triton 当前的主要问题与 FlashAttention-3 为何仍选择 CUDA？**
 
 **1. Triton 对 Hopper 原语的支持现状（截至 2025 年上半年）**
 
-| Hopper 原语                      | 功能                                          | Triton 支持状态                                   |
-| ------------------------------ | ------------------------------------------- | --------------------------------------------- |
-| TMA（Tensor Memory Accelerator） | 异步批量 Global → Shared 搬运，解放 CUDA Core 地址计算   | 实验性（`tl.experimental_descriptor_load`），接口可能变动 |
-| WGMMA（Warpgroup-level MMA）     | 以 Warpgroup（4 Warp = 128 线程）为单位执行矩阵乘，峰值算力更高 | 部分支持，仍有性能 Gap                                 |
-| Warp Specialization            | 将 Warp 分为 Producer（搬运）和 Consumer（计算），形成软件流水 | **无法直接表达**（Triton 以 Block 为粒度，无 Warp 级控制）     |
-| `mbarrier`（异步 Barrier）         | Producer/Consumer Warp 间的轻量级同步原语            | **不支持**                                       |
+1. 性能方面：缺乏对寄存器的精细控制、不规则数据访问难以优化
+2. 开发方面：API 和变量变更频繁、大型和分布式模型支持欠佳、AMD支持欠佳、与后端软件适配欠佳（如配合 k8s 探针存在无日志退出等问题）
 
 **2. FlashAttention-3 选择 CUDA 的根本原因**
 
-FlashAttention-3 的核心优化是：
-
-- **Warp Specialization**：将每个 Block 的 Warp 分为 Producer（负责 TMA 加载 Q/K/V tiles）和 Consumer（负责 WGMMA 计算），实现计算与数据搬运的硬件级 Overlap。
-- **WGMMA + TMA 组合**：以 Warpgroup 为单位发射 WGMMA 指令，同时由 TMA 异步预取下一 Tile，最大化 Tensor Core 利用率。
-- **`mbarrier` 同步**：Producer/Consumer Warp 间通过 `mbarrier` 精确同步，避免 `__syncthreads()` 的全 Block 同步开销。
-
-上述三项优化需要 Warp 级的显式控制，而 **Triton 的编程模型以 Block 为粒度，无法表达 Warp 内部的角色分工**。即使 Triton 未来完善 TMA 支持，Warp Specialization 对应的硬件流水仍无法在 Triton 的抽象层次下表达，这是架构层面的根本限制而非短期工程问题。
+1. **需要直接操控 Hopper 硬件特性**：FlashAttention-3 的速度飞跃，核心在于充分榨干了 NVIDIA Hopper 架构的新特性，如 `WGMMA`（Warpgroup 矩阵乘加指令）、`TMA`（张量内存加速器）和 `FP8` 低精度计算支持。FA3 “利用了 NVIDIA 的 **CUTLASS** 库中的强大抽象概念”，而 CUTLASS 正是基于 CUDA 的高性能模板库。
+    
+2. **Triton 的局限性**：尽管 Triton 在快速开发和原型验证上很受欢迎，且也有实验性的 FA3 实现，但对于追求极致性能的场景仍有差距。Triton 实现主要用于**教学和研究目的**，而真正的生产级实现依赖的是 **CUDA 内核**。
 
 因此，FlashAttention-3 使用 CUDA/PTX 手写，以换取对 Hopper 硬件流水的完全控制。
 
