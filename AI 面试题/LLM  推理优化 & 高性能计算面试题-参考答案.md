@@ -4299,10 +4299,10 @@ import triton.language as tl
 
 @triton.jit
 def add_kernel(a_ptr, b_ptr, c_ptr, n, BLOCK_SIZE: tl.constexpr):
-    pid = tl.program_id(0)                               # Block 索引（类比 blockIdx.x）
+    pid = tl.program_id(0)  # Block 索引（类比 blockIdx.x）
     offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n
-    a = tl.load(a_ptr + offsets, mask=mask)              # 向量化加载，自动 Coalescing
+    a = tl.load(a_ptr + offsets, mask=mask) # 向量化加载，自动 Coalescing
     b = tl.load(b_ptr + offsets, mask=mask)
     tl.store(c_ptr + offsets, a + b, mask=mask)
 ```
