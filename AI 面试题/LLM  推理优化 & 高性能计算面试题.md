@@ -190,11 +190,11 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 8.2 通信优化
 
-- **Q62.** AllReduce 的 Ring-AllReduce 实现与带宽分析：$N$ 个节点、每个节点数据量 $M$，总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？在小消息量场景下为何变为 Latency-bound？
-- **Q63.** GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？与 Sequence Parallelism 联合时的 Overlap 方案？
-- **Q64.** NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？GB200 NVL72 的全互联方案如何改变 TP/EP 的规模边界？
-- **Q_O.** 通信拓扑感知调度（Topology-aware AllReduce）：为何 Ring 拓扑在多机环境下次优？Tree AllReduce（如 Recursive Halving-Doubling）与 Ring 的延迟-带宽权衡？NCCL 如何自动选择拓扑？
-- **Q_P.** 推理服务中 Prefill 实例与 Decode 实例之间的 KV Cache Transfer 通信（P/D 分离场景）：GPUDirect RDMA 路径的带宽与 AllReduce 路径的共享竞争如何影响整体吞吐？
+- **Q95.** AllReduce 的 Ring-AllReduce 实现与带宽分析：$N$ 个节点、每个节点数据量 $M$，总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？在小消息量场景下为何变为 Latency-bound？
+- **Q96.** GEMM-ReduceScatter、AllGather-GEMM 的 Kernel Fusion 如何减少通信-计算串行等待？与 Sequence Parallelism 联合时的 Overlap 方案？
+- **Q97.** NVLink 与 PCIe 的带宽差距对 TP 规模上限的影响？GB200 NVL72 的全互联方案如何改变 TP/EP 的规模边界？
+- **Q98.** 通信拓扑感知调度（Topology-aware AllReduce）：为何 Ring 拓扑在多机环境下次优？Tree AllReduce（如 Recursive Halving-Doubling）与 Ring 的延迟-带宽权衡？NCCL 如何自动选择拓扑？
+- **Q99.** 推理服务中 Prefill 实例与 Decode 实例之间的 KV Cache Transfer 通信（P/D 分离场景）：GPUDirect RDMA 路径的带宽与 AllReduce 路径的共享竞争如何影响整体吞吐？
 
 ---
 
@@ -202,25 +202,25 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 9.1 主流框架
 
-- **Q65.** vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？
-- **Q66.** SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？
-- **Q67.** TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？
-- **Q67-b.** vLLM / SGLang / TensorRT-LLM 三者在生产部署时的选型框架：如何根据模型规模、QPS 目标、运维能力和硬件约束做出选择？
+- **Q100.** vLLM 的核心创新点（PagedAttention + Continuous Batching）？与 TensorRT-LLM 的定位差异？
+- **Q101.** SGLang 相比 vLLM 的改进：RadixAttention（前缀 KV 复用树）的原理？
+- **Q102.** TensorRT-LLM 的 Plugin 机制与 In-flight Batching 如何工作？
+- **Q103.** vLLM / SGLang / TensorRT-LLM 三者在生产部署时的选型框架：如何根据模型规模、QPS 目标、运维能力和硬件约束做出选择？
 
 ### 9.2 Profiling 与性能分析
 
-- **Q68.** 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？
-- **Q69.** 如何判断一个 Kernel 是 Memory-bound：查看 `ncu` 的哪些指标（Memory Throughput、L2 Hit Rate、DRAM BW Utilization）？
-- **Q70.** Occupancy（占用率）低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？
-- **Q70-b.** 给定一个实际的 `ncu` 报告（SM Active 30%、HBM BW 91%、L2 Hit Rate 18%），写出完整的诊断流程与优化路径？
-- **Q70-c.** CUDA Graph 捕获（Capture）的条件与限制：哪些操作无法被 Graph 捕获？LLM 推理中动态 Batch Size 与 Graph Replay 如何共存（cudaGraphExecUpdate / Multi-Graph 方案）？
+- **Q104.** 使用 `nsys` 和 `ncu` 的区别：Timeline 分析 vs Kernel-level 指标采集？
+- **Q105.** 如何判断一个 Kernel 是 Memory-bound：查看 `ncu` 的哪些指标（Memory Throughput、L2 Hit Rate、DRAM BW Utilization）？
+- **Q106.** Occupancy（占用率）低对性能一定有影响吗？什么情况下低 Occupancy 也能高性能？
+- **Q107.** 给定一个实际的 `ncu` 报告（SM Active 30%、HBM BW 91%、L2 Hit Rate 18%），写出完整的诊断流程与优化路径？
+- **Q108.** CUDA Graph 捕获（Capture）的条件与限制：哪些操作无法被 Graph 捕获？LLM 推理中动态 Batch Size 与 Graph Replay 如何共存（cudaGraphExecUpdate / Multi-Graph 方案）？
 
 ### 9.3 Triton
 
-- **Q71.** Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？
-- **Q72.** 何时选择 Triton 而非 CUDA 手写（快速原型验证、跨硬件移植）？
-- **Q72-b.** Triton 编译器的 `num_stages` 与 `num_warps` 超参数对性能的影响机制？`@triton.autotune` 的搜索代价与缓存机制？
-- **Q72-c.** Triton 在 Hopper 架构上的现状：对 TMA / WGMMA 的支持程度（截至 2025 年上半年），以及 FlashAttention-3 为何仍选择 CUDA 而非 Triton 实现？
+- **Q109.** Triton 与 CUDA 的核心编程模型差异（Block-level vs Thread-level）？
+- **Q110.** 何时选择 Triton 而非 CUDA 手写（快速原型验证、跨硬件移植）？
+- **Q111.** Triton 编译器的 `num_stages` 与 `num_warps` 超参数对性能的影响机制？`@triton.autotune` 的搜索代价与缓存机制？
+- **Q112.** Triton 在 Hopper 架构上的现状：对 TMA / WGMMA 的支持程度（截至 2025 年上半年），以及 FlashAttention-3 为何仍选择 CUDA 而非 Triton 实现？
 
 ---
 
@@ -228,13 +228,13 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 10.1 典型题目
 
-- **Q73.** 设计一个支持 100 QPS、P99 TTFT < 500ms、Batch 动态变化的 LLM 推理服务，说明关键组件与调优策略。
-- **Q74.** 给定 8 × H100 节点，部署一个 70B 参数模型，选择 TP/PP 策略并分析通信瓶颈。
-- **Q75.** KV Cache 显存告警，但计算 GPU 利用率只有 40%，根因分析与优化路径？
-- **Q76.** 如何在不更换硬件的前提下，将现有服务的吞吐提升 2×？给出逐步排查与优化的思路。
-- **Q77-SD.** 设计一个面向超长 CoT（平均输出 4096 tokens）的推理服务：与常规对话服务（平均 OSL 256 tokens）相比，KV Cache 规划、调度策略、SLO 设计各有哪些差异？
-- **Q78-SD.** 多模型共享 GPU 集群（Dense 70B + MoE 8×7B 同时在线）：如何设计资源隔离与 KV Cache 显存分区方案，避免相互干扰？
-- **Q79-SD.** 设计一个 P/D 分离推理系统的 xPyD 配比调优方案：输入 ISL 均值 2048 tokens、输出 OSL 均值 512 tokens，如何根据计算耗时模型推导 Prefill 实例与 Decode 实例的最优比值，并说明动态扩缩容的触发阈值设计？
+- **Q113.** 设计一个支持 100 QPS、P99 TTFT < 500ms、Batch 动态变化的 LLM 推理服务，说明关键组件与调优策略。
+- **Q114.** 给定 8 × H100 节点，部署一个 70B 参数模型，选择 TP/PP 策略并分析通信瓶颈。
+- **Q115.** KV Cache 显存告警，但计算 GPU 利用率只有 40%，根因分析与优化路径？
+- **Q116.** 如何在不更换硬件的前提下，将现有服务的吞吐提升 2×？给出逐步排查与优化的思路。
+- **Q117.** 设计一个面向超长 CoT（平均输出 4096 tokens）的推理服务：与常规对话服务（平均 OSL 256 tokens）相比，KV Cache 规划、调度策略、SLO 设计各有哪些差异？
+- **Q118.** 多模型共享 GPU 集群（Dense 70B + MoE 8×7B 同时在线）：如何设计资源隔离与 KV Cache 显存分区方案，避免相互干扰？
+- **Q119.** 设计一个 P/D 分离推理系统的 xPyD 配比调优方案：输入 ISL 均值 2048 tokens、输出 OSL 均值 512 tokens，如何根据计算耗时模型推导 Prefill 实例与 Decode 实例的最优比值，并说明动态扩缩容的触发阈值设计？
 
 ### 10.2 答题框架
 
