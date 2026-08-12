@@ -4879,14 +4879,14 @@ std::atomic<bool> ready{false};
 int data = 0;
 
 void producer() {
-    data = 42;                                            // ① 普通写
-    ready.store(true, std::memory_order_release);         // ② Release 屏障：①不得重排至②之后
+    data = 42;                                     // ① 普通写
+    ready.store(true, std::memory_order_release);  // ② Release 屏障：①不得重排至②之后
 }
 
 // 消费者线程
 void consumer() {
-    while (!ready.load(std::memory_order_acquire));       // ③ Acquire 屏障：④不得重排至③之前
-    assert(data == 42);                                   // ④ 保证可见 ① 的结果
+    while (!ready.load(std::memory_order_acquire)); // ③ Acquire 屏障：④不得重排至③之前
+    assert(data == 42);                             // ④ 保证可见 ① 的结果
 }
 ```
 
@@ -4905,12 +4905,12 @@ void consumer() {
 
 5. 推理引擎实际应用
 
-|场景|Memory Order 选择|原因|
-|---|---|---|
-|请求计数器（统计用）|`relaxed`|仅需原子性，不依赖顺序|
-|KV Block 引用计数（PagedAttention）|`acq_rel`（`fetch_add`）|增减引用计数是 RMW，需双向屏障防止 Block 提前释放|
-|任务完成标志位（Scheduler → CUDA Launch 线程）|`release`（写）+ `acquire`（读）|保证 KV Block 指针写入对 CUDA Launch 线程可见|
-|全局停止标志（Shutdown）|`seq_cst`|需保证所有线程看到相同停止状态|
+| 场景                                  | Memory Order 选择            | 原因                                 |
+| ----------------------------------- | -------------------------- | ---------------------------------- |
+| 请求计数器（统计用）                          | `relaxed`                  | 仅需原子性，不依赖顺序                        |
+| KV Block 引用计数（PagedAttention）       | `acq_rel`（`fetch_add`）     | 增减引用计数是 RMW，需双向屏障防止 Block 提前释放     |
+| 任务完成标志位（Scheduler → CUDA Launch 线程） | `release`（写）+ `acquire`（读） | 保证 KV Block 指针写入对 CUDA Launch 线程可见 |
+| 全局停止标志（Shutdown）                    | `seq_cst`                  | 需保证所有线程看到相同停止状态                    |
 
 ---
 
