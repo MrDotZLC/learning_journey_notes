@@ -5085,6 +5085,8 @@ NodePool<RequestNode> pool(MAX_CONCURRENT_REQUESTS);
 
 NUMA（Non-Uniform Memory Access）
 
+非一致内存访问是一种多处理器系统的内存架构：**CPU 访问不同物理内存区域的延迟和带宽并不相同**。
+
 1. NUMA 拓扑结构
 
 ```
