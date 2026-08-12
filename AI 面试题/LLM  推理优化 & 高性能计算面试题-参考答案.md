@@ -5320,23 +5320,6 @@ public:
         for (auto& w : workers_) w.join();
     }
 
-    template<typename F, typename... Args>
-    auto submit(F&& f, Args&&... args)
-        -> std::future<std::invoke_result_t<F, Args...>>
-    {
-        using Ret = std::invoke_result_t<F, Args...>;
-        auto task = std::make_shared<std::packaged_task<Ret()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
-        auto fut = task->get_future();
-        {
-            std::lock_guard lock(mutex_);
-            if (stop_) throw std::runtime_error("Pool is stopping");
-            tasks_.emplace([task] { (*task)(); });
-        }
-        cv_.notify_one();
-        return fut;
-    }
-
 private:
     void worker_loop() {
         while (true) {
