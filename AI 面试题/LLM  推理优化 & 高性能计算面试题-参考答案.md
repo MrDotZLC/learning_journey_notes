@@ -5662,8 +5662,9 @@ struct BatchCompletionCtx {
     Scheduler* scheduler;
     BatchId    batch_id;
 };
-
+// 排在前面的 GPU 任务都完成后，执行下述的 CPU 任务，GPU 阻塞，CPU 不阻塞
 cudaLaunchHostFunc(stream, [](void* arg) {
+    // CPU 中执行
     auto* ctx = static_cast<BatchCompletionCtx*>(arg);
     // 在回调中：将完成的 Token 推送给等待的 HTTP 响应线程
     // 并通知调度器释放 KV Block
