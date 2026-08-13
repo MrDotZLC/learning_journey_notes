@@ -5731,12 +5731,12 @@ cudaIpcCloseMemHandle(kv_cache_remote);
 
 3. 与 RDMA 路径的边界
 
-|条件|推荐路径|
-|---|---|
-|同节点，GPU 间有 NVLink|`cudaIpcMemHandle` + NVLink P2P（无 CPU 中介）|
-|同节点，仅 PCIe 连接|`cudaIpcMemHandle`（经 PCIe，约 28–64 GB/s）|
-|跨节点，有 InfiniBand + GPUDirect|RDMA（NIXL / NCCL）直接 GPU-to-GPU|
-|跨节点，无 GPUDirect|CPU 中转（cudaMemcpy D→H → TCP → H→D）|
+| 条件                           | 推荐路径                                      |
+| ---------------------------- | ----------------------------------------- |
+| 同节点，GPU 间有 NVLink            | `cudaIpcMemHandle` + NVLink P2P（无 CPU 中介） |
+| 同节点，仅 PCIe 连接                | `cudaIpcMemHandle`（经 PCIe，约 28–64 GB/s）   |
+| 跨节点，有 InfiniBand + GPUDirect | RDMA（NIXL / NCCL）直接 GPU-to-GPU            |
+| 跨节点，无 GPUDirect              | CPU 中转（cudaMemcpy D→H → TCP → H→D）        |
 
 > **限制**：`cudaIpcMemHandle` 仅支持**同 CUDA 设备的两个进程**或**通过 P2P 可访问的设备对**。若 `cudaDeviceCanAccessPeer` 返回 0，则 IPC 映射失败，需降级到 CPU 中转路径。
 
