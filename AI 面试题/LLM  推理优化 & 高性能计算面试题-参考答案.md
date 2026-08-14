@@ -6201,12 +6201,12 @@ EP Group: 每 TP Group 内相同 Rank 的 GPU（如 GPU 0, 8, 16, 24）
 
 **各层通信模式：**
 
-|层类型|并行策略|通信原语|通信域|延迟量级|
-|---|---|---|---|---|
-|Attention（QKV Proj）|TP（列并行）|AllGather / ReduceScatter|节点内 NVLink|< 5 μs|
-|Attention（O Proj）|TP（行并行）|AllReduce|节点内 NVLink|< 5 μs|
-|Expert Router|本地计算|无通信|—|—|
-|Expert FFN（MoE）|EP|All-to-All × 2|跨节点 InfiniBand|200–400 μs|
+| 层类型                 | 并行策略    | 通信原语                      | 通信域            | 延迟量级       |
+| ------------------- | ------- | ------------------------- | -------------- | ---------- |
+| Attention（QKV Proj） | TP（列并行） | AllGather / ReduceScatter | 节点内 NVLink     | < 5 μs     |
+| Attention（O Proj）   | TP（行并行） | AllReduce                 | 节点内 NVLink     | < 5 μs     |
+| Expert Router       | 本地计算    | 无通信                       | —              | —          |
+| Expert FFN（MoE）     | EP      | All-to-All × 2            | 跨节点 InfiniBand | 200–400 μs |
 
 **通信-计算重叠策略（细化）：**
 
