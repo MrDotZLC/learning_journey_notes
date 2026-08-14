@@ -6285,6 +6285,8 @@ grouped_gemm.run(problem_sizes, ptr_A, ptr_B, ptr_C, E);
 2. **Segmented GEMM**：利用 Expert 权重在显存中的连续性，用统一的大型 GEMM Kernel 一次处理所有 Expert，通过 Offset 和 Mask 区分 Expert 和 Tile 边界（类似 Ragged Tensor 操作），将每个 Expert 的 GEMM 拆分成粒度相同的 Tile GEMM，由调度器分配给 SM 进行前向计算。
 3. **Token Unpermutation**：计算完成后将输出重排回原始 Token 顺序并加权求和。
 
+与方案 2 的优化在于：**内存合并**。
+
 > ⚠️ 方案 3 并非"取对角块"——各 Expert 的权重矩阵独立，无法在数学上组成一个大矩阵的对角块。Segmented GEMM 是通过指针偏移在同一 Kernel 内顺序处理各 Expert，而非单次 GEMM 调用。
 
 ---
