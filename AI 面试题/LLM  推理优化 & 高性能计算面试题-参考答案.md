@@ -5970,7 +5970,9 @@ $\alpha$ 典型值为 $10^{-2} \sim 10^{-3}$。
 
 ---
 
-#### **Q134. Expert 路由崩溃（Routing Collapse）的成因、检测与分布偏移。**
+#### **Q134. Expert 路由崩溃（Routing Collapse）的成因、检测与分布偏移，Expert Capacity（专家容量）与 Token Drop 的关系。**
+
+##### Expert 路由崩溃（Routing Collapse）的成因、检测与分布偏移
 
 **成因：**
 
@@ -5998,9 +6000,7 @@ $H_{\text{util}}$ 接近 $\log E$（最大熵）为理想状态。
 
 缓解方案：推理侧统计滑动窗口路由分布，动态调整 Expert 在 GPU 间的映射（软负载均衡调度）。
 
----
-
-**Q85. Expert Capacity（专家容量）与 Token Drop 的关系：Capacity Factor 如何取值？**
+##### Expert Capacity（专家容量）与 Token Drop 的关系
 
 **Expert Capacity 定义：**
 
