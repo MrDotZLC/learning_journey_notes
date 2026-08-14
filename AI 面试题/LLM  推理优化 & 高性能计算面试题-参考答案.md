@@ -5936,7 +5936,7 @@ $$g_i(x) = \text{Softmax}(x W_g)_i \in [0, 1], \quad \sum_{i=1}^{E} g_i = 1$$
 
 $$\text{output} = \sum_{i \in \text{TopK}(g)} \frac{g_i}{\sum_{j \in \text{TopK}(g)} g_j} \cdot \text{Expert}_i(x)$$
 
-特点：权重和为 1（归一化），Expert 间竞争性路由（一个 Expert 的概率升高导致其余降低），同一 Token 必选且只选 $k$ 个。
+特点：权重和为 1（归一化），Expert 间竞争性路由（零和博弈，一个 Expert 的概率升高导致其余降低），同一 Token 必选且只选 $k$ 个。共享专家会占用路由专家的权重，为了负载均衡达标，会迫使高概率专家被降低概率，专业性降低。
 
 **Sigmoid-based Gating（DeepSeek-V2/V3）：**
 
