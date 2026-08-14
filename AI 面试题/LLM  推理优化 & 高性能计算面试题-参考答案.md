@@ -5918,7 +5918,7 @@ Load Balancing Loss 迫使 Router 在 Expert 间均衡分配，可能导致部�
 
 **对 Load Balancing Loss 的影响：**
 
-Shared Expert 不参与负载均衡计算（其激活概率恒为 1），$f_i$ 和 $P_i$ 的统计仅针对 Routed Expert。实际 Auxiliary Loss 形式不变：
+Shared Expert 不参与负载均衡计算（其激活概率恒为 1），分配频次 $f_i$ 和平均路由概率 $P_i$ 的统计仅针对 Routed Expert。实际 Auxiliary Loss 形式不变：
 
 $$\mathcal{L}_{\text{balance}} = \alpha \cdot E_r \cdot \sum_{i=1}^{E_r} f_i \cdot P_i$$
 
