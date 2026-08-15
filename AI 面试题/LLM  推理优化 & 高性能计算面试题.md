@@ -296,11 +296,11 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 13.1 核心动机与架构
 
-- **Q91.** Prefill 与 Decode 两阶段的计算特性（Compute-bound vs. Memory-bound、主要算子、KV Cache 读写行为）有何根本差异？传统混合部署因此引发哪三类干扰问题（Prefill 阻塞 Decode、显存竞争、最优 Batch Size 矛盾）？
-- **Q92.** P/D 分离已成为 2025 年主流推理栈的默认方案：vLLM、SGLang、TensorRT-LLM、NVIDIA Dynamo、MoonCake、llm-d 各自的实现方式与 KV Transfer 机制？NIXL（NVIDIA Inference Xfer Library）的定位与核心能力？
-- **Q93.** KV Cache Transfer 的三种实现路径（NVLink 节点内、GPUDirect RDMA 跨节点、TCP 降级）的带宽与延迟量级？Transfer 延迟如何叠加到 TTFT？为何生产环境必须配备高速互联？
-- **Q93-b.** NVLink 节点内传输的正确带宽参数：H100 单 GPU NVLink 总线双向带宽 900 GB/s 与 GPU-to-GPU 点对点可用带宽（~300 GB/s 双向）的区别？误用总线带宽会导致 Transfer 时间估算偏差多大？
-- **Q93-c.** NIXL 与 NCCL 的定位区别：两者分别针对哪类通信模式（点对点 KV Transfer vs. 集合通信 AllReduce）？为何不能直接用延迟百分比对比？NIXL 对非连续 PagedAttention Block 的 Scatter-Gather DMA 支持是其核心优化点？
+- **Q145.** Prefill 与 Decode 两阶段的计算特性（Compute-bound vs. Memory-bound、主要算子、KV Cache 读写行为）有何根本差异？传统混合部署因此引发哪三类干扰问题（Prefill 阻塞 Decode、显存竞争、最优 Batch Size 矛盾）？
+- **Q146.** P/D 分离已成为 2025 年主流推理栈的默认方案：vLLM、SGLang、TensorRT-LLM、NVIDIA Dynamo、MoonCake、llm-d 各自的实现方式与 KV Transfer 机制？NIXL（NVIDIA Inference Xfer Library）的定位与核心能力？
+- **Q147.** KV Cache Transfer 的三种实现路径（NVLink 节点内、GPUDirect RDMA 跨节点、TCP 降级）的带宽与延迟量级？Transfer 延迟如何叠加到 TTFT？为何生产环境必须配备高速互联？
+- **Q148.** NVLink 节点内传输的正确带宽参数：H100 单 GPU NVLink 总线双向带宽 900 GB/s 与 GPU-to-GPU 点对点可用带宽（~300 GB/s 双向）的区别？误用总线带宽会导致 Transfer 时间估算偏差多大？
+- **Q149.** NIXL 与 NCCL 的定位区别：两者分别针对哪类通信模式（点对点 KV Transfer vs. 集合通信 AllReduce）？为何不能直接用延迟百分比对比？NIXL 对非连续 PagedAttention Block 的 Scatter-Gather DMA 支持是其核心优化点？
 
 ### 13.2 调度设计
 
