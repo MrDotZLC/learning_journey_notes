@@ -6629,13 +6629,13 @@ $$\Delta t_{\text{正}} = \frac{335 \text{ MB}}{150 \text{ GB/s}} \approx 2.2 \t
 
 **通信模式对比：**
 
-|维度|NCCL|NIXL|
-|---|---|---|
-|通信语义|集合通信（AllReduce、AllGather、ReduceScatter、All-to-All）|点对点非对称传输（P→D 单向）|
-|同步模型|所有参与节点同步屏障|异步非阻塞，发送方无需等待接收方|
-|内存布局要求|通常要求连续缓冲区|原生支持非连续 Scatter-Gather 描述符|
-|优化目标|最大化集合通信带宽利用率|最小化 KV Block 传输延迟 + 支持多层次存储|
-|典型使用场景|TP AllReduce、EP All-to-All、PP P2P|KV Cache Transfer、权重搬运、KV 分级卸载|
+| 维度     | NCCL                                               | NIXL                           |
+| ------ | -------------------------------------------------- | ------------------------------ |
+| 通信语义   | 集合通信（AllReduce、AllGather、ReduceScatter、All-to-All） | 点对点非对称传输（P→D 单向）               |
+| 同步模型   | 所有参与节点同步屏障                                         | 异步非阻塞，发送方无需等待接收方               |
+| 内存布局要求 | 通常要求连续缓冲区                                          | 原生支持非连续 Scatter-Gather 描述符     |
+| 优化目标   | 最大化集合通信带宽利用率                                       | 最小化 KV Block 传输延迟 + 支持多层次存储    |
+| 典型使用场景 | TP AllReduce、EP All-to-All、PP P2P                  | KV Cache Transfer、权重搬运、KV 分级卸载 |
 
 **Scatter-Gather DMA 的重要性：**
 
