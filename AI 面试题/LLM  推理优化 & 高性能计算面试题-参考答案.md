@@ -4806,7 +4806,7 @@ Decode FLOPs（单请求全程）：$\approx 2 \times 70\text{B} \times 512 = 71
 
 但 Decode 是 Memory-bound，有效吞吐远低于 FLOPs 峰值。引入实际 MFU 修正：
 
-$$\frac{x}{y} \approx \frac{T_P^{\text{wall}}}{T_D^{\text{wall}}} = \frac{2048 / \eta_P}{512 / \eta_D \times \text{OSL}_{steps}}$$
+$$\frac{x}{y} \approx \frac{T_P^{\text{wall}}}{T_D^{\text{wall}}} = \frac{2048 / \eta_P}{\text{Batch\_Size} / \eta_D \times 512}$$
 
 其中 $\eta_P \approx 50\%$（Prefill，Compute-bound），$\eta_D \approx 15\%$（Decode，Memory-bound MBU）。
 
