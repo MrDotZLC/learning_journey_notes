@@ -6231,6 +6231,10 @@ Compute:    [Q K V Proj]      [Attn Kernel] [O Proj]  [Expert FFN]
 
 ---
 
+### 12.3 MoE 量化与 Kernel 优化
+
+---
+
 #### **Q140. MoE 层的 GEMM 为什么是"非均匀矩阵乘"？如何用 GroupGEMM 处理？**
 
 **问题根源：**
@@ -6423,15 +6427,15 @@ $$\text{MoE Tax} \approx \frac{t_{\text{A2A}} \times 2}{t_{\text{Dense Decode}}}
 
 **两阶段计算特性的根本差异：**
 
-|特性|Prefill 阶段|Decode 阶段|
-|---|---|---|
-|每步处理 Token 数|$S_{\text{in}}$（全部输入，可达数千）|1（逐 Token 自回归生成）|
-|主要算子|GEMM（矩阵 $\times$ 矩阵）|GEMV（矩阵 $\times$ 向量）|
-|计算瓶颈类型|**Compute-bound**|**Memory-bound**|
-|时延特征|单次耗时长（百毫秒级），决定 TTFT|单步耗时短（毫秒级），累积决定 E2E 延迟|
-|并发偏好|单请求大 Token 数（充满矩阵乘）|大 Batch Size（将 GEMV 堆叠为 GEMM）|
-|最优硬件特征|高 TFLOPS（H100 SXM）|高 HBM 带宽（H20、H100 NVL）|
-|KV Cache 行为|**写**（批量写入，Prefill 结束时跳变至峰值）|**读**（每步读取全部历史 KV，线性递增）|
+| 特性           | Prefill 阶段                   | Decode 阶段                     |
+| ------------ | ---------------------------- | ----------------------------- |
+| 每步处理 Token 数 | $S_{\text{in}}$（全部输入，可达数千）   | 1（逐 Token 自回归生成）              |
+| 主要算子         | GEMM（矩阵 $\times$ 矩阵）         | GEMV（矩阵 $\times$ 向量）          |
+| 计算瓶颈类型       | **Compute-bound**            | **Memory-bound**              |
+| 时延特征         | 单次耗时长（百毫秒级），决定 TTFT          | 单步耗时短（毫秒级），累积决定 E2E 延迟        |
+| 并发偏好         | 单请求大 Token 数（充满矩阵乘）          | 大 Batch Size（将 GEMV 堆叠为 GEMM） |
+| 最优硬件特征       | 高 TFLOPS（H100 SXM）           | 高 HBM 带宽（H20、H100 NVL）        |
+| KV Cache 行为  | **写**（批量写入，Prefill 结束时跳变至峰值） | **读**（每步读取全部历史 KV，线性递增）       |
 
 **算术强度（Arithmetic Intensity）量化对比：**
 
@@ -6479,9 +6483,9 @@ Prefill 最优：单请求尽量多 Token，充满 GEMM； Decode 最优：尽�
 请求入口
     ↓
 ┌─────────────────────────────────────┐
-│  全局调度器（Global Scheduler）      │
-│  - 请求路由（分发到 P 实例）          │
-│  - P/D 实例健康监控与弹性扩缩容      │
+│  全局调度器（Global Scheduler）       │
+│  - 请求路由（分发到 P 实例）           │
+│  - P/D 实例健康监控与弹性扩缩容        │
 │  - KV Cache Transfer 协调与 Retry    │
 └──────────────┬──────────────────────┘
                ↓

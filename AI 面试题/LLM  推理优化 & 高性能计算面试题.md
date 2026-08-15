@@ -250,16 +250,16 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ## 11. C++ 与系统编程
 
-- **Q77.** `std::atomic` 的 Memory Order 模型（`memory_order_relaxed` vs `acquire/release` vs `seq_cst`）？各级别在 x86 与 ARM 平台上的实际开销差异？
-- **Q78.** Lock-free Queue 的实现（Michael-Scott Queue）与 ABA 问题？Tagged Pointer 方案的 16-byte CAS 硬件要求？Hazard Pointer 的正确实现范式？
-- **Q79.** NUMA 架构下内存分配对延迟的影响？如何通过 `numactl`、`numa_alloc_onnode`、`mbind` 将内存与线程 Pin 到特定 NUMA Node？`nvidia-smi topo -m` 如何确认 GPU 的 NUMA 亲和性？
-- **Q80.** Zero-copy DMA 传输的实现原理（`cudaHostAlloc` Pinned Memory）？Pageable Memory 的额外拷贝路径与 Pinned Memory 的直接 DMA 路径对比？`cudaHostAllocMapped` 的适用场景与代价？
-- **Q81.** 多线程推理服务中 Thread Pool 的设计与线程亲和性（CPU Affinity）绑定？各功能线程池（IO / Scheduler / CUDA Launch / Sampler）的职责划分与 NUMA 对齐原则？
-- **Q82.** `mmap` vs `read` 的权衡：大模型权重加载的最优策略？`O_DIRECT` 与 `mmap` 的语义冲突问题？SafeTensors 格式如何利用 `mmap` 实现 MoE Expert 权重懒加载？
-- **Q83-CPP.** `std::pmr`（Polymorphic Memory Resource）在推理引擎中的应用：如何用 `std::pmr::monotonic_buffer_resource` 实现请求级零碎片内存分配，请求结束后 $O(1)$ 批量回收？
-- **Q84-CPP.** CUDA Stream 与 Host 线程的同步机制：`cudaStreamSynchronize` vs `cudaEventRecord` + `cudaEventSynchronize` vs `cudaStreamAddCallback` 三种方式的延迟与 CPU 忙等开销对比？推理引擎中如何用 `cudaEvent` 实现 Prefill → Decode KV 传递的无锁同步？
-- **Q85-CPP.** `cudaIpcMemHandle` 跨进程显存共享：P/D 分离架构中，同节点 Prefill 进程与 Decode 进程如何通过 IPC Handle 零拷贝共享 KV Cache Block？与 RDMA 路径的适用场景边界？
-- **Q86-CPP.** C++ 内存序与 GPU Kernel 启动的混合并发模型：推理引擎的调度线程（CPU）向 CUDA Launch 线程提交任务时，如何正确使用 `acquire/release` 配对保证 KV Block 指针的可见性，避免 GPU 读取未初始化 Block？
+- **Q120.** `std::atomic` 的 Memory Order 模型（`memory_order_relaxed` vs `acquire/release` vs `seq_cst`）？各级别在 x86 与 ARM 平台上的实际开销差异？
+- **Q121.** Lock-free Queue 的实现（Michael-Scott Queue）与 ABA 问题？Tagged Pointer 方案的 16-byte CAS 硬件要求？Hazard Pointer 的正确实现范式？
+- **Q122.** NUMA 架构下内存分配对延迟的影响？如何通过 `numactl`、`numa_alloc_onnode`、`mbind` 将内存与线程 Pin 到特定 NUMA Node？`nvidia-smi topo -m` 如何确认 GPU 的 NUMA 亲和性？
+- **Q123.** Zero-copy DMA 传输的实现原理（`cudaHostAlloc` Pinned Memory）？Pageable Memory 的额外拷贝路径与 Pinned Memory 的直接 DMA 路径对比？`cudaHostAllocMapped` 的适用场景与代价？
+- **Q124.** 多线程推理服务中 Thread Pool 的设计与线程亲和性（CPU Affinity）绑定？各功能线程池（IO / Scheduler / CUDA Launch / Sampler）的职责划分与 NUMA 对齐原则？
+- **Q125.** `mmap` vs `read` 的权衡：大模型权重加载的最优策略？`O_DIRECT` 与 `mmap` 的语义冲突问题？SafeTensors 格式如何利用 `mmap` 实现 MoE Expert 权重懒加载？
+- **Q126.** `std::pmr`（Polymorphic Memory Resource）在推理引擎中的应用：如何用 `std::pmr::monotonic_buffer_resource` 实现请求级零碎片内存分配，请求结束后 $O(1)$ 批量回收？
+- **Q127.** CUDA Stream 与 Host 线程的同步机制：`cudaStreamSynchronize` vs `cudaEventRecord` + `cudaEventSynchronize` vs `cudaStreamAddCallback` 三种方式的延迟与 CPU 忙等开销对比？推理引擎中如何用 `cudaEvent` 实现 Prefill → Decode KV 传递的无锁同步？
+- **Q128.** `cudaIpcMemHandle` 跨进程显存共享：P/D 分离架构中，同节点 Prefill 进程与 Decode 进程如何通过 IPC Handle 零拷贝共享 KV Cache Block？与 RDMA 路径的适用场景边界？
+- **Q129.** C++ 内存序与 GPU Kernel 启动的混合并发模型：推理引擎的调度线程（CPU）向 CUDA Launch 线程提交任务时，如何正确使用 `acquire/release` 配对保证 KV Block 指针的可见性，避免 GPU 读取未初始化 Block？
 
 ---
 
@@ -267,28 +267,28 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 12.1 MoE 基础
 
-- **Q83.** Dense 模型与 Sparse MoE 的计算量对比：给定总参数 $N$、激活专家比例 $k/E$，单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？
-- **Q84.** Top-K Routing 的 Gating 函数实现：Softmax-based vs. Sigmoid-based，Expert Load Balancing Loss 的形式？
-- **Q85.** Expert Capacity（专家容量）与 Token Drop 的关系：Capacity Factor 如何取值？
-- **Q83-b.** MoE 模型的显存占用构成分析：总参数 $N_{\text{total}}$ 中 Expert 权重占比极高，但推理时激活参数仅为 $N_{\text{active}}$；以 DeepSeek-V3（671B 总参数、37B 激活参数）为例，说明其显存需求与计算需求的"解耦"特性，以及对硬件选型（高带宽 vs. 高显存）的影响。
-- **Q83-c.** MoE 中 Shared Expert 机制的设计动机：为何 DeepSeek-V2/V3 引入永久激活的 Shared Expert？与 Top-K Routed Expert 的分工如何？对 Load Balancing Loss 的影响？
-- **Q84-b.** Expert 路由崩溃（Routing Collapse）的成因与检测：如何通过 Expert 利用率直方图诊断崩溃？推理阶段的路由分布与训练阶段的分布偏移（Distribution Shift）如何影响性能？
+- **Q130.** Dense 模型与 Sparse MoE 的计算量对比：给定总参数 $N$、激活专家比例 $k/E$，单 Token 的实际 FLOPs 约为等规模 Dense 模型的多少？
+- **Q131.** MoE 模型的显存占用构成分析：总参数 $N_{\text{total}}$ 中 Expert 权重占比极高，但推理时激活参数仅为 $N_{\text{active}}$；以 DeepSeek-V3（671B 总参数、37B 激活参数）为例，说明其显存需求与计算需求的"解耦"特性，以及对硬件选型（高带宽 vs. 高显存）的影响。
+- **Q132.** MoE 中 Shared Expert 机制的设计动机：为何 DeepSeek-V2/V3 引入永久激活的 Shared Expert？与 Top-K Routed Expert 的分工如何？对 Load Balancing Loss 的影响？
+- **Q133.** Top-K Routing 的 Gating 函数实现：Softmax-based vs. Sigmoid-based，Expert Load Balancing Loss 的形式？
+- **Q134.** Expert 路由崩溃（Routing Collapse）的成因与检测：如何通过 Expert 利用率直方图诊断崩溃？推理阶段的路由分布与训练阶段的分布偏移（Distribution Shift）如何影响性能？Expert Capacity（专家容量）与 Token Drop 的关系：Capacity Factor 如何取值？
 
 ### 12.2 Expert Parallelism（EP）
 
-- **Q86.** EP 的核心通信模式是 Two-shot All-to-All：第一次按路由结果将 Tokens 分发到对应 Expert 所在 GPU，第二次将计算结果汇回，分析完整通信量公式与延迟构成。
-- **Q87.** Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？
-- **Q88.** EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 如何在 N-D 并行中调度？
-- **Q86-b.** EP All-to-All 与 Expert 计算的 Overlap（重叠）实现：将 Token 划分为多个 Micro-batch，使用 CUDA Stream 交错执行 All-to-All 和 FFN 计算；DeepSeek-V3 的 DualPipe 方案如何将通信延迟近乎完全隐藏？overlap 成立的条件（计算时间 ≥ 通信时间）如何量化验证？
-- **Q86-c.** EP 场景下 KV Cache 的布局问题：EP 将 Expert 权重分布到不同 GPU，但 Attention 层（含 KV Cache）通常使用 TP 切分；当 EP 与 TP 共存时，KV Cache 按 TP 域存储还是按 EP 域存储？P/D 分离架构下 Prefill 实例的 EP 配置如何影响 KV Transfer 的目标节点选择？
+- **Q135.** EP 的核心通信模式是 Two-shot All-to-All：第一次按路由结果将 Tokens 分发到对应 Expert 所在 GPU，第二次将计算结果汇回，分析完整通信量公式与延迟构成。
+- **Q136.** EP All-to-All 与 Expert 计算的 Overlap（重叠）实现：将 Token 划分为多个 Micro-batch，使用 CUDA Stream 交错执行 All-to-All 和 FFN 计算；DeepSeek-V3 的 DualPipe 方案如何将通信延迟近乎完全隐藏？overlap 成立的条件（计算时间 ≥ 通信时间）如何量化验证？
+- **Q137.** EP 场景下 KV Cache 的布局问题：EP 将 Expert 权重分布到不同 GPU，但 Attention 层（含 KV Cache）通常使用 TP 切分；当 EP 与 TP 共存时，KV Cache 按 TP 域存储还是按 EP 域存储？P/D 分离架构下 Prefill 实例的 EP 配置如何影响 KV Transfer 的目标节点选择？
+- **Q138.** Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？
+- **Q139.** EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 如何在 N-D 并行中调度？
+
 
 ### 12.3 MoE 量化与 Kernel 优化
 
-- **Q89.** MoE 层的 GEMM 为什么是"非均匀矩阵乘"（每个 Expert 的 Token 数不同）？如何用 GroupGEMM / Batched GEMM 处理？
-- **Q90.** Structured Sparsity（结构化稀疏，如 2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？
-- **Q89-b.** FP8 量化对 MoE Expert 权重的适用性分析：Expert FFN 权重分布是否均匀（与 Dense 模型相比）？为何部分 Expert 的权重 Outlier 比例更高？Per-Expert 量化粒度与 Per-tensor 量化粒度的精度权衡？
-- **Q89-c.** MoE 推理的 Expert 权重预加载策略：Expert 权重在单卡显存中的驻留策略（全量常驻 vs. 按需换入）；当 EP 度不足以将所有 Expert 分布到不同 GPU 时（每 GPU 持有多个 Expert），如何调度 DRAM 与 HBM 之间的 Expert 权重换入以降低延迟？
-- **Q90-b.** MoE 模型的 Decode 阶段瓶颈分析：小 Batch Decode 时，Expert 计算退化为 GEMV（Memory-bound），All-to-All 通信与 GEMV 的时间占比；与 Dense 模型 Decode 的带宽瓶颈相比，MoE 的额外开销来源是什么？如何估算"MoE Tax"（MoE 相比同激活参数 Dense 模型的吞吐损失）？
+- **Q140.** MoE 层的 GEMM 为什么是"非均匀矩阵乘"（每个 Expert 的 Token 数不同）？如何用 GroupGEMM / Batched GEMM 处理？
+- **Q141.** FP8 量化对 MoE Expert 权重的适用性分析：Expert FFN 权重分布是否均匀（与 Dense 模型相比）？为何部分 Expert 的权重 Outlier 比例更高？Per-Expert 量化粒度与 Per-tensor 量化粒度的精度权衡？
+- **Q142.** MoE 推理的 Expert 权重预加载策略：Expert 权重在单卡显存中的驻留策略（全量常驻 vs. 按需换入）；当 EP 度不足以将所有 Expert 分布到不同 GPU 时（每 GPU 持有多个 Expert），如何调度 DRAM 与 HBM 之间的 Expert 权重换入以降低延迟？
+- **Q143.** Structured Sparsity（结构化稀疏，如 2:4 稀疏 Tensor Core）与 MoE 稀疏性的区别？
+- **Q144.** MoE 模型的 Decode 阶段瓶颈分析：小 Batch Decode 时，Expert 计算退化为 GEMV（Memory-bound），All-to-All 通信与 GEMV 的时间占比；与 Dense 模型 Decode 的带宽瓶颈相比，MoE 的额外开销来源是什么？如何估算"MoE Tax"（MoE 相比同激活参数 Dense 模型的吞吐损失）？
 
 ---
 
