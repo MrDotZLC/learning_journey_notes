@@ -6843,6 +6843,8 @@ MoE Prefill 时间轴（P 节点）：
 | 仅传输增量 KV            | 最高 (1−前缀命中率)×100% | 无             | 需 D 节点已有前缀 KV，依赖 KV 感知路由 |
 | 稀疏 KV（Heavy Hitter） | 可达 50–80%         | 中等            | 结合 H2O/SnapKV，实现较复杂      |
 
+Deepseek V4 使用的 DualPath，使得 KV Transfer 节点间通信也走 InfiniBand 计算网络，而不是 TCP/IP 的存储网络，并通过设优先级和加权轮询，既保证高优先级小流量的 All-to-All 不影响TPOT，也保证低优先级大流量的 KV Transfer 不影响 TTOT。
+
 ---
 
 #### **Q154. KV 感知路由（KV-aware Routing）。**
