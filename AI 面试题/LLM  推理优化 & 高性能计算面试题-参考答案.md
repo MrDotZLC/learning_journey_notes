@@ -7041,6 +7041,10 @@ $$\theta_k' = \theta_k / s \quad \Leftrightarrow \quad m' = m / s$$
 
 $$\theta_k' = \begin{cases} \theta_k & \lambda_k \leq d_{\text{low}} \quad \text{（高频，短程，保持不变）} \\ \theta_k / s & \lambda_k \geq d_{\text{high}} \quad \text{（低频，长程，线性压缩）} \\ \text{平滑插值} & \text{（中频，过渡区）} \end{cases}$$
 
+平滑插值：
+
+$$\theta_k' = \lambda_d \cdot \theta_d + (1-\lambda_d) \cdot \frac{\theta_d} {s}$$
+
 YaRN 还引入**注意力温度缩放**：
 
 $$\text{score} = \frac{\mathbf{q}^T \mathbf{k}}{\sqrt{d} \cdot t}, \quad t = 0.1 \ln(s) + 1 > 1$$
