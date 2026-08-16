@@ -6878,6 +6878,8 @@ $$\Delta M_{\text{Transfer}} = 2 \times 80 \times 8 \times 128 \times 1200 \time
 
 对应 RDMA 传输时间从 ~7.9 ms 降至 ~3.1 ms，TTFT 减少约 4–5 ms。
 
+**评价：** 不是通用的“银弹”，实现复杂，适合追求性能和成本效益的 LLM 生产环境，尤其是处理长上下文、高并发的场景。
+
 ---
 
 #### **Q155. P/D 分离的容错与一致性设计。**
@@ -6894,7 +6896,7 @@ $$\Delta M_{\text{Transfer}} = 2 \times 80 \times 8 \times 128 \times 1200 \time
 
 D 实例崩溃意味着正在 Decode 的所有请求的 KV Cache 全部丢失。有两类恢复路径：
 
-1. **Recompute**：调度器将请求重新路由到新 D 实例，触发完整 Prefill（从 Prompt 开始重算），代价是 TTFT 重置，等同于全新请求。适合无状态服务。
+1. **Recompute**：调度器将请求重新路由到新 P 实例，触发完整 Prefill（从 Prompt 开始重算），代价是 TTFT 重置，等同于全新请求。适合无状态服务。
 2. **KV Checkpoint**（研究阶段）：定期将 D 实例 KV Cache Checkpoint 到 CPU DRAM 或 SSD，崩溃后恢复到最近 Checkpoint 点再续 Decode。代价是 Checkpoint IO 开销（每步 Decode 写入 KV 增量，~MB 级，对 NVMe SSD 可接受）。NVIDIA Dynamo 的 KV Cache 分级存储架构为此提供了底层支撑。
 
 ---
