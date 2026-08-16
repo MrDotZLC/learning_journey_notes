@@ -6973,7 +6973,7 @@ $$R(m\theta_k) = \begin{pmatrix} \cos m\theta_k & -\sin m\theta_k \\ \sin m\thet
 
 **2. 内积推导（证明相对位置依赖性）：**
 
-位置 $m$ 的 Query 与位置 $n$ 的 Key 的内积：
+位置 $m$ 的 Query 与位置 $n$ 的 Key 的内积（同一维度对内的两个子向量交叉相乘：）：
 
 $$\mathbf{q}_m^T \mathbf{k}_n = \left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\theta}\right)^H \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{in\theta}\right)$$
 
