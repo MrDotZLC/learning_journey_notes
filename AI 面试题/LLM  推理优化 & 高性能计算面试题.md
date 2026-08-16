@@ -304,14 +304,13 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 13.2 调度设计
 
-- **Q94.** xPyD Ratio（P 实例数 : D 实例数）的调优依据：如何根据单实例 Prefill 吞吐 $R_P$、Decode 吞吐 $R_D$ 及 ISL/OSL 比例推导平衡条件 $x/y = (R_D \cdot \text{ISL}) / (R_P \cdot \text{OSL})$？不同 ISL/OSL 场景（长输入短输出 vs. 短输入长输出）下的典型配比举例？
-- **Q94-b.** xPyD 静态配比与动态扩缩容的工程权衡：全局调度器如何依据 P/D 队列积压实时调整实例数？D 实例是否可临时承担 Prefill（"Prefill-fallback"）？扩缩容的触发阈值如何量化设计（队列深度 vs. 时延 SLO 违约率）？
-- **Q95.** P/D 分离收益最显著的三类场景（超大模型 120B+、长输入序列 ISL > 10k、稀疏 MoE 架构）的量化分析：以长输入场景（ISL=16k，OSL=512，P99 TPOT 目标 < 100ms）对比混合部署与 P/D 分离的 TPOT 差异？
-- **Q95-b.** P/D 分离在 MoE 架构下的额外收益：P 节点与 D 节点可采用不同 EP（Expert Parallelism）规模，DeepSeek-V3 为何在 P 节点使用更大 EP？两阶段对 All-to-All 通信特性的差异（大 Batch 可 Overlap vs. 小 Batch 延迟敏感）？
-- **Q96.** KV Cache Transfer 与 EP All-to-All 的带宽竞争根源及四类缓解方案（网络隔离、QoS 优先级降级、Transfer 时序错开、KV 压缩减少传输量）的实现机制与适用场景？
-- **Q96-b.** KV 感知路由（KV-aware Routing）：全局调度器如何利用 Prefix Cache 命中信息将请求路由到已持有相关 KV Block 的 D 实例，从而避免重复 Transfer？NVIDIA Dynamo 的 Smart Router 与 SGLang 的 RadixAttention 在此机制上的实现差异？
-- **Q97-PD.** P/D 分离架构中的容错与一致性设计：Prefill 实例完成计算但 KV Transfer 失败时如何处理（重试 vs. 本地降级为混合模式）？D 实例崩溃时持有的 KV Cache 如何恢复（Recompute vs. Checkpoint）？两种恢复路径的延迟代价与适用场景？
-- **Q98-PD.** P/D 分离的显存规划差异：P 实例 KV Cache 仅需在 Transfer 完成前驻留（短暂峰值），D 实例 KV Cache 需要长期驻留（随 Decode 步数线性增长）；两类实例应如何分别配置 KV Cache 内存池大小？P 实例回收 KV Block 的时机与 Transfer 完成事件的同步机制？
+- **Q150.** xPyD Ratio（P 实例数 : D 实例数）的调优依据
+- **Q151.** xPyD 静态配比与动态扩缩容的工程权衡
+- **Q152.** P/D 分离收益最显著的三类场景的量化分析：
+- **Q153.** KV Cache Transfer 与 EP All-to-All 的带宽竞争根源及四类缓解方案
+- **Q154.** KV 感知路由（KV-aware Routing）
+- **Q155.** P/D 分离架构中的容错与一致性设计
+- **Q156.** P/D 分离的显存规划差异
 
 ---
 
