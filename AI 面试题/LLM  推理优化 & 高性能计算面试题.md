@@ -328,14 +328,14 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ### 14.2 超长上下文系统
 
-- **Q100.** Ring Attention（序列并行）的原理：将序列维度切分到多 GPU，通过 P2P Ring 通信交换 KV，避免将全序列集中到单 GPU？
-- **Q101.** Context Parallelism（CP）与 Sequence Parallelism（SP）的区别？
-- **Q101-b.** CP 的精确通信量推导：设 CP 度为 $P$，序列长度 $N$，GQA KV 头数 $H_{\text{KV}}$，头维度 $d$，推导每卡总通信量 $(P-1)/P \times 2N H_{\text{KV}} d \cdot b$；代入 LLaMA-3 70B 参数，在 NVLink 节点内（点对点带宽 ~300 GB/s）估算单步传输时间，说明计算-通信 Overlap 成立的条件；跨节点（InfiniBand ~25 GB/s）场景下 Overlap 效率的变化？
-- **Q102.** 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill 的配合？
-- **Q102-KV.** 128k+ 上下文时单请求 KV Cache 显存压力的量化分析（与 Q102 关联）：以 LLaMA-3 70B GQA FP16 为例推导 $S = 128\text{k}$ 时 KV Cache 大小，逐步分析 FP8 量化、Token Eviction、Context Parallelism 三种应对路径的精度与延迟代价。
-- **Q102-b.** 超长上下文下 Chunked Prefill 的 Chunk Size 选择原则：Block 大小 $B$、Chunk Size $C$ 与内部碎片率 $\approx (B-1)/(2C)$ 的量化关系；Chunk Size 对 GEMM 效率（Wave Quantization 效应，$M \geq 128$ 要求）与 Decode TPOT P99 的双向约束；在 TPOT SLO 约束下给出 $C^*$ 的选择框架，并对比 TPOT SLO = 100ms / 20ms / 5ms 三种场景的推荐值；CP 联合部署时每卡实际处理的 Token 数 $C/P$ 对 Chunk Size 下界的影响？
-- **Q103.** Sliding Window Attention 在长上下文中的 Attention Sink 失效问题？
-- **Q104-LC.** 长上下文下 KV Cache 分级存储（HBM $\to$ CPU DRAM $\to$ NVMe SSD）的触发阈值与精度无损条件：各级有效带宽与恢复延迟的数量级；以 LLaMA-3 70B 128k 为例估算从 DRAM 恢复全量 KV Cache 对 TTFT 的叠加影响；精度无损的前提条件（Block 完整性、传输前完成保证）；与 FP8 量化和 Prefetch 策略的组合方案？（与 Q37-b 形成闭环）
+- **Q161.** Ring Attention（序列并行）的原理：将序列维度切分到多 GPU，通过 P2P Ring 通信交换 KV，避免将全序列集中到单 GPU？
+- **Q162.** Context Parallelism（CP）与 Sequence Parallelism（SP）的区别？
+- **Q163.** CP 的精确通信量推导
+- **Q164.** 超长上下文（128k+）时 KV Cache 的显存压力与 Chunked Prefill 的配合
+- **Q165.** 128k+ 上下文时单请求 KV Cache 显存压力的量化分析
+- **Q166.** 超长上下文下 Chunked Prefill 的 Chunk Size 选择原则
+- **Q167.** Sliding Window Attention 在长上下文中的 Attention Sink 失效问题
+- **Q168.** 长上下文下 KV Cache 分级存储的触发阈值与精度无损条件（与 Q48 形成闭环）
 
 ---
 
@@ -343,25 +343,25 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ### 15.1 核心概念
 
-- **Q104.** 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？
-- **Q105.** Chain-of-Thought（CoT）/ Extended Thinking 对推理系统的负载特征有何改变（输出 Token 数激增，Decode 阶段成为更严重瓶颈）？
-- **Q106.** o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？
+- **Q169.** 什么是 Test-Time Compute Scaling？与 Training-Time Scaling 的本质区别？
+- **Q170.** Chain-of-Thought（CoT）/ Extended Thinking 对推理系统的负载特征有何改变（输出 Token 数激增，Decode 阶段成为更严重瓶颈）？
+- **Q171.** o1 / DeepSeek-R1 类推理模型的输出长度分布对 KV Cache 规划的影响？
 
 ### 15.2 系统层响应
 
-- **Q107.** 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？
-- **Q108.** 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？
+- **Q172.** 针对长 CoT 的 Speculative Decoding：Draft 模型接受率在长推理链上是否稳定？
+- **Q173.** 推理模型的 SLO 设计：TTFT vs. Total Latency 的权衡如何变化？
 
 ### 15.3 采样策略与资源分析（新增）
 
-- **Q109-TTC.** Best-of-N 与 Self-Consistency 的系统资源对比：并行采样（$N$ 个独立请求）与串行采样（单请求多次生成）对 KV Cache 占用、Batch 利用率和吞吐量的影响差异？Reward Model 评分的计算开销如何叠加到端到端延迟？
-- **Q110-TTC.** Test-Time Compute 的收益边际递减规律：对于不同难度的任务（数学证明 vs. 开放式问答），扩展推理 Token 数的质量提升曲线有何差异？如何估算特定任务的"最优推理预算"？
+- **Q174.** Best-of-N 与 Self-Consistency 的系统资源对比
+- **Q175.** Test-Time Compute 的收益边际递减规律
 
 ### 15.4 工程实现细节（新增）
 
-- **Q111-TTC.** Thinking Token 的流式传输与用户体验设计：推理模型在生成"思考过程"（thinking tokens）期间是否向客户端流式输出？不同框架（OpenAI o1、DeepSeek-R1、Anthropic Extended Thinking）的行为差异？思考内容的可见性设计对 TTFT 感知的影响？
-- **Q112-TTC.** 推理模型的 KV Cache 动态增长与抢占调度：Extended Thinking 场景下 KV Cache 按步线性增长（每步 +1 token），当单请求 KV 超过预分配 Block Pool 时，vLLM / SGLang 的动态扩容机制与抢占触发条件？Swap-Out 的 PCIe 带宽瓶颈如何量化为延迟惩罚？
-- **Q113-TTC.** Test-Time Compute Scaling 与 P/D 分离架构的联动：长 CoT（OSL > 8k）场景下，D 节点的 KV Cache 规划策略与常规服务有何不同？P 节点完成 Prefill 后向 D 节点传输 KV，D 节点需为后续数千步 Decode 预留多大 Block Pool？动态扩容与静态预留的工程权衡？
+- **Q176.** Thinking Token 的流式传输与用户体验设计
+- **Q177.** 推理模型的 KV Cache 动态增长与抢占调度
+- **Q178.** Test-Time Compute Scaling 与 P/D 分离架构的联动
 
 ---
 
@@ -369,23 +369,23 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ### 16.1 知识蒸馏
 
-- **Q109.** 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？
-- **Q110.** 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？
-- **Q110-b.** 序列蒸馏（Sequence-level Distillation）与在线蒸馏（On-policy Distillation）的 Exposure Bias 问题：离线 SFT 数据训练的 Student 在推理时为何产生分布漂移？RLVR 如何作为第二阶段修正？
-- **Q110-c.** 知识蒸馏的温度参数 $\tau$ 的作用：为何 $\tau > 1$ 能放大"暗知识"（Dark Knowledge）？$\tau$ 过高或过低对 Student 学习的影响？
+- **Q179.** 逻辑蒸馏（Logit Distillation）vs. 特征蒸馏（Feature Distillation）的优劣？
+- **Q180.** 推理场景下蒸馏（如 DeepSeek-R1 → Qwen 系列）的常见方法？
+- **Q181.** 序列蒸馏（Sequence-level Distillation）与在线蒸馏（On-policy Distillation）的 Exposure Bias 问题
+- **Q182.** 知识蒸馏的温度参数 $\tau$ 的作用
 
 ### 16.2 结构剪枝
 
-- **Q111.** Unstructured Pruning vs. Structured Pruning（Head Pruning、Layer Dropping）对推理加速的实际贡献差异？
-- **Q111-b.** Head Importance 评估方法：如何用 Gradient × Activation 或 Taylor Expansion 近似估计每个 Attention Head 的重要性？剪枝后是否需要恢复性微调（Recovery Fine-tuning）？
-- **Q112.** 2:4 稀疏格式（NVIDIA Sparse Tensor Core）的激活方式与精度损失分析？
-- **Q112-b.** 2:4 稀疏与量化的组合方案（Sparse + INT8 / FP8）：两者能否叠加？在 A100 / H100 上的硬件支持情况？叠加后精度损失的累积规律？
-- **Q112-c.** SparseGPT（NeurIPS 2022）的核心思路：如何将非结构化剪枝的逐权重误差补偿推广至 2:4 结构化稀疏，在单次前向中完成校准？与 GPTQ 误差补偿方案的异同？
+- **Q183.** Unstructured Pruning vs. Structured Pruning（Head Pruning、Layer Dropping）对推理加速的实际贡献差异？
+- **Q184.** Head Importance 评估方法
+- **Q185.** 2:4 稀疏格式（NVIDIA Sparse Tensor Core）的激活方式与精度损失分析？
+- **Q186.** 2:4 稀疏与量化的组合方案（Sparse + INT8 / FP8）：两者能否叠加？在 A100 / H100 上的硬件支持情况？叠加后精度损失的累积规律？
+- **Q187.** SparseGPT（NeurIPS 2022）的核心思路：如何将非结构化剪枝的逐权重误差补偿推广至 2:4 结构化稀疏，在单次前向中完成校准？与 GPTQ 误差补偿方案的异同？
 
 ### 16.3 模型架构设计题
 
-- **Q113.** 给定延迟 SLA = 50ms / Token，如何在 7B 模型的基础上通过蒸馏 + 量化组合达到目标，说明决策链？
-- **Q113-b.** 多目标约束下的轻量化决策：若同时存在 TTFT < 200ms（P99）、TPOT < 30ms（P99）、精度损失 < 1%（MMLU）三重约束，优化顺序与方案选择的思路？如何量化评估 Pareto 前沿上的方案？
+- **Q188.** 给定延迟 SLA = 50ms / Token，如何在 7B 模型的基础上通过蒸馏 + 量化组合达到目标，说明决策链？
+- **Q189.** 多目标约束下的轻量化决策：若同时存在 TTFT < 200ms（P99）、TPOT < 30ms（P99）、精度损失 < 1%（MMLU）三重约束，优化顺序与方案选择的思路？如何量化评估 Pareto 前沿上的方案？
 
 ---
 
@@ -393,9 +393,9 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ### 17.1 Vision Encoder 与 Token 化
 
-- **Q114.** Vision Encoder（如 ViT）的输出 Token 数量对 Prefill 显存和计算的影响：标准 ViT-L/14 对 224×224 图片输出 256 个 Image Token（含 CLS Token）；现代高分辨率 VLM（LLaVA-NeXT、InternVL2、Qwen2-VL）如何通过动态分辨率（Dynamic Resolution）和图像切片（Image Tiling）将单张图片的 Image Token 数提升至 2880+；Image Token 数量对 Prefill 阶段 TTFT 和显存的量化影响推导？
-- **Q114-b.** 动态分辨率（Dynamic Resolution / Naive Dynamic Resolution）的工程实现：Qwen2-VL 的 NaViT 风格变长 Token 如何在 Batch 中 Padding 或 Packing？不同分辨率输入在同一 Batch 内的效率差异？ViT 前向的计算量如何随分辨率平方增长，并对 TTFT 产生前期瓶颈？
-- **Q114-c.** 视觉编码器（ViT）本身在 VLM 推理中的 TTFT 占比：在高分辨率（如 4096² 的文档图像）场景下 ViT 前向耗时可占总 TTFT 的 80% 以上（Apple FastVLM 实测数据）；ViT 计算量如何与 LLM Prefill 计算量解耦？轻量化 ViT（ConvNeXT、FastViT、SigLIP）替换 ViT-L/G 的精度-速度权衡？
+- **Q190.** Vision Encoder（如 ViT）的输出 Token 数量对 Prefill 显存和计算的影响
+- **Q191.** 动态分辨率（Dynamic Resolution / Naive Dynamic Resolution）的工程实现
+- **Q192.** 视觉编码器（ViT）本身在 VLM 推理中的 TTFT 占比
 
 ### 17.2 Image Token KV Cache 管理
 
