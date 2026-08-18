@@ -8238,7 +8238,7 @@ Phase 2: RL with rule-based reward → 强化推理准确性
 
 **Exposure Bias 的来源：**
 
-离线 SFT 训练时，Student 在每一步都以 Teacher 的 Ground-truth Token 作为输入（Teacher Forcing）。推理时，Student 以自身生成的历史 $\hat{y}_{<t}$ 作为输入，两者分布存在差异，导致错误逐步累积：
+离线 SFT 训练时，Student 在每一步都以 Teacher 的**标准答案里的真实词 Ground-truth Token** 作为输入（Teacher Forcing）。推理时，Student 以自身生成的历史 $\hat{y}_{<t}$ 作为输入，训练环境与推理环境不同，两者分布存在差异，导致错误逐步累积：
 
 $$p_{\text{train}}(\hat{y}_t \mid x, y_{<t}^{\text{Teacher}}) \neq p_{\text{infer}}(\hat{y}_t \mid x, \hat{y}_{<t}^{\text{Student}})$$
 
@@ -8275,11 +8275,11 @@ $$p_T(j \mid \tau) = \frac{\exp(z_j^T / \tau)}{\sum_k \exp(z_k^T / \tau)} \appro
 
 **$\tau$ 的推荐取值：**
 
-|场景|推荐 $\tau$|说明|
-|---|---|---|
-|分类任务（ImageNet、MMLU）|3–5|中等软化，平衡暗知识与任务监督|
-|LLM Logit 蒸馏|1–2|Vocabulary 极大（$V \approx 10^5$），过高 $\tau$ 稀释信号|
-|推理链 CoT 蒸馏|通常不单独调 $\tau$|以序列 SFT 为主，Token 级 KL 作为辅助|
+| 场景                  | 推荐 $\tau$     | 说明                                             |
+| ------------------- | ------------- | ---------------------------------------------- |
+| 分类任务（ImageNet、MMLU） | 3–5           | 中等软化，平衡暗知识与任务监督                                |
+| LLM Logit 蒸馏        | 1–2           | Vocabulary 极大（$V \approx 10^5$），过高 $\tau$ 稀释信号 |
+| 推理链 CoT 蒸馏          | 通常不单独调 $\tau$ | 以序列 SFT 为主，Token 级 KL 作为辅助                     |
 
 ---
 
