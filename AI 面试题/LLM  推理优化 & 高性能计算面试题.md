@@ -318,13 +318,13 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 
 ### 14.1 位置编码扩展
 
-- **Q97.** RoPE 的数学原理：对 Query/Key 施加旋转矩阵，使注意力得分仅依赖相对位置 $m-n$，推导形式：
+- **Q157.** RoPE 的数学原理：对 Query/Key 施加旋转矩阵，使注意力得分仅依赖相对位置 $m-n$，推导形式：
 
 $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m \odot e^{im\theta}\right)^* \cdot \left(\mathbf{W}_k \mathbf{x}_n \odot e^{in\theta}\right)\right]$$
 
-- **Q98.** RoPE 外推问题：训练长度之外的位置 $\theta$ 分量溢出，YaRN / LongRoPE / Llama3 RoPE Scaling 各自的补偿策略？
-- **Q99.** ALiBi 与 RoPE 的外推能力对比？
-- **Q99-b.** RoPE 与 ALiBi 对 Prefix Caching（前缀 KV 复用）的兼容性差异：RoPE 的旋转变换将绝对位置嵌入 KV 向量，为何只要 Token 绝对位置不变即可跨请求复用？动态插入内容（如 RAG 文档）会破坏哪些 Token 的 KV 缓存？ALiBi 为何天然兼容 Prefix Caching？（与 Q31、Q34-b 形成闭环）
+- **Q158.** RoPE 外推问题：训练长度之外的位置 $\theta$ 分量溢出，YaRN / LongRoPE / Llama3 RoPE Scaling 各自的补偿策略？
+- **Q159.** ALiBi 与 RoPE 的外推能力对比？
+- **Q160.** RoPE 与 ALiBi 对 Prefix Caching（前缀 KV 复用）的兼容性差异：RoPE 的旋转变换将绝对位置嵌入 KV 向量，为何只要 Token 绝对位置不变即可跨请求复用？动态插入内容（如 RAG 文档）会破坏哪些 Token 的 KV 缓存？ALiBi 为何天然兼容 Prefix Caching？（与 Q32、Q35 形成闭环）
 
 ### 14.2 超长上下文系统
 
