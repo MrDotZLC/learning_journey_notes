@@ -7547,7 +7547,7 @@ $$\text{质量} = f\bigl(\text{模型参数},\; \underbrace{\text{推理时计�
 | Self-consistency      | 多次采样后多数投票取最优答案                  | Wang et al. 2023                                  |
 | Best-of-N             | 生成 $N$ 个答案，用 Reward Model 评分选最优 | AlphaCode 2（过滤策略之一）                               |
 | Tree-of-Thought（ToT）  | 树状搜索，评估中间推理节点                   | Yao et al. 2023                                   |
-| MCTS 引导搜索             | 用价值函数引导推理路径，经典算法                | rStar-Math, AlphaProof（使用 formal search，非标准 MCTS） |
+| MCTS 引导搜索             | 用价值函数引导推理，路径，经典算法               | rStar-Math, AlphaProof（使用 formal search，非标准 MCTS） |
 
 **1.4 本质区别**
 
