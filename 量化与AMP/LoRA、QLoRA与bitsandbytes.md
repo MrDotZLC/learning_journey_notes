@@ -6,7 +6,7 @@ $$W \in \mathbb{R}^{d \times k}
 \quad \Rightarrow \quad  
 \Delta W \approx AB,\; r \ll \min(d,k) $$ 
 无需全量更新权重矩阵，仅需学习低秩增量 ($\Delta W$) 即可逼近全参数微调（Full Finetuning, FFT）效果。
-## **0.2 显存墙 (Memory Wall) 瓶颈**
+### **0.2 显存墙 (Memory Wall) 瓶颈**
 FFT 显存占用来源：
 - 模型权重 (Weights)
 - 梯度 (Gradients)
@@ -26,6 +26,7 @@ $$7 \times 10^9 \times 12 \approx 84\text{ GB (不含 Activations)}$$
 核心矛盾：显存带宽与容量增长速度远滞后于模型规模扩张。
 
 ---
+
 ## 1. LoRA (Low-Rank Adaptation) 系统架构
 
 LoRA 是一种高效的微调策略，其核心思想是不直接修改预训练模型的大型权重矩阵，而是在原矩阵旁边并联两个较小的低秩矩阵（$A$ 和 $B$）。在训练过程中，原始参数保持冻结，仅更新这两个小矩阵的参数，从而大幅降低了显存消耗和计算开销，同时在推理时可以将增量权重合并回原模型，实现零延迟的无缝切换。
