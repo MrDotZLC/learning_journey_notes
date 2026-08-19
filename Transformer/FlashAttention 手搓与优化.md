@@ -1,3 +1,6 @@
+
+{% raw %}
+
 [FlashAttention 详细介绍](FlashAttention%20详细介绍.md)
 [FlashAttention 算子解析](FlashAttention%20算子解析.md)
 
@@ -1204,3 +1207,5 @@ $$ \text{seq=1024, B=1, H=12}:\quad \frac{4.71}{2.15} \approx 2.2\times $$
 v4 multi-head 达到 **1.5 TFLOPS**，是 v3 单 head 的 **2.2×**，是 v1 的 **13×**。
 
 在时钟 300 MHz 的限制下（峰值 5.44 × 17% ≈ 0.92 TFLOPS），v4 的 1.5 TFLOPS 超过了降频后的理论峰值，原因是 TFLOPS 计算使用全量 FLOPs（含 causal mask 跳过的部分），实际有效计算量约为标称值的 50%，真实利用率约 `1.5 × 50% / 0.92 ≈ 82%`。
+
+{% endraw %}

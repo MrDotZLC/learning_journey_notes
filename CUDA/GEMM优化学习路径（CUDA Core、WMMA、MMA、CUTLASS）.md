@@ -1,3 +1,5 @@
+
+{% raw %}
 ## 一、硬件数据
 1. 架构：Turing（TU116）
 2. SM 数量：24
@@ -3506,3 +3508,5 @@ void cutlass_hgemm_v2_epilogue(
 $$ \text{blocks} = \frac{256}{128} \times \frac{256}{128} = 4\ \text{blocks} $$
 
 4 blocks 在 24 SM 上只占用 4 个 SM，剩余 20 个 SM 空闲，利用率 16.7%。cuBLAS 会针对小矩阵自动选择更小的 tile，CUTLASS v1 固定 tile 尺寸无法适应。
+
+{% endraw %}
