@@ -399,20 +399,18 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ### 17.2 Image Token KV Cache 管理
 
-- **Q115.** Image Token 的 KV Cache 是否应与 Text Token 区别对待：Image Token 在 LLM 层的注意力行为（浅层 Attention 权重集中、深层逐渐被 Text Token 主导）是否支持差异化 Eviction？FastV（ECCV 2024 Oral）的核心机制：在第 2 层之后裁剪 50% Image Token，对大多数任务精度影响 < 1% 但 FLOPs 减少 45%；SparseVLM（ICML 2025）的文本感知（Text-aware）Token 稀疏化策略与 FastV 的差异？
-- **Q115-b.** Image Token 的 Prefix Caching 可行性分析：相同图片被多请求复用时，Image Token 的 KV Cache 是否可跨请求命中（VLCache / SGLang 的实现思路）？RoPE 位置编码对 Image Token 绝对位置的绑定是否破坏 Prefix Cache 跨请求复用（与 Text Token 的一致性）？同一图片被插入不同位置时 KV Cache 是否需要重算？
-- **Q115-c.** 多帧视频 VLM 的 KV Cache 管理：视频理解中逐帧生成的 Image Token 数量（如 64 帧 × 256 Token/帧 = 16384 Token）对 KV Cache 显存的冲击；时序冗余（相邻帧 Token 高度相似）如何支撑跨帧 Token 合并（Token Merging）与帧级 Eviction 策略？
+- **Q193.** Image Token 的 KV Cache 是否应与 Text Token 区别对待
+- **Q194.** Image Token 的 Prefix Caching 可行性分析
+- **Q195.** 多帧视频 VLM 的 KV Cache 管理
 
 ### 17.3 VLM 推理的 Prefill 优化
 
-- **Q116.** 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size：Image Token 不可拆分（跨 Chunk 会破坏 2D 位置编码的空间连续性），导致最小不可分割单元为整张图片的 Token 数；高分辨率图片（2880 Token）远超常规 Chunk Size（512），如何制定"图片感知（Image-aware）Chunking"策略？TTFT 与 Decode TPOT 的双向约束下，包含多张图片的请求如何调度？
-- **Q116-b.** vLLM 对 VLM 的 Chunked Prefill 支持现状（2024-2025）：标准 Chunked Prefill 不能跨 Image Token 边界切分的工程约束；多模态 Prefix Caching（Image KV Block 复用）在 vLLM / SGLang 中的实现状态；Vision Encoder 前向（CPU 或独立 CUDA Stream）与 LLM Prefill 的异步流水线设计？
-- **Q116-c.** Visual Token Compression（视觉 Token 压缩）作为 Prefill 加速的替代路径：Perceiver Resampler / Q-Former 在编码器侧将 ViT 输出压缩至固定 Token 数（如 32~256），LLaVA-style 直接投影 vs. Q-Former 压缩的精度-速度权衡？Token 压缩后 KV Cache 的压缩比如何影响 Decode 阶段 TPOT？
+- **Q196.** 多模态模型中 Prefill 计算量远大于纯文本场景，如何调整 Chunked Prefill 的 Chunk Size
 
 ### 17.4 多模态 KV Cache 量化与位置编码
 
-- **Q117-VLM.** 多模态位置编码（M-RoPE）的推理影响：Qwen2-VL 将 RoPE 分解为文本维（1D）、图像高度维、图像宽度维的三维位置编码；与纯文本 RoPE 相比，M-RoPE 对 Prefix Caching 的影响（图片位置信息绑定于绝对坐标）？ViT Patch 坐标与 LLM RoPE 的对齐方式？
-- **Q118-VLM.** VLM 中混合模态批处理的 Attention Mask 结构：Image Token 与 Text Token 之间的双向 / 单向 Attention 策略（图片 Token 相互全注意力、文本 Token 单向 Causal Attention）；Flash Attention 如何高效支持此非标准 Mask？对 PagedAttention Block 分配的影响？
+- **Q197.** 多模态位置编码（M-RoPE）的推理影响
+- **Q198.** VLM 中混合模态批处理的 Attention Mask 结构
 
 ---
 
@@ -424,13 +422,10 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ---
 
-**Q117.** AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？
-
-**Q118.** Ring-AllReduce 的通信量分析：总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？
-
-**Q128.** GPUDirect RDMA 的工作原理：P 节点如何零拷贝地将 KV Cache 直接写入 D 节点的 HBM？标准 RDMA 与 GPUDirect RDMA 的数据路径差异，以及内存注册（Memory Registration）和 RDMA Write 的实现要点？
-
-**Q129.** InfiniBand 网络中 ECMP（等价多路径）与自适应路由（Adaptive Routing）对 MoE All-to-All 通信的影响？为何大规模 MoE 推理集群优先启用自适应路由？
+**Q199.** AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？
+**Q200.** Ring-AllReduce 的通信量分析
+**Q201.** GPUDirect RDMA 的工作原理
+**Q202.** InfiniBand 网络中 ECMP（等价多路径）与自适应路由（Adaptive Routing）对 MoE All-to-All 通信的影响
 
 ---
 
@@ -438,11 +433,9 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ---
 
-**Q119.** Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？
-
-**Q120.** NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？
-
-**Q121.** NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？
+**Q203.** Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案
+**Q204.** NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？
+**Q205.** NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？
 
 ---
 
@@ -454,13 +447,10 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ---
 
-**Q122.** TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？
-
-**Q123.** Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？
-
-**Q124.** H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？
-
-**Q130.** H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理，及其在 FlashAttention-3 中的应用？
+**Q206.** TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？
+**Q207.** Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？
+**Q208.** H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？
+**Q209.** H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理，及其在 FlashAttention-3 中的应用？
 
 ---
 
@@ -468,13 +458,10 @@ $$\mathbf{q}_m^T \mathbf{k}_n = \text{Re}\!\left[\left(\mathbf{W}_q \mathbf{x}_m
 
 ---
 
-**Q125.** NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持：数值格式（E2M1）、块级 FP8 Scale 的必要性、实际平均位宽与压缩比，以及 Blackwell FP4 Tensor Core 的数据流？
-
-**Q126.** GB200 NVL72 系统的硬件规格与推理意义？
-
-**Q127.** NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？
-
-**Q131.** Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源，以及对大规模 TP/MoE EP 推理的意义？
+**Q210.** NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持：数值格式（E2M1）、块级 FP8 Scale 的必要性、实际平均位宽与压缩比，以及 Blackwell FP4 Tensor Core 的数据流？
+**Q211.** GB200 NVL72 系统的硬件规格与推理意义？
+**Q212.** NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？
+**Q213.** Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源，以及对大规模 TP/MoE EP 推理的意义？
 
 ---
 

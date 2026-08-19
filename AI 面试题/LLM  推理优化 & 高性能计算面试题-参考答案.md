@@ -8869,35 +8869,9 @@ $$T_{\text{img}} \approx \frac{4 \cdot L \cdot H \cdot d \cdot (S_{\text{prev}} 
 
 ---
 
-#### **Q197. vLLM 对 VLM Chunked Prefill 的工程支持现状（2024-2025）**
-
-vLLM 官方 Roadmap（Q3 2024 起）将"Proper chunked prefill with multimodal input"列为 P0 任务。核心工程约束：
-
-**约束 1：Image Token 边界的 Placeholder 追踪**。vLLM 引入了精确的多模态 Placeholder 追踪机制（PR \#8346），记录每个 Image Token 块在序列中的起止位置，供 Chunked Prefill 调度器识别不可分割边界。
-
-**约束 2：多模态 Prefix Caching 的 Hash 键设计**。Text Token 的 Prefix Cache 以 Token ID 序列的哈希为键；Image Token 需要以 ViT 编码特征（或原始图像像素哈希）为键。SGLang 的 RadixAttention 已支持 Image Token 的 KV Block 复用，vLLM 在 2025 年陆续跟进。
-
-**约束 3：Vision Encoder 与 LLM Prefill 的异步流水线**。ViT 前向通常在独立的 CUDA Stream（或 CPU Preprocessing）上运行，与 LLM Prefill Stream 并行。设计要点：ViT 输出（Image Embeddings）必须在对应 Image Chunk 进入 LLM Prefill 之前就绪，通过 `cudaEvent` 同步两个 Stream。
-
----
-
-#### **Q198. Visual Token Compression 作为 Prefill 加速路径**
-
-| 压缩方案                | 代表模型            | 输出 Token 数       | 压缩机制                     | KV Cache 节省 |
-| ------------------- | --------------- | ---------------- | ------------------------ | ----------- |
-| LLaVA MLP 直通（无压缩）   | LLaVA-1.5       | 256（14×14 ViT-L） | 无                        | 基准          |
-| Perceiver Resampler | Flamingo、BLIP-2 | 32~64（固定）        | Cross-Attention 学习聚合     | 75~87.5%    |
-| Q-Former            | InstructBLIP    | 32（固定）           | Query 驱动 Cross-Attention | 87.5%       |
-| Spatial Merge（像素合并） | Qwen2-VL        | 256（4:1 压缩自 ViT） | $2\times 2$ Patch 拼接     | 75%         |
-| FastV（运行时剪枝）        | LLaVA + FastV   | 动态（50~75% 保留）    | Attention Score 剪枝       | 25~50%      |
-
-**精度-速度权衡核心矛盾**：Q-Former / Perceiver Resampler 将 Image Token 固定压缩至 32~64，Decode 阶段 KV Cache 显存大幅降低，但细粒度信息（OCR、精确定位）损失明显。LLaVA MLP 直通保留全部空间信息，但 Decode 阶段 KV Cache 持续膨胀。FastV 等运行时剪枝方案在 Prefill 结束后即减少 KV 占用，兼顾了两者，是当前工程实践中的主流思路。
-
----
-
 ### 17.4 多模态 KV Cache 量化与位置编码
 
-#### **Q199. 多模态位置编码（M-RoPE）的推理影响**
+#### **Q197. 多模态位置编码（M-RoPE）的推理影响**
 
 1. M-RoPE 的分解结构
 
@@ -8905,7 +8879,7 @@ Qwen2-VL 的 Multimodal Rotary Position Embedding 将标量位置 $m$ 分解为�
 
 $$\text{文本 Token：} (t, t, t)$$ $$\text{图片 Token：} (t_{\text{offset}}, h_i, w_i)$$
 
-其中 $t_{\text{offset}}$ 为图片在序列中的时序起始位置，$(h_i, w_i)$ 为该 Patch 在图片中的 2D 坐标。RoPE 旋转应用于 Query / Key 的不同通道段：
+其中 $t_{\text{offset}}$ 为图片在序列中的时序起始位置，$(h_i, w_i)$ 为该 Patch 在图片中的 2D 坐标。M-RoPE 将每个头的所有维度分为三段，对应位置 $m$ 的三个维度 ，旋转应用于 Query / Key 的不同通道段：
 
 $$\mathbf{q}_m = \text{concat}\!\left[\mathbf{q}^{(t)} e^{i t_m \theta}, \; \mathbf{q}^{(h)} e^{i h_m \theta}, \; \mathbf{q}^{(w)} e^{i w_m \theta}\right]$$
 
@@ -8918,7 +8892,7 @@ $$\mathbf{q}_m = \text{concat}\!\left[\mathbf{q}^{(t)} e^{i t_m \theta}, \; \mat
 
 ---
 
-#### **Q200. VLM 中混合模态批处理的 Attention Mask 结构**
+#### **Q198. VLM 中混合模态批处理的 Attention Mask 结构**
 
 1. 混合 Causal Mask 设计
 
@@ -8954,7 +8928,7 @@ FlashAttention-2 的 `varlen` 接口通过 `cu_seqlens` 参数区分不同子序
 
 ---
 
-#### **Q201. AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？**
+#### **Q199. AllReduce、AllGather、ReduceScatter、All-to-All 的语义与典型使用场景各是什么？**
 
 **四种集合通信原语的语义：**
 
@@ -9030,7 +9004,7 @@ $$y_i = \bigoplus_{j=0}^{N-1} x_j!\left[,i \cdot \frac{M}{N} : (i+1) \cdot \frac
 
 ---
 
-#### **Q202. Ring-AllReduce 的通信量分析：总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？**
+#### **Q200. Ring-AllReduce 的通信量分析：总通信量为 $2M(N-1)/N \approx 2M$，与 $N$ 无关？**
 
 **Ring-AllReduce 两阶段详解：**
 
@@ -9084,7 +9058,7 @@ $$T = 2(N-1)\alpha + \frac{2M(N-1)}{NB}$$
 
 ---
 
-#### **Q203. GPUDirect RDMA 的工作原理：P 节点如何零拷贝地将 KV Cache 直接写入 D 节点的 HBM？**
+#### **Q201. GPUDirect RDMA 的工作原理：P 节点如何零拷贝地将 KV Cache 直接写入 D 节点的 HBM？**
 
 **标准 RDMA（无 GPUDirect）的数据路径：**
 
@@ -9158,7 +9132,7 @@ NIXL 在跨节点 KV Transfer 场景下，其 Scatter-Gather 传输底层即依�
 
 ---
 
-#### **Q204. InfiniBand 网络中 ECMP（等价多路径）与自适应路由对 All-to-All 通信的影响？**
+#### **Q202. InfiniBand 网络中 ECMP（等价多路径）与自适应路由对 All-to-All 通信的影响？**
 
 **背景：MoE EP All-to-All 的流量特征**
 
@@ -9202,7 +9176,7 @@ InfiniBand 交换机可根据**实时端口队列深度**动态选择下一跳�
 
 ---
 
-#### **Q205. Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？**
+#### **Q203. Tensor Parallelism 中 GEMM 与 AllReduce 的 Overlap 方案：GEMM-ReduceScatter + AllGather-GEMM 流水线如何实现？**
 
 **传统 TP 的串行瓶颈：**
 
@@ -9276,7 +9250,7 @@ cudaStreamSynchronize(comm_stream);
 
 ---
 
-#### **Q206. NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？**
+#### **Q204. NCCL 的底层实现：为何 NVLink 通信可直接触发而 PCIe 通信需要 CPU 中介？**
 
 **NVLink 通信（GPU 直连）：**
 
@@ -9339,7 +9313,7 @@ NCCL 初始化时调用 ncclGetUniqueId 并探测拓扑：
 
 ---
 
-#### **Q207. NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？**
+#### **Q205. NIXL（NVIDIA Inference Xfer Library）相比 NCCL 在 KV Transfer 场景的优化点？**
 
 **NCCL 的设计定位与局限：**
 
@@ -9414,7 +9388,7 @@ NIXL 在 KV Transfer 场景端到端延迟比 NCCL 低约 40–50%，收益来�
 
 ---
 
-#### **Q208. TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？**
+#### **Q206. TMA（Tensor Memory Accelerator）的工作原理：如何替代 `cp.async` 实现多维张量的异步加载？**
 
 **`cp.async` 的局限（Ampere 时代）：**
 
@@ -9499,7 +9473,7 @@ FA-3 利用 TMA 将 Q、K、V 的 Tile 加载完全交给 Producer Warp 中的�
 
 ---
 
-#### **Q209. Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？**
+#### **Q207. Warp Specialization（Warp 专用化）的 Producer-Consumer 设计模式？**
 
 **背景：传统 CUDA Kernel 的 Warp 同质化瓶颈：**
 
@@ -9579,7 +9553,7 @@ Consumer:            [WGMMA buf0→acc]           [WGMMA buf1→acc]           [
 
 ---
 
-#### **Q210. H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？**
+#### **Q208. H100 FP8 格式：E4M3 vs E5M2 的动态范围与精度权衡？**
 
 **FP8 的两种格式（基于 Nvidia 标准）：**
 
@@ -9635,7 +9609,7 @@ $$x_{\text{fp8}} = \text{round\_to\_fp8}(x \cdot \text{scale})$$
 
 ---
 
-#### **Q211. H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理及在 FlashAttention-3 中的应用？**
+#### **Q209. H100 Thread Block Cluster 与 Distributed Shared Memory（DSMEM）的工作原理及在 FlashAttention-3 中的应用？**
 
 **背景：传统 Shared Memory 的局限**
 
@@ -9684,7 +9658,7 @@ Cluster（2 SM）：
 
 ---
 
-#### **Q212. NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持。**
+#### **Q210. NVFP4（FP4 with block-level FP8 scale）的存储格式与 Tensor Core 支持。**
 
 **NVFP4 的数值格式：**
 
@@ -9756,7 +9730,7 @@ wgmma.mma_async.sync.aligned.m64n256k128.f32.e2m1.e4m3
 
 ---
 
-#### **Q213. GB200 NVL72 系统的硬件规格与推理意义。**
+#### **Q211. GB200 NVL72 系统的硬件规格与推理意义。**
 
 **GB200 NVL72 规格：**
 
@@ -9802,7 +9776,7 @@ Decode 阶段受 HBM 带宽主导（Memory-bound）。B200 每 GPU HBM 带宽为
 
 ---
 
-#### **Q214. NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？**
+#### **Q212. NVFP4 的理论峰值 TFLOPS 相比 H100 FP8 的提升倍数推算？**
 
 **推算原理：**
 
@@ -9855,7 +9829,7 @@ $$\frac{\text{B200 NVFP4 Sparse}}{\text{H100 FP8 Sparse}} = \frac{18{,}000}{1979
 
 ---
 
-#### **Q215. Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源？**
+#### **Q213. Blackwell NVSwitch 4 的交换架构与其相比 NVSwitch 3（H100）的带宽提升来源？**
 
 **NVSwitch 演进对比：**
 
