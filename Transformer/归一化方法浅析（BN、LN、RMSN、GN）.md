@@ -333,7 +333,16 @@ $$ \sigma^2 = \frac{S_d}{d}, \qquad \bar{\sigma} = \sqrt{\sigma^2 + \epsilon} $$
 ##### 3.5.3.2 并行 Welford Merge
 
 两个分块 $(d_a, M_a, S_a)$ 和 $(d_b, M_b, S_b)$ 合并
-$$d = d_a + d_b, \quad \delta = M_b - M_a$$ $$M = M_a + \delta \cdot \frac{d_b}{d}$$ $$
+$$d = d_a + d_b, \quad \delta = M_b - M_a$$$$
+\begin{aligned}
+M 
+&= \frac {d_a M_a + d_b M_b} {d_a + d_b}
+\\
+&= \frac {d_a M_a + d_b (\delta + M_a)} {d}
+\\
+&= M_a + \delta \cdot \frac{d_b}{d}
+\end{aligned}
+$$ $$
 \begin{aligned}
 S_{AB} &= \sum_{i\in A}(x_i-M_{AB})^2+\sum_{i\in B}(x_i-M_{AB})^2 \\
 &= S_A+d_A(M_A-M_{AB})^2+S_B+d_B(M_B-M_{AB})^2 \\
