@@ -176,7 +176,7 @@ ONNX Runtime 的 `ConvBNFusion` 和 `GemmActivationFusion` Graph Transformer pas
 
 ---
 
-- ## 3. Layer Normalization（LN）
+## 3. Layer Normalization（LN）
 
 ### 3.1 背景
 
