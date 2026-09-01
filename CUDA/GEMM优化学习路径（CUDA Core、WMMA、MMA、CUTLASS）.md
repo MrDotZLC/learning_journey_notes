@@ -29,6 +29,9 @@ $$I = \frac{2M^3}{3M^2 \times 4} = \frac{M}{6}$$
 |4096|682.7 FLOP/Byte|算力瓶颈|
 
 ## 二、CUDA Core SGEMM
+
+[代码库](https://github.com/MrDotZLC/my_llm_practice/tree/main/kernels/cuda_core_sgemm)
+
 ### 2.1 cuda_core_sgemm_v1_naive
 Naive kernel 每次从 Global Memory 读数据，无复用。
 
@@ -1854,6 +1857,9 @@ occupancy 是主导瓶颈，提升路径只有两条：
 ## 三、WMMA HGEMM（Tensor Core MMA）
 
 [Tensor Core 介绍](Tensor%20Core%20介绍.md)
+
+[代码库](https://github.com/MrDotZLC/my_llm_practice/tree/main/kernels/wmma)
+
 ### 3.1  wmma_hgemm_v1_naive
 
 #### 3.1.1 参数设计
@@ -2111,6 +2117,135 @@ smem_B `[BK][BN]` = `[16][128]` = 2048 个 `half`，同理每线程加载 4 个 
 
 v2 用 `half2`，v3 升级为 `float4`，向量化宽度翻倍。
 
+#### 3.3.2 代码
+
+```
+#include "gemm.h"
+#include <mma.h>
+using namespace nvcuda;
+
+// WMMA v3：每 warp 持有 WARP_TILE_M×WARP_TILE_N 个 fragment，BM=BN=128
+// 相比 v2：每 warp 计算量从 WM×WN 扩大到 WARP_TILE_M*WMMA_M × WARP_TILE_N*WMMA_N
+
+static constexpr int WMMA_M = 16;   // fragment M 尺寸，SM75 硬件固定
+static constexpr int WMMA_N = 16;   // fragment N 尺寸，SM75 硬件固定
+static constexpr int WMMA_K = 16;   // fragment K 尺寸，SM75 硬件固定
+static constexpr int BM = 128;      // block tile 行数
+static constexpr int BN = 128;      // block tile 列数
+static constexpr int BK = WMMA_K;   // K 维 tile 步长，等于 fragment K 尺寸
+static constexpr int WARP_TILE_M = 2;   // 每 warp y 方向持有的 fragment 数
+static constexpr int WARP_TILE_N = 2;   // 每 warp x 方向持有的 fragment 数
+static constexpr int WARP_NUM_X = BN / (WARP_TILE_N * WMMA_N);   // 4
+static constexpr int WARP_NUM_Y = BM / (WARP_TILE_M * WMMA_M);   // 4
+
+__global__ void wmma_hgemm_v3_coarsen_kernel(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    float*        __restrict__ C,
+    int M, int N, int K)
+{
+    __shared__ __half smem_A[BM][WMMA_K];   // [128][16]
+    __shared__ __half smem_B[WMMA_K][BN];   // [16][128]
+
+    // ---- warp 坐标 ----
+    const int warp_x = threadIdx.x / 32;
+    const int warp_y = threadIdx.y;
+
+    // ---- 该 warp 负责的 C tile 左上角 ----
+    // warp 覆盖 WARP_TILE_M*WMMA_M 行 × WARP_TILE_N*WMMA_N 列
+    const int warp_row = blockIdx.y * BM + warp_y * WARP_TILE_M * WMMA_M;
+    const int warp_col = blockIdx.x * BN + warp_x * WARP_TILE_N * WMMA_N;
+
+        // ---- fragment 声明：WARP_TILE_M×WARP_TILE_N 个 fragment ----
+    wmma::fragment<wmma::matrix_a,
+                   WMMA_M, WMMA_N, WMMA_K,
+                   half, wmma::row_major> a_frag[WARP_TILE_M];
+    wmma::fragment<wmma::matrix_b,
+                   WMMA_M, WMMA_N, WMMA_K,
+                   half, wmma::row_major> b_frag[WARP_TILE_N];
+    wmma::fragment<wmma::accumulator,
+                   WMMA_M, WMMA_N, WMMA_K,
+                   float>                c_frag[WARP_TILE_M][WARP_TILE_N];
+
+    for (int mi = 0; mi < WARP_TILE_M; mi++)
+        for (int ni = 0; ni < WARP_TILE_N; ni++)
+            wmma::fill_fragment(c_frag[mi][ni], 0.0f);
+    
+    // ---- 线程线性 id ----
+    const int tid = threadIdx.y * blockDim.x + threadIdx.x;
+
+    // ---- K 维 tile 循环 ----
+    for (int bk = 0; bk < K; bk += WMMA_K) {
+        // smem_A[128][16]，共 2048 halfs，512 线程各加载 4 halfs
+        // 每行 WMMA_K=16 halfs，每线程加载 4 → 每行由 4 个线程负责
+        {
+            int row = tid / (WMMA_K / 4);         // 0~127
+            int col = (tid % (WMMA_K / 4)) * 4;  // 0,4,8,12
+
+            *reinterpret_cast<float2*>(&smem_A[row][col]) =
+                *reinterpret_cast<const float2*>(
+                    A + (blockIdx.y * BM + row) * K + bk + col);
+        }
+
+        // smem_B[16][128]，共 2048 halfs，512 线程各加载 4 halfs
+        // 每行 BN=128 halfs，每线程加载 4 → 每行由 32 个线程负责
+        {
+            int row = tid / (BN / 4);         // 0~15
+            int col = (tid % (BN / 4)) * 4;  // 0,4,8,...,124
+
+            *reinterpret_cast<float2*>(&smem_B[row][col]) =
+                *reinterpret_cast<const float2*>(
+                    B + (bk + row) * N + blockIdx.x * BN + col);
+        }
+
+        __syncthreads();
+
+        // ---- 加载 fragment & 执行 MMA ----
+        // 每 warp 执行 WARP_TILE_M × WARP_TILE_N 次 mma_sync
+        for (int mi = 0; mi < WARP_TILE_M; mi++)
+            wmma::load_matrix_sync(a_frag[mi],
+                &smem_A[warp_y * WMMA_M * WARP_TILE_M + mi * WMMA_M][0], BK);
+
+        for (int ni = 0; ni < WARP_TILE_N; ni++)
+            wmma::load_matrix_sync(b_frag[ni],
+                &smem_B[0][warp_x * WMMA_N * WARP_TILE_N + ni * WMMA_N], BN);
+
+        for (int mi = 0; mi < WARP_TILE_M; mi++)
+            for (int ni = 0; ni < WARP_TILE_N; ni++)
+                wmma::mma_sync(c_frag[mi][ni],
+                               a_frag[mi], b_frag[ni],
+                               c_frag[mi][ni]);
+        __syncthreads();
+    }
+
+    // ---- 写回 ----
+    for (int mi = 0; mi < WARP_TILE_M; mi++)
+        for (int ni = 0; ni < WARP_TILE_N; ni++) {
+            int c_row = warp_row + mi * WMMA_M;
+            int c_col = warp_col + ni * WMMA_N;
+            if (c_row < M && c_col < N)
+                wmma::store_matrix_sync(
+                    C + c_row * N + c_col,
+                    c_frag[mi][ni], N, wmma::mem_row_major);
+        }
+}
+
+void wmma_hgemm_v3_coarsen(
+    const __half* A, const __half* B, float* C,
+    int M, int N, int K,
+    float alpha, float beta) 
+{
+    dim3 block(WARP_NUM_X * 32, WARP_NUM_Y);  // (128, 4)
+    dim3 grid(
+        (N + BN - 1) / BN,
+        (M + BM - 1) / BM
+    );
+
+    wmma_hgemm_v3_coarsen_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    CUDA_CHECK(cudaGetLastError());
+}
+```
+
 ### 3.4 wmma_hgemm_v4_double_buf
 #### 3.4.1 设计思路
 
@@ -2251,6 +2386,8 @@ void wmma_hgemm_v4_double_buf(
 ## 四、MMA PTX SGEMM（本地不支持tensor core）
 
 [Tensor Core：HGEMM 半精度矩阵乘](Tensor%20Core：HGEMM%20半精度矩阵乘.md)
+
+[代码库](https://github.com/MrDotZLC/my_llm_practice/tree/main/kernels/mma)
 
 ### 4.1 mma_hgemm_v1_naive
 #### 4.1.1 参数设计
@@ -3262,6 +3399,8 @@ v4 相比 v2（同为 BK=16 基础）：
 ## 五、CUTLASS SGEMM
 
 [Cutlass 软件抽象分层与源码解析](Cutlass%20软件抽象分层与源码解析.md)
+
+[代码库](https://github.com/MrDotZLC/my_llm_practice/tree/main/kernels/cutlass)
 
 ```
 cutlass::gemm::device::Gemm          ← 设备层：对外接口，管理 grid/stream

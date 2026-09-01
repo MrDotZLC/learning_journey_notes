@@ -21,6 +21,7 @@ $$ O^{(t)} = e^{m^{(t-1)} - m^{(t)}} \cdot O^{(t-1)} + \sum_j e^{s^{(t)}_j - m^{
 最终 $O = O^{(T)} / l^{(T)}$。
 
 ## 二、算子实现
+[代码库](https://github.com/MrDotZLC/my_llm_practice/tree/main/kernels/flash_attention)
 ### 2.1 通用工具函数
 ```cuda
 // warp reduce 工具（所有版本共用）

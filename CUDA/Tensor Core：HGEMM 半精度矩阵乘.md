@@ -248,6 +248,7 @@ idmatrix参数是相互协作的、遵循下述表格规则的。
 ### 1.4 Swizzle介绍
 
 ## 二、WMMA
+[本地代码](https://github.com/MrDotZLC/cuda_practice/tree/main/4_tensor_core_wmma_study)
 ### 2.1 V1 Naive Kernel（m16n16k16）
 什么都不考虑。
 ![](assets/Pasted%20image%2020260205123640.png)
@@ -286,6 +287,7 @@ tile_n的赋值和tile_n-1的计算是异步的，不等待所有数据全部传
 
 ## 三、MMA
 **注：受限于设备，本小节的代码没有验证结果，请读者自行验证。**
+[本地代码]()
 ### 3.1 V1 Naive Kernel（m16n8k16）
 GMem到SMem的数据传输，没有conflict。
 SMem到Reg的数据传输，一次warp处理有2路conflict，ldmatrix有4个（沿用前例），共8路。
@@ -298,6 +300,7 @@ SMem到Reg的数据传输，一次warp处理有2路conflict，ldmatrix有4个（
 ![](assets/Pasted%20image%2020260207181932.png)
 ## 四、Swizzle
 [Swizzle 介绍](Swizzle%20介绍.md)
+[本地代码](https://github.com/MrDotZLC/cuda_practice/blob/main/5_mma_and_swizzle_study/hgemm_v3_mm1_m16n8k16_mma2x4_warp4x4_swizzle_kernel.cu)
 对索引或数据布局做可逆的置换（permutation）。
 ![](assets/Pasted%20image%2020260207180148.png)
 **原理：** 行索引不变，列索引改变。
