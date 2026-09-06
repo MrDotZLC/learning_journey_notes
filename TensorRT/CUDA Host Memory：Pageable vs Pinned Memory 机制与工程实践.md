@@ -439,12 +439,12 @@ DMA 完成 → 再释放内存
 ## 13. CUDA Host Memory 使用策略
 工程建议：
 
-|场景|建议|
-|---|---|
-|GPU 高频 IO Buffer|使用 Pinned Memory|
-|临时 CPU 数据|使用 Pageable|
-|大规模 Host Buffer|控制比例|
-|高频分配|使用 Memory Pool|
+| 场景               | 建议               |
+| ---------------- | ---------------- |
+| GPU 高频 IO Buffer | 使用 Pinned Memory |
+| 临时 CPU 数据        | 使用 Pageable      |
+| 大规模 Host Buffer  | 控制比例             |
+| 高频分配             | 使用 Memory Pool   |
 
 推荐模式：
 ```
