@@ -101,6 +101,7 @@ GPU divergence 中涉及 **三个 PC**：
 - 将多个 warp 的相同路径 active threads 重新组合成 **full warp**
 - 新 warp 的 Active Mask = 合并后线程
 - Idle lane 减少 → ALU 利用率接近 100%
+- 执行完成后择机恢复原有warp
 - 示例：
 
 | Warp | A   | B   |
