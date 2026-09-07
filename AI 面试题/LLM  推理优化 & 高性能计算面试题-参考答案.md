@@ -4438,7 +4438,6 @@ $$
 **2. FlashAttention-3 选择 CUDA 的根本原因**
 
 1. **需要直接操控 Hopper 硬件特性**：FlashAttention-3 的速度飞跃，核心在于充分榨干了 NVIDIA Hopper 架构的新特性，如 `WGMMA`（Warpgroup 矩阵乘加指令）、`TMA`（张量内存加速器）和 `FP8` 低精度计算支持。FA3 “利用了 NVIDIA 的 **CUTLASS** 库中的强大抽象概念”，而 CUTLASS 正是基于 CUDA 的高性能模板库。
-    
 2. **Triton 的局限性**：尽管 Triton 在快速开发和原型验证上很受欢迎，且也有实验性的 FA3 实现，但对于追求极致性能的场景仍有差距。Triton 实现主要用于**教学和研究目的**，而真正的生产级实现依赖的是 **CUDA 内核**。
 
 因此，FlashAttention-3 使用 CUDA/PTX 手写，以换取对 Hopper 硬件流水的完全控制。
