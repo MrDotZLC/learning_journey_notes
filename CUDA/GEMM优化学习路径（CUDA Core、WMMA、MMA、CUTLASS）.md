@@ -1384,7 +1384,7 @@ void sgemm_v5_double_buf(
     int M, int N, int K,
     float alpha, float beta)
 {
-    // 改动 5：显式配置 smem 上限，保证 32KB 分配成功
+    // 显式配置 smem 上限，保证 32KB 分配成功
     cudaFuncSetAttribute(
         sgemm_v5_double_buf_kernel,
         cudaFuncAttributePreferredSharedMemoryCarveout,
