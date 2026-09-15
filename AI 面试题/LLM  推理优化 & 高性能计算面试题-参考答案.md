@@ -8344,7 +8344,7 @@ $$I_h = \left| \sum_{t} \frac{\partial \mathcal{L}}{\partial \mathbf{A}^h_t} \od
 
 $$\Delta \mathcal{L} \approx -\frac{\partial \mathcal{L}}{\partial \mathbf{h}} \cdot \mathbf{h}$$
 
-其中 $\mathbf{h}$ 为该头的输出。与上述方法本质相同，在假设权重被置零时（$\mathbf{h} \to 0$）退化为相同形式。
+其中 $\mathbf{h}$ 为该头的输出，删掉头，即 $0-h$。与上述方法本质相同，在假设权重被置零时（$\mathbf{h} \to 0$）退化为相同形式。
 
 **恢复性微调（Recovery Fine-tuning）：**
 
