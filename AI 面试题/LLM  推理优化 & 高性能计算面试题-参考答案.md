@@ -2524,6 +2524,7 @@ $$s_i^* = \arg\min_{s_i} | W \cdot \text{diag}(s)^{-1} \cdot \hat{X} - \hat{W} \
 通过 Grid Search 在少量校准数据上求解，无需梯度，速度极快（分钟级）。实践中 $s_i$ 从激活幅度的分位数中选取：
 
 $$s_i = \text{mean}(|X_i|)^{\alpha}, \quad \alpha \in [0, 1]$$
+网格搜索$alpha$。
 
 **AWQ vs GPTQ 对比：**
 
