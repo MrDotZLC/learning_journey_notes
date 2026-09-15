@@ -281,7 +281,6 @@ $$x_q = \text{clip}!\left(\left\lfloor \frac{x}{s} \right\rceil + z,; q_{\min},;
 - **Q138.** Wide EP（大规模 Expert Parallelism）的适用场景：何时 EP 度应超过 TP 度？
 - **Q139.** EP 与 TP 组合时的通信分析：All-to-All 与 AllReduce 如何在 N-D 并行中调度？
 
-
 ### 12.3 MoE 量化与 Kernel 优化
 
 - **Q140.** MoE 层的 GEMM 为什么是"非均匀矩阵乘"（每个 Expert 的 Token 数不同）？如何用 GroupGEMM / Batched GEMM 处理？
