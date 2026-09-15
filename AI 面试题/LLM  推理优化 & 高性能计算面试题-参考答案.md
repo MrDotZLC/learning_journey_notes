@@ -1790,12 +1790,12 @@ KV 中的 **Value（V）** 数值分布相对平滑，量化误差小；**Key（
 
 **主要量化方案对比：**
 
-|方案|量化粒度|精度损失|实现复杂度|
-|---|---|---|---|
-|Per-tensor INT8|整个 KV Tensor 共享 Scale|较大（Outlier 影响全局 Scale）|低|
-|Per-token INT8|每个 Token 的 KV 独立 Scale|较小|中|
-|Per-channel INT8|每个头维度独立 Scale|更小|中|
-|FP8（E4M3）|Per-tensor 或 Per-token|介于 FP16 与 INT8 之间|低（H100 原生支持）|
+| 方案               | 量化粒度                   | 精度损失                   | 实现复杂度        |
+| ---------------- | ---------------------- | ---------------------- | ------------ |
+| Per-tensor INT8  | 整个 KV Tensor 共享 Scale  | 较大（Outlier 影响全局 Scale） | 低            |
+| Per-token INT8   | 每个 Token 的 KV 独立 Scale | 较小                     | 中            |
+| Per-channel INT8 | 每个头维度独立 Scale          | 更小                     | 中            |
+| FP8（E4M3）        | Per-tensor 或 Per-token | 介于 FP16 与 INT8 之间      | 低（H100 原生支持） |
 
 **工程实践：**
 
