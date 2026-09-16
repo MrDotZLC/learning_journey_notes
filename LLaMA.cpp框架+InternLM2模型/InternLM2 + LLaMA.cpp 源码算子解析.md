@@ -490,7 +490,7 @@ $$
 $$
 - $\text{position}$：token 在序列中的位置（0, 1, 2, …）  
 - $\omega_i = 10000^{-2i/d}$：每组维度的频率，低维度频率高，高维度频率低。
-## 5.1 InternLM python代码解析
+### 5.1 InternLM python代码解析
 ![](assets/Pasted%20image%2020260114054025.png)
 ### 5.1.1 获取所有维度对的旋转角度
 ![](assets/Pasted%20image%2020260114203720.png)
@@ -500,7 +500,7 @@ $$
 $$x' = x \odot \cos\theta + \text{rotate\_half}(x) \odot \sin\theta$$
 ![](assets/Pasted%20image%2020260116191050.png)
 
-## 5.2 LLaMA.cpp 代码解析
+### 5.2 LLaMA.cpp 代码解析
 框架写死了block_dim(1,256,1)，在核函数中，实际只有(1,64,1)参与ROPE计算。
 ![](assets/Pasted%20image%2020260116211949.png)
 1. $\omega_i = 10000^{-2i/d}$中与维度 i 无关的部分，提前计算成固定值theta_scale。
