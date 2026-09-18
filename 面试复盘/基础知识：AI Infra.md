@@ -28,5 +28,14 @@ GPU分配：容器内安装该NVIDIA Container Toolkit 和 cuda runtime 包，�
 
 ## Kubernetes
 
-
+Kubernetes 是一个**容器编排平台**，用于自动管理大量 Container 的部署、调度、扩缩容和故障恢复。
+### 基础
+```
+			kubectl
+			   ↓
+		   api server
+		       ↓
+		----------------
+		
+```
 
