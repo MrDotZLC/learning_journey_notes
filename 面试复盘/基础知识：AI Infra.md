@@ -36,6 +36,26 @@ Kubernetes 是一个**容器编排平台**，用于自动管理大量 Container 
 		   api server
 		       ↓
 		----------------
-		
+  Scheduler Controller etcd
+		       ↓
+		      Node 
+```
+```
+			  Node
+			   ↓
+			kubectl
+			   ↓
+			  Pod
+			   ↓
+		   Container
 ```
 
+1. kubectl 是 k8s 的控制面板和 Node 的代理，调用 api server 查看 Node、查看 pod 、创建查看容器、修改Deployment、滚动重启等。
+
+2. etcd 是 Kubernetes 的分布式 Key-Value 存储，保存整个集群状态（Pod状态、Node信息、Service信息、ConfigMap、Secret）。
+
+3. Scheduler 根据现有资源为 Container 分配 Node。
+
+4. Controller 持续监听实际状态，并控制 pods 达到期望状态。
+
+5. Pods 是 Kubernetes 最小调度单位，可包含多个 Container。
