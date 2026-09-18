@@ -114,4 +114,53 @@ ROS 有该功能。
 
 ### 数据版本管理
 通用工具：LakeFS
-具身智能常用：
+具身智能常用：LanceDB 机器人数据湖仓（Episode/Trajectory  diff、质量检查、适配MCAP/ROS 等特殊格式等等）
+
+### 模型版本管理
+通用工具：MLFlow、Kubeflow
+
+## MLOps 工具
+### Kubeflow
+> 构建在 Kubernetes 之上的机器学习（Machine Learning）工作流平台，用于管理模型训练、调优、部署和生命周期管理。
+
+| 组件                 | 作用      |
+| ------------------ | ------- |
+| Kubeflow Notebook  | 提供开发环境  |
+| Kubeflow Pipelines | 机器学习流水线 |
+| Training Operator  | 分布式训练   |
+| Katib              | 超参数搜索   |
+| KServe             | 模型部署    |
+| Central Dashboard  | 统一入口    |
+
+1. Kubeflow Notebook 本质是 Kubernetes 中运行的 Jupyter Pod。
+   
+2. Kubeflow Pipeline 将流程定义成 DAG，每个节点对应 Kubernetes Pod，实现全流程的自动化执行。
+
+3. Kubeflow Training Operator 就是 Kubernetes 上的“分布式训练调度器”，通过一个通用的控制器来管理不同框架的作业 Custom Resource (CR)，CR 是与 Node 同级别的自定义资源类型，可表示“训练任务”。
+
+4. Katib 是解决自动化机器学习（AutoML） 问题的组件，主要功能：
+   **超参数调优**：寻找模型训练的最佳参数组合
+   **早停**：发现某组参数明显效果差时，提前终止训练，节省算力
+   
+5. KServe 是负责**模型推理服务部署**的组件，负责把模型部署成在线服务。封装了自动扩缩容、流量路由、健康检查、版本管理、GPU 调度等。
+
+6. 大模型训练任务接入 Kubeflow 流程
+```
+Docker Image
+ |
+Training Dataset
+ |
+PyTorchJob(Custom Resource)
+ |
+GPU Scheduler
+ |
+NCCL Distributed Training
+ |
+Checkpoint Storage
+ |
+Evaluation
+```
+
+Kubeflow 是 Kubernetes 上的机器学习平台，主要解决 ML 生命周期管理问题。它通过 Notebook 提供开发环境，通过 Pipeline 编排数据处理、训练、评估流程，通过 Training Operator 管理分布式训练任务，例如 PyTorchJob，通过 KServe 完成模型部署。底层依赖 Kubernetes 的 Pod 调度、GPU Device Plugin、RBAC 和存储系统，实现训练和推理任务的自动化管理。
+
+### 
