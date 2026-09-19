@@ -133,17 +133,13 @@ ROS 有该功能。
 | Central Dashboard  | 统一入口    |
 
 1. Kubeflow Notebook 本质是 Kubernetes 中运行的 Jupyter Pod。
-   
 2. Kubeflow Pipeline 将流程定义成 DAG，每个节点对应 Kubernetes Pod，实现全流程的自动化执行。
-
 3. Kubeflow Training Operator 就是 Kubernetes 上的“分布式训练调度器”，通过一个通用的控制器来管理不同框架的作业 Custom Resource (CR)，CR 是与 Node 同级别的自定义资源类型，可表示“训练任务”。
-
 4. Katib 是解决自动化机器学习（AutoML） 问题的组件，主要功能：
    **超参数调优**：寻找模型训练的最佳参数组合
    **早停**：发现某组参数明显效果差时，提前终止训练，节省算力
    
 5. KServe 是负责**模型推理服务部署**的组件，负责把模型部署成在线服务。封装了自动扩缩容、流量路由、健康检查、版本管理、GPU 调度等。
-
 6. 大模型训练任务接入 Kubeflow 流程
 ```
 Docker Image
@@ -167,3 +163,27 @@ Kubeflow 是 Kubernetes 上的机器学习平台，主要解决 ML 生命周期�
 
 ROS 是机器人领域最主流的机器人软件中间件（Robotics Middleware），是一套运行在 Linux 上的分布式机器人应用框架，提供通信机制、硬件抽象、工具链、调试工具和生态组件。
 
+### ROS 1
+Apollo 早期使用的就是 ROS 的通信RPC，通讯风格和 ROS 一模一样，都是模块 Node 解耦、消息驱动、Topic 异步发布/订阅 和 主动请求等特性。
+
+### Action
+此外，Action 是 ROS 处理耗时任务、有中间反馈、可取消的异步调用机制。Apollo 没有这个机制，它核心流程是单向流动的，用 topic 足够处理了。
+
+### ROS 2
+#### 删除 ROS Master，替换成 DDS
+Master 是中心化组件，多机器人部署存在单点故障。使用 DDS 数据分布式服务实现：
+	去中心化
+	广播自动发现
+	单播实时通信
+	多机通信
+	控制QoS
+Apollo 中期自研通讯架构也是因为 Master 单点瓶颈，自行设计了一套类似 DDS 的机制，包括可靠性、历史数据保存、缓存策略、周期约束、消息生命周期。
+
+### Launch 大量节点
+统一管理节点生命周期、参数配置、环境变量和启动顺序。
+
+### 节点动态配置
+使用 yaml 动态修改 Node 节点。
+
+### TF 坐标变换系统
+统一管理机器人各部件之间坐标系关系的核心基础设施
