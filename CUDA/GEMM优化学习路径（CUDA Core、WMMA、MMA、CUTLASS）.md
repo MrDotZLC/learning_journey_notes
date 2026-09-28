@@ -1,4 +1,3 @@
-
 {% raw %}
 ## 一、硬件数据
 1. 架构：Turing（TU116）
@@ -31,6 +30,29 @@ $$I = \frac{2M^3}{3M^2 \times 4} = \frac{M}{6}$$
 ## 二、CUDA Core SGEMM
 
 [代码库](https://github.com/MrDotZLC/my_llm_practice/tree/main/kernels/cuda_core_sgemm)
+
+### 版本对比总表
+
+全部版本在一次完整运行中重新测量（2026-09-28，`results/bench_sgemm_cuda_core.csv`），按下面的章节顺序排列：
+
+| 版本 | 核心优化技术 | 分块 BM×BN×BK | 1024³ TFLOPS | 4096³ TFLOPS | 4096³ vs cuBLAS | 详见 |
+|---|---|---|---|---|---|---|
+| v1 naive | 朴素实现，逐元素直读全局内存 | — | 0.23 | 0.25 | 0.09× | 2.1 |
+| v2 smem | 共享内存分块（32×32，1 元素/线程） | 32×32×32 | 0.49 | 0.52 | 0.18× | 2.2 |
+| v3 coarsen | 线程粗粒化 TM=TN=4 + smem_A 转置 | 64×64×32 | 0.90 | 0.94 | 0.36× | 2.3 |
+| v4 vec | float4 向量化搬运 | 64×64×32 | 1.34 | 1.39 | 0.56× | 2.4 |
+| v5 swizzle | 标量粒度 swizzle（**无效**） | 64×64×32 | 1.30 | 1.34 | 0.53× | 2.5 / 2.9 |
+| v5 padding | smem_A padding，消 8 路写冲突 | 64×64×32 | 1.44 | 1.52 | 0.57× | 2.6 |
+| v5 double_buf | 双缓冲 + 寄存器预取 | 64×64×32 | 1.35 | 1.47 | 0.56× | 2.7 |
+| v6 large_tile | 128×128 大分块，跨 Roofline 拐点 | 128×128×16 | 1.85 | 2.04 | 0.76× | 2.8 |
+| v5 swizzle4 | **float4 粒度 swizzle**（修正 v5 swizzle） | 64×64×32 | 1.41 | 1.64 | 0.61× | 2.9 |
+| v7 swizzle8 | **8×8 寄存器分块 + float4 swizzle** | 128×128×32 | **2.13** | **2.33** | **0.87×** | 2.10 |
+| cuBLAS FP32 | 官方参考基线 | — | 1.53 | 2.68 | 1.00× | — |
+
+> `vs cuBLAS` 是同进程、紧邻时刻测得的比值（harness 的计时方法见 `benchmark/bench_sgemm_cuda_core.cu` 文件头）；绝对 TFLOPS 随整机热状态漂移（cuBLAS 实测在 3.5~4.7 TFLOPS 之间浮动），跨版本比较只看比值。
+> 两个值得注意的反常点：**v7_swizzle8 在 1024³ 上反而超过 cuBLAS（1.88×）**，因为 cuBLAS 要到 4096 才真正发力；**v5 swizzle（标量粒度）比 v4 还慢**，原因见 2.9。
+>
+> 另：下面 2.1–2.8 各节正文表格里的绝对 TFLOPS 来自更早的测量会话（当时机器更冷，绝对值整体偏高 30%~60%，例如 v6 的 2.53→1.85、v4 的 1.89→1.34），那些数字只用于说明**同一节内部的相对关系**；跨版本、跨章节比较请以本表为准。
 
 ### 2.1 cuda_core_sgemm_v1_naive
 Naive kernel 每次从 Global Memory 读数据，无复用。
@@ -193,7 +215,7 @@ v2 在所有规模下均慢于 v1，且大矩阵（1024）最严重。**根本�
 | 1024  | 6.3936          | 3.7388          | **0.58×（快 42%）** |
 | 2048  | 91.1972         | 49.7004         | **0.55×（快 45%）** |
 
-大矩阵时，当前 v2 每个线程只计算 C 的 1 个元素，寄存器里只有 1 个累加器 `acc`，无法隐藏warp smem 读取延迟。线程级别的计算效率成为瓶颈，抵消了 smem tiling 的效果。
+大矩阵时，当前 v2 每个线程只计算 C 的 1 个元素，寄存器里只有 1 个累加器 `acc`，无法隐藏 smem 读取延迟。线程级别的计算效率成为瓶颈，抵消了 smem tiling 的效果。
 
 #### 2.2.4 性能瓶颈推导
 ##### 2.2.4.1 当前 v2 的参数
@@ -1086,6 +1108,8 @@ swizzle 的收益在误差范围内（±2%），**对整体性能无显著影响
 
 **256 规模的回退（-12%）** 是小矩阵下 L2/L1 cache 命中率高，smem 路径本身占比下降，swizzle 引入的额外 XOR 指令和索引计算反而成为相对开销。
 
+> **⚠️ 本节结论已被 2.9 修正。** 上面的归因只对了一半。用 SASS 对拍可以看到真正的主因：`col_swz = m ^ (k_ & 0x1C)` 是按 4 字节粒度异或的，编译器因此无法证明线程负责的 4 个连续列仍然连续，**读取侧的 `LDS.128` 退化成了标量 LDS**（32 条 → 112 条），指令总数 +13%。消掉写冲突赚的 ~10% 被它吃光还倒亏。把异或改到 float4 组号粒度上即可两全，见 **2.9**。
+
 ### 2.6 cuda_core_sgemm_v5_padding
 
 #### 2.6.1 方案分析
@@ -1384,7 +1408,7 @@ void sgemm_v5_double_buf(
     int M, int N, int K,
     float alpha, float beta)
 {
-    // 显式配置 smem 上限，保证 32KB 分配成功
+    // 改动 5：显式配置 smem 上限，保证 32KB 分配成功
     cudaFuncSetAttribute(
         sgemm_v5_double_buf_kernel,
         cudaFuncAttributePreferredSharedMemoryCarveout,
@@ -1843,6 +1867,7 @@ $$ \frac{8}{24} \times \frac{1}{3} \approx 11\%\ \text{的 SM 利用率损失} $
 | smem_B bank conflict | ~0%      | 基本不可解 | 已被 FMA 掩盖                 |
 | Loop overhead        | ~0.4%    | 基本不可解 | BK 已是约束下最大值，overhead 不可避免 |
 | Wave quantization    | ~6.8%    | 基本不可解 | SM 7.5下，已经拉满了             |
+| **smem→寄存器流量 = 1 Byte/flop** | **主导（~50%）** | **可解** | **寄存器分块 4×4 → 8×8，把流量减半，见 2.10** |
 
 occupancy 是主导瓶颈，提升路径只有两条：
 
@@ -1853,6 +1878,191 @@ occupancy 是主导瓶颈，提升路径只有两条：
 **路径 B：切换 Tensor Core（WMMA）**
 
 将 acc 寄存器存入 Tensor Core 的 fragment 中，缓解寄存器压力。
+
+### 2.9 cuda_core_sgemm_v5_swizzle4（正确的 swizzle：XOR 只作用于 float4 组号）
+
+#### 2.9.1 先补上 2.5 缺的那半个解释
+
+2.5 的结论是"swizzle 收益在误差范围内"，归因于两点：写入冲突权重低、warp 调度掩盖了冲突延迟。这两条都对，但漏掉了最关键的一条——**2.5 的 swizzle 把读取侧的向量化加载打掉了**。
+
+对三个版本做 SASS 对拍（`cuobjdump -sass`，统计 LDS 指令宽度）：
+
+| 版本 | LDS.128 | LDS.64 | LDS.32（标量） | LOP3 | 指令总数 |
+| --- | --- | --- | --- | --- | --- |
+| v4_vec | 64 | 0 | 0 | 0 | 1056 |
+| v5_padding | 56 | 16 | 16 | 0 | 1080 |
+| v5_swizzle | 36 | 0 | **112** | 34 | 1192 |
+
+v4 的内层循环每轮 k 只需要 2 条 `LDS.U.128`（A 取 4 个连续元素、B 取 4 个连续元素），共 32×2 = 64 条，完全向量化。
+
+v5_swizzle 的读取写成 `smem_A[k_][(thread_row + m) ^ swz]`。**按 4 字节粒度异或之后，"连续"这个性质对编译器不再可见**：它无法证明同一线程负责的 4 个地址仍然相邻，于是 32 条 `LDS.128` 退化成 112 条标量 `LDS`，再加上 34 条 `LOP3` 做异或寻址，指令总数从 1056 涨到 1192（+13%）。
+
+所以 2.5 的真实账本是：
+
+$$
+\underbrace{-10\%}_{\text{消掉 8 路写冲突的收益}} + \underbrace{+13\%}_{\text{LDS.128 退化为标量 + XOR 寻址}} \approx \text{净亏 3\%}
+$$
+
+实测确实如此：4096³ 下 v4 约 56.9 ms，v5_swizzle 约 59.2~61.3 ms。
+
+**先验证"swizzle 到底有没有消掉冲突"**，把搬运阶段那 4 条 `smem_A[k_+j][...] = val.*` 的访存模式单独拿出来重复跑（纯 store 微基准）：
+
+| smem_A 布局 | 耗时 | 吞吐 |
+| --- | --- | --- |
+| `[32][64]` 原始（8 路冲突） | 204.9 ms | 1310 Mstore/s |
+| `[32][65]` padding | 37.2 ms | 7210 Mstore/s |
+| `[32][64]` + 标量 swizzle | 36.7 ms | 7307 Mstore/s |
+
+两者都把 8 路冲突彻底消掉了，成绩几乎一样。**冲突确实被消掉了，问题出在代价上。**
+
+#### 2.9.2 方案：XOR 只作用于「float4 组的组号」
+
+把 smem_A 的列索引按 4 个一组分成 group 与 local，异或只作用于 group：
+
+$$
+\text{group} = m \gg 2 \in [0,15], \qquad \text{local} = m \mathbin{\&} 3
+$$
+
+$$
+\text{col} = \big((\text{group} \oplus (k\_ \gg 2)) \ll 2\big) \;|\; \text{local}
+$$
+
+**写侧验证（8 行互不碰撞）**：搬运循环里线程负责的是 `k_ = i % BK, m = i / BK`，warp 内 $k_ \in \{0,4,8,\dots,28\}$ 的 8 个线程共享同一个列 $m$。此时 $k_ \gg 2 = 0,1,\dots,7$，8 个组号两两不同，落到 8 个不同的 128-bit 组；每组占 4 个 bank，正好铺满 32 个 bank，无冲突。✓
+
+**读侧验证（不破坏向量化）**：线程负责的 4 个连续列 $m = \text{thread\_row}+0..3$ 同属一个 group（$TM=4$ 且 $\text{thread\_row} = ty \times 4$ 是 4 的倍数），因此
+
+$$
+\text{col} = \big((ty \oplus (k\_ \gg 2)) \ll 2\big) + m
+$$
+
+是一个**常量基址 + 连续下标**，连续性对编译器完全可见，`LDS.128` 保住了。✓
+
+#### 2.9.3 代码
+
+见 [kernels/cuda_core_sgemm/sgemm_v5_swizzle4.cu](https://github.com/MrDotZLC/my_llm_practice/blob/main/kernels/cuda_core_sgemm/sgemm_v5_swizzle4.cu)。核心差异只有两行：
+
+```cuda
+// 写：只异或 float4 组号
+const int col = (((m >> 2) ^ (k_ >> 2)) << 2) | (m & 3);
+smem_A[k_][col] = val.x;  smem_A[k_+1][col] = val.y;
+smem_A[k_+2][col] = val.z;  smem_A[k_+3][col] = val.w;
+
+// 读：常量基址 + 连续下标 -> 仍是 LDS.128
+const int a_base = (ty ^ (k_ >> 2)) * 4;
+for (int m = 0; m < TM; m++) reg_A[m] = smem_A[k_][a_base + m];
+```
+
+#### 2.9.4 实测
+
+SASS 指纹回到了 v4 的水平：`64 × LDS.U.128`，指令总数 1064（v4 是 1056，几乎零额外开销）。
+
+| M=N=K | v4_vec | v5_padding | v5_swizzle（错粒度） | **v5_swizzle4** | swizzle4 vs v4 |
+| --- | --- | --- | --- | --- | --- |
+| 1024 | 1.14 ms | 1.10 ms | — | 1.06 ms | 1.07× |
+| 2048 | 8.31 ms | 6.67 ms | — | 6.16 ms | 1.35× |
+| 4096 | 57.9 ms | 53.1 ms | 61.3 ms | 50.3 ms | **1.19×** |
+
+（同一台 GTX 1660 Ti，同进程对比；绝对 TFLOPS 随温度/时钟波动，比值稳定。）
+
+**小结：bank conflict 分析必须落到"每条指令实际访存的地址"上，而不是标量下标上。** 同样是"消除 8 路冲突"，padding 几乎免费，标量粒度 swizzle 却要倒贴 13% 的指令数。CUTLASS 里所有 swizzle（`Swizzle<3,3,3>` 之类）都以 128-bit 为单位，原因就在这里。
+
+### 2.10 cuda_core_sgemm_v7_swizzle8（提高寄存器分块：把 1 byte/flop 降到 0.5）
+
+#### 2.10.1 先证伪两条直觉
+
+在 swizzle4 的基础上想继续提升，直觉上有两条路：掩盖 Global 访存延迟、或者增大 tile 跨越屋脊点。实测都不成立。
+
+**实验一：双缓冲 + 寄存器预取（在 swizzle4 上叠加，64×64×32 双缓冲）**
+
+| M=N=K | swizzle4 | swizzle4 + 双缓冲 | 收益 |
+| --- | --- | --- | --- |
+| 1024 | 1.044 ms | 0.897 ms | 1.16× |
+| 2048 | 7.411 ms | 6.762 ms | 1.10× |
+| 4096 | 50.95 ms | 50.79 ms | **1.00×** |
+
+大尺寸下完全没有收益。原因和 2.4 / 2.7 一样：$BK=32$ 时计算时间远大于 Global 加载延迟，而且双缓冲把 smem 从 16 KB 翻到 32 KB、占用率从 100% 掉到 50%，正好抵消。
+
+**实验二：诊断版——保留全部 smem 访存/同步，只删掉 Global 读写**
+
+| M=N=K | swizzle4 | 删掉 Global 访存 | 收益 |
+| --- | --- | --- | --- |
+| 1024 | 1.064 ms | 0.857 ms | 1.24× |
+| 2048 | 6.163 ms | 5.613 ms | 1.10× |
+| 4096 | 50.33 ms | 44.42 ms | 1.13× |
+
+**把整块 Global 访存全部删掉，也只快 10~24%。** 也就是说 Global 访存只占 10~20%，剩下 80% 的时间花在"smem 读 + FMA + 同步"这条骨架上。想提速必须动这条骨架。
+
+#### 2.10.2 卡点：4×4 分块的 smem 流量正好等于硬件平衡点
+
+每个线程每轮 $k$ 需要从 smem 读 $TM + TN$ 个 float，完成 $2 \cdot TM \cdot TN$ 次浮点运算：
+
+$$
+\text{v5（4×4）}: \frac{(4+4) \times 4\ \text{Byte}}{2 \times 4 \times 4\ \text{flop}} = 1.0\ \text{Byte/flop}
+\qquad
+\text{v7（8×8）}: \frac{(8+8) \times 4}{2 \times 8 \times 8} = 0.5\ \text{Byte/flop}
+$$
+
+而 GTX 1660 Ti 每个 SM 的资源是：**LDS 128 Byte/cycle、FMA 128 flop/cycle**，恰好也是 1 Byte/flop。
+
+$$
+\text{要跑满 100\% FMA} \iff \text{LDS 也必须跑满 100\%}
+$$
+
+所以 4×4 分块从结构上就不可能超过 ~50% 的 FMA 利用率——实测的 50%~57%（含 Global 访存时约 50%）正是这个上界。这不是"occupancy 不够"或"调度不好"，而是**两条流水线的配比被写死了**。
+
+把寄存器分块提到 8×8，smem 流量减半（LDS 需求降到 ~50%），FMA 才第一次真正成为瓶颈。
+
+#### 2.10.3 实现要点：两处必须做对
+
+**A 侧**：沿用 2.9 的 float4 粒度 swizzle。8 行分属两个 float4 组（$ty \times 8 + 0..3$ 与 $+4..7$），反解出两个常量基址即可，仍是 `LDS.128`。
+
+**B 侧**：**不能**让线程直接拥有连续的 8 列 $tx \times 8 \dots tx \times 8 + 7$。`LDS.128` 的执行会先把 warp 拆成 4 个 8 线程的相位，相位内地址步长为 8，$(8 \cdot tx) \bmod 32$ 只覆盖 4 个 bank，每组占 4 个 bank → **4 路冲突**，正好把 8×8 带来的翻倍算术强度又还回去。
+
+把每线程的 8 列拆成两段 $\{4tx \dots 4tx+3\}$ 与 $\{64 + 4tx \dots +3\}$（相隔 64 列），相位内步长回到 4，铺满 32 个 bank，无冲突。
+
+读侧映射与写回必须一致：`acc[r][c]` 的 $c<4$ 对应前半段列，$c \ge 4$ 对应后半段列。
+
+#### 2.10.4 代码
+
+见 [kernels/cuda_core_sgemm/sgemm_v7_swizzle8.cu](https://github.com/MrDotZLC/my_llm_practice/blob/main/kernels/cuda_core_sgemm/sgemm_v7_swizzle8.cu)。关键片段：
+
+```cuda
+static constexpr int BM = 128, BN = 128, BK = 32, TM = 8, TN = 8;
+static constexpr int COL_SPLIT = BN / 2;          // 64：列拆分点
+
+// 读 A：两段 float4（swizzle 反解）
+const int swz = k_ >> 2;
+const int a0 = (((2 * ty    ) ^ swz) << 2);
+const int a1 = (((2 * ty + 1) ^ swz) << 2);
+for (int r = 0; r < 4; r++) reg_A[r]     = smem_A[k_][a0 + r];
+for (int r = 0; r < 4; r++) reg_A[4 + r] = smem_A[k_][a1 + r];
+
+// 读 B：列拆成两段，保证相位内步长为 4
+for (int c = 0; c < 4; c++) reg_B[c]     = smem_B[k_][tx * 4 + c];
+for (int c = 0; c < 4; c++) reg_B[4 + c] = smem_B[k_][COL_SPLIT + tx * 4 + c];
+```
+
+编译结果：116~128 寄存器、32 KB smem、无 spill，`128 × LDS.U.128`（32 轮 k × 4 条，全向量化），每线程每轮 k 为 4 条 `LDS.128` + 64 条 `FFMA`（算术强度 0.5 Byte/flop）。
+
+#### 2.10.5 实测与结论
+
+正确性：256/512/128/192×320/300/1000/320×256×192（含 128 的非整数倍尺寸、非平凡 $\alpha/\beta$）全部 PASS，max_err ≤ 6e-6。
+
+性能（同进程对比，含 cuBLAS 参照）：
+
+| M=N=K | v5_swizzle4 | **v7_swizzle8** | 加速比 | cuBLAS FP32 | swz8 / cuBLAS |
+| --- | --- | --- | --- | --- | --- |
+| 1024 | 1.076 ms / 2.00 TF | **0.720 ms / 2.98 TF** | 1.49× | 0.966 ms / 2.22 TF | 1.34× |
+| 2048 | 7.699 ms / 2.23 TF | **4.762 ms / 3.61 TF** | 1.62× | 4.277 ms / 4.02 TF | 0.90× |
+| 4096 | 61.33 ms / 2.24 TF | **41.65 ms / 3.30 TF** | 1.47× | 37.32 ms / 3.68 TF | 0.90× |
+
+3.30~4.05 TFLOPS $\approx$ 峰值 5.44 的 **61%~74%**（随温度/时钟漂移），约为 cuBLAS FP32 的 **0.85~1.0×**（同进程测量 5 次：0.85 / 0.87 / 0.90 / 0.93 / 0.99）。差距已经不宽裕，且明显是边际收益递减区间：
+
+* 双缓冲这条路已实测证伪（1.00×），Turing 没有 `cp.async`，也用不了 LDGSTS 流水线；
+* 再加大寄存器分块（8×8 → 8×16）会把寄存器压到 1 block/SM，占用率反噬；
+* 剩下约 26% 的差距主要来自每 tile 两次 `__syncthreads`、tile 边界与尾波效应，需要更细的调参（更大 BK、warp 级分工）才能榨出来。
+
+**本节结论：当算力利用率卡在 50% 左右时，先算一遍"每条 FMA 要从 smem 搬多少字节"，再和硬件的 LDS/FMA 带宽比做对比。** 本例中 4×4 分块恰好压在平衡点上，这才是真正的天花板；occupancy 与 Global 延迟都是次要矛盾。
 
 ## 三、WMMA HGEMM（Tensor Core MMA）
 
@@ -2856,13 +3066,13 @@ v2 慢于 v1 的原因已确认为 Tensor Core 未激活导致 smem 开销无法
 ### 4.3 mma_hgemm_v3_large_tile
 #### 4.3.1 参数设计
 
-| 项目                       | BK=8               | BK=16               |
-| ------------------------ | ------------------ | ------------------- |
-| smem                     | 4 KB               | 8 KB                |
-| 加载粒度                     | `uint32_t`（2 half） | `float2`（4 half）    |
-| `__syncthreads()` 次数/K迭代 | 2                  | 2（但 K 迭代数减半）        |
-| 总 `__syncthreads()` 调用   | 2K/82K/8 2K/8      | 2K/162K/16 2K/16，减半 |
-| 内层 ki 循环                 | 无                  | `ki=0,1` 展开         |
+|项目|BK=8|BK=16|
+|---|---|---|
+|smem|4 KB|8 KB|
+|加载粒度|`uint32_t`（2 half）|`float2`（4 half）|
+|`__syncthreads()` 次数/K迭代|2|2（但 K 迭代数减半）|
+|总 `__syncthreads()` 调用|2K/82K/8 2K/8|2K/162K/16 2K/16，减半|
+|内层 ki 循环|无|`ki=0,1` 展开|
 
 #### 4.3.2 代码
 ```cuda
