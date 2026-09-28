@@ -1,8 +1,7 @@
 C++问答题：
-1. Continuous Batching  
-2. 计算：  
-  
-    C[M,N] = A[M,K] × B[K,N]  
+## Continuous Batching  
+## 计算：  bank
+  ``` C[M,N] = A[M,K] × B[K,N]  
       
     M=N=K=4096  
     FP16  
@@ -40,8 +39,10 @@ Shared Memory 的 Bank 映射可以简化为：
 32 个线程同时执行：  
   
     float x = tile[threadIdx.x][0];  
-
-sky 2026/9/28 14:17:23  
+  ```
+   
+## 计算 S
+```
 题目  
   
 标准 Attention：  
@@ -87,7 +88,10 @@ sky 2026/9/28 14:24:16
 
 赵连成 2026/9/28 14:25:09  
 2 * Batch * layer * Heads * head_dim * seq * 2  
-  
+```
+
+## size_t 溢出
+```
 sky 2026/9/28 14:26:49  
 #include <iostream>  
 #include <vector>  
@@ -97,7 +101,10 @@ void print_reverse(const std::vector<int>& vec) {
         std::cout << vec[i] << " ";  
     }  
 }  
-  
+```
+
+## delete 数组，用delete[]
+```
 sky 2026/9/28 14:33:16  
 class Buffer {  
 public:  
@@ -118,13 +125,14 @@ int main() {
     Buffer a(100);  
     Buffer b = a;  
 }  
+```
+
+##  Rule of Zero
   
-sky 2026/9/28 14:37:57  
-Rule of Zero  
-  
-sky 2026/9/28 14:38:17  
-copy-and-swap  
-  
+## copy-and-swap  
+
+## 迭代器删除
+```
 sky 2026/9/28 14:39:31  
 #include <iostream>  
 #include <vector>  
@@ -135,14 +143,11 @@ void removeEvens(std::vector<int>& vec) {
             vec.erase(it);  
         }  
     }  
-}  
-  
-sky 2026/9/28 14:44:16  
-erase-remove idiom  
-  
-sky 2026/9/28 14:44:24  
-remove_if  
-  
+} 
+```
+ 
+##  const& 返回值 指针空悬、临时对象
+```
 sky 2026/9/28 14:44:51  
 #include <iostream>  
 #include <string>  
@@ -156,8 +161,11 @@ int main() {
     std::string str1 = "Hello";  
     const std::string& longer = get_longer(str1, "World_Longer");  
     std::cout << "Longer string: " << longer << "\n";  
-}  
+}
+```  
   
+## map[] 默认插入
+```
 sky 2026/9/28 14:48:20  
 #include <map>  
 #include <string>  
@@ -186,7 +194,10 @@ public:
         return user_roles_.size();  
     }  
 };  
-  
+```
+
+## 死锁
+```
 sky 2026/9/28 14:52:19  
 #include <mutex>  
 #include <thread>  
@@ -203,6 +214,106 @@ void transfer_money(Account& from, Account& to, int amount) {
     from.balance -= amount;  
     to.balance += amount;  
 }  
+```
+
+## String
+```
+#include <cstddef>
+#include <cstring>
+#include <utility>
+#include <stdexcept>
+#include <iostream>
+
+class String {
+public:
+    // 默认构造：空字符串，仍保证 c_str() 返回有效指针
+    String() noexcept
+        : data_(new char[1]{'\0'}), size_(0) {}
+
+    // 从 C 风格字符串构造
+    String(const char* s) {
+        if (s == nullptr) {
+            throw std::invalid_argument("String: null pointer");
+        }
+        size_ = std::strlen(s);
+        data_ = new char[size_ + 1];
+        std::memcpy(data_, s, size_ + 1);
+    }
+
+    // 析构
+    ~String() {
+        delete[] data_;
+    }
+
+    // 拷贝构造：深拷贝，两个对象互不影响
+    String(const String& other)
+        : size_(other.size_) {
+        data_ = new char[size_ + 1];
+        std::memcpy(data_, other.data_, size_ + 1);
+    }
+
+    // 拷贝赋值：copy-and-swap，异常安全且自赋值安全
+    String& operator=(const String& other) {
+        if (this != &other) {
+            String tmp(other);
+            swap(tmp);
+        }
+        return *this;
+    }
+
+    // 移动构造：窃取资源，noexcept 很关键
+    String(String&& other) noexcept
+        : data_(other.data_), size_(other.size_) {
+        other.data_ = nullptr;
+        other.size_ = 0;
+    }
+
+    // 移动赋值：先释放自身资源，再窃取对方资源
+    String& operator=(String&& other) noexcept {
+        if (this != &other) {
+            delete[] data_;
+            data_ = other.data_;
+            size_ = other.size_;
+            other.data_ = nullptr;
+            other.size_ = 0;
+        }
+        return *this;
+    }
+
+    std::size_t size() const noexcept {
+        return size_;
+    }
+
+    const char* c_str() const noexcept {
+        return data_;
+    }
+
+    // 下标访问（可读）
+    const char& operator[](std::size_t index) const {
+        if (index >= size_) {
+            throw std::out_of_range("String: index out of range");
+        }
+        return data_[index];
+    }
+
+    // 下标访问（可写）
+    char& operator[](std::size_t index) {
+        if (index >= size_) {
+            throw std::out_of_range("String: index out of range");
+        }
+        return data_[index];
+    }
+
+    void swap(String& other) noexcept {
+        std::swap(data_, other.data_);
+        std::swap(size_, other.size_);
+    }
+
+private:
+    char* data_;
+    std::size_t size_;
+};
+```
   
 sky 2026/9/28 15:05:20  
 题目  
