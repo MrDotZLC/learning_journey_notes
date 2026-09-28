@@ -197,6 +197,7 @@ public:
 ```
 
 ## 死锁
+用scope_mutex。
 ```
 sky 2026/9/28 14:52:19  
 #include <mutex>  
