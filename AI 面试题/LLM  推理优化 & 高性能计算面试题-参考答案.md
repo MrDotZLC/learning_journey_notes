@@ -38,14 +38,14 @@ Shared Memory 与 L1 物理上合并。
 
 [🚀 CUDA 介绍 - 5.1 内存层级与延迟量级](../CUDA/🚀%20CUDA%20介绍.md#5.1%20内存层级与延迟量级)
 
-|层次|带宽（H100 SXM）|访问延迟|作用域|
-|---|---|---|---|
-|Register File|~20 TB/s（聚合估算）|~1 cycle|线程私有|
-|Shared Memory / L1|~20 TB/s|~20–30 cycles|Block 内共享|
-|L2 Cache|~10 TB/s|~200 cycles|全 GPU 共享|
-|HBM3（H100 SXM）|**3.35 TB/s**|~400–600 cycles|全 GPU 主显存|
-|NVLink 4.0（GPU–GPU）|~900 GB/s 双向|微秒级|节点内多卡|
-|PCIe 5.0（CPU–GPU）|~128 GB/s 双向|微秒级|主机–设备|
+| 层次                  | 带宽（H100 SXM）   | 访问延迟            | 作用域       |
+| ------------------- | -------------- | --------------- | --------- |
+| Register File       | ~20 TB/s（聚合估算） | ~1 cycle        | 线程私有      |
+| Shared Memory / L1  | ~20 TB/s       | ~20–30 cycles   | Block 内共享 |
+| L2 Cache            | ~10 TB/s       | ~200 cycles     | 全 GPU 共享  |
+| HBM3（H100 SXM）      | **3.35 TB/s**  | ~400–600 cycles | 全 GPU 主显存 |
+| NVLink 4.0（GPU–GPU） | ~900 GB/s 双向   | 微秒级             | 节点内多卡     |
+| PCIe 5.0（CPU–GPU）   | ~128 GB/s 双向   | 微秒级             | 主机–设备     |
 
 **核心结论：** Register 到 HBM 带宽差约 6×，延迟差约 400×。Kernel 优化的首要原则是**最大化片上数据复用**，减少 HBM Round-trip 次数。
 
