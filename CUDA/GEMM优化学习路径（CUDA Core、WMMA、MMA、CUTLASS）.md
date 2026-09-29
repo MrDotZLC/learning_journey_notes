@@ -114,7 +114,7 @@ $$ \text{Tiling：} \quad \text{reads} = 2 \cdot M \cdot N \cdot K \cdot \frac{1
 每个元素从 Global Memory 只读一次，但在 smem 里被复用 $T$ 次，Global Memory 访问量降低为原来的 $\dfrac{1}{T}$。
 #### 2.2.2 代码
 
-```CUDA
+```cpp
 #include "gemm.h"
 
 // 策略：block tile = 32x32，每线程计算 C 的一个元素
@@ -282,7 +282,7 @@ $$ \text{需要算力} = 0.25 \times 19 \times 10^{12} = 4.75\ \text{TFLOPS} $$
 
 v2 内层循环：
 
-```cuda
+```cpp
 for (int k = 0; k < TILE; k++) {
     acc += smem_A[ty][k] * smem_B[k][tx];
 }
@@ -356,7 +356,7 @@ $$ \text{acc}[m][n] += \text{regA}[m] \times \text{regB}[n], \quad m \in [0, TM)
 外积计算的循环中，smem_A 要按列读取，导致大量等待“气泡“，将数据存入转置后的 smem_A ，虽然写入时会有 4 路 bank conflict，但能够提升 4 倍读取效率。
 
 #### 2.3.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 
 // 策略：block tile=64×64，每线程算4×4输出元素
@@ -544,7 +544,7 @@ $$ k\_ = i \bmod BK, \quad m = i / BK $$
 
 #### 2.4.2 代码
 
-```cuda
+```cpp
 #include "gemm.h"
 
 // 策略：在 v3 基础上，搬运阶段用 float4 替代标量 float
@@ -921,7 +921,7 @@ $k_ \in {0,4,8,12,16,20,24,28}$，mask = $k_ \mathbin{\&} 0\text{x}1\text{C}$ = 
 固定 $k\_$，mask 为常数，col_swz = $m \oplus \text{const}$，相当于对列索引做常数 XOR，不改变同一行内不同 $m$ 之间的 bank 间距，原本无 conflict 的访问模式保持不变，✓。
 
 #### 2.5.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 
 // v5_swizzle：在 v4 基础上，对 smem_A 写入/读取施加 swizzle
@@ -1147,7 +1147,7 @@ $$ 32 \times 1 \times 4 = 128\ \text{bytes},\quad \text{total} = 16384 + 128 = 1
 #### 2.6.2 代码
 
 只改一行
-```cuda
+```cpp
 __shared__ float smem_A[BK][BM + 1]; // padding 1 行避免 bank conflict
 __shared__ float smem_B[BK][BN];
 ```
@@ -1212,7 +1212,7 @@ warp 调度掩盖延迟的能力减半。**净收益取决于 overlap 节省的�
 
 #### 2.7.2 代码
 
-```cuda
+```cpp
 #include "gemm.h"
 
 static constexpr int BM = 64;
@@ -1506,7 +1506,7 @@ $$ \text{reg/thread} \leq \frac{65536}{256 \times 2} = 128 $$
 `acc[TM][TN] = acc[8][8]` 占 64 个寄存器，加上 `reg_A[8]`、`reg_B[8]`、prefetch 寄存器，总计约 85–90 个，**满足 128 的上限**。
 
 #### 2.8.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 
 static constexpr int BM = 128;
@@ -1941,7 +1941,7 @@ $$
 
 见 [kernels/cuda_core_sgemm/sgemm_v5_swizzle4.cu](https://github.com/MrDotZLC/my_llm_practice/blob/main/kernels/cuda_core_sgemm/sgemm_v5_swizzle4.cu)。核心差异只有两行：
 
-```cuda
+```cpp
 // 写：只异或 float4 组号
 const int col = (((m >> 2) ^ (k_ >> 2)) << 2) | (m & 3);
 smem_A[k_][col] = val.x;  smem_A[k_+1][col] = val.y;
@@ -2026,7 +2026,7 @@ $$
 
 见 [kernels/cuda_core_sgemm/sgemm_v7_swizzle8.cu](https://github.com/MrDotZLC/my_llm_practice/blob/main/kernels/cuda_core_sgemm/sgemm_v7_swizzle8.cu)。关键片段：
 
-```cuda
+```cpp
 static constexpr int BM = 128, BN = 128, BK = 32, TM = 8, TN = 8;
 static constexpr int COL_SPLIT = BN / 2;          // 64：列拆分点
 
@@ -2099,7 +2099,7 @@ $$ BN = \text{WARP\_NUM\_X} \times WN = 4 \times 16 = 64 $$
 
 #### 3.1.2 代码
 
-```cuda
+```cpp
 // kernels/gemm/wmma_v1.cu
 // WMMA v1：每个 warp 直接从 Global Memory 读取，无 smem 复用
 // 每个 warp 负责输出 C 的一个 16×16 tile
@@ -2203,7 +2203,7 @@ $$ \text{smem\_A 总量} = 64 \times 16 \times 2 = 2048\ \text{Bytes},\quad 512 
 smem_B 同理。
 
 #### 3.2.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 #include <mma.h>
 using namespace nvcuda;
@@ -2462,7 +2462,7 @@ void wmma_hgemm_v3_coarsen(
 参考 2.7.1。
 
 #### 3.4.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 #include <mma.h>
 using namespace nvcuda;
@@ -2615,7 +2615,7 @@ SM75 支持的 FP16 MMA 指令有两种：
 
 #### 4.1.2 代码
 
-```cuda
+```cpp
 #include "gemm.h"
 #include <cuda_fp16.h>
 
@@ -2809,7 +2809,7 @@ $$
 lane 0~7 指向第 0~7 行，lane 8~15 重复指向 0~7 行（ldmatrix 内部处理重复）。
 
 #### 4.2.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 #include <cuda_fp16.h>
 
@@ -3075,7 +3075,7 @@ v2 慢于 v1 的原因已确认为 Tensor Core 未激活导致 smem 开销无法
 |内层 ki 循环|无|`ki=0,1` 展开|
 
 #### 4.3.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 #include <cuda_fp16.h>
 
@@ -3345,7 +3345,7 @@ BK 翻倍带来的收益符合预期：`__syncthreads()` 减半，收益 3~4%，
 | Global Mem 加载 | 循环内同步加载        | prologue 预加载，主循环 LDG 与 MMA 交叠 |
 
 #### 4.4.4.2 代码
-```cuda
+```cpp
 #include "gemm.h"
 #include <cuda_fp16.h>
 
@@ -3750,7 +3750,7 @@ using InstructionShape = cutlass::gemm::GemmShape<16, 8, 8>;
 
 #### 5.2.2 代码
 
-```cuda
+```cpp
 #include "gemm.h"
 #include <cutlass/gemm/device/gemm.h>
 #include <cutlass/epilogue/thread/linear_combination_relu.h>

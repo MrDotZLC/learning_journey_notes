@@ -1,4 +1,4 @@
-[TensorRT 介绍](../TensorRT/TensorRT%20介绍.md)![](assets/Pasted%20image%2020260929122112.png)
+![](assets/Pasted%20image%2020260929122112.png)
 [Cutlass 软件抽象分层与源码解析](../CUDA/Cutlass%20软件抽象分层与源码解析.md)
 [GPU Warp详解](../CUDA/GPU%20Warp详解.md)
 [GPU 维度解析](../CUDA/GPU%20维度解析.md)
@@ -13,3 +13,5 @@
 [Cutlass 软件抽象分层与源码解析](../CUDA/Cutlass%20软件抽象分层与源码解析.md)
 [TensorRT 与 TensorRT-LLM 图优化与层融合底层机制](../TensorRT/TensorRT%20与%20TensorRT-LLM%20图优化与层融合底层机制.md)
 [TensorRT 介绍](../TensorRT/TensorRT%20介绍.md)
+[不同并行与分布式推理方案](../并发与分布式推理/不同并行与分布式推理方案.md)[TensorRT 介绍](../TensorRT/TensorRT%20介绍.md)
+[通信优化](../AI%20面试题/LLM%20%20推理优化%20&%20高性能计算面试题-参考答案.md#8.2%20通信优化)
