@@ -3640,7 +3640,7 @@ $$AI = \frac{2 \times 128 \times 128 \times 32}{(128 \times 32 + 32 \times 128) 
 
 #### 5.1.2 代码
 
-```cuda
+```cpp
 #include "gemm.h"
 
 #include <cutlass/gemm/device/gemm.h>

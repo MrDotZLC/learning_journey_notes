@@ -1,5 +1,5 @@
-# 1. 算子融合的本质：对抗 Memory Wall
-## 1.1 GPU 推理性能瓶颈
+## 1. 算子融合的本质：对抗 Memory Wall
+### 1.1 GPU 推理性能瓶颈
 现代 GPU 推理性能通常受 **内存带宽限制** 而非计算能力限制。
 GPU 执行时间近似为
 $$
@@ -20,6 +20,7 @@ $$
 | $M$     | 访存字节数        |
 | $\pi$   | GPU 峰值 FLOPS |
 | $\beta$ | GPU 内存带宽     |
+
 引入 **算术强度 (Arithmetic Intensity)**：
 $$
 I = \frac{F}{M}
@@ -36,7 +37,7 @@ $$
 I > \frac{\pi}{\beta}
 $$
 → **Compute Bound**
-## 1.2 Memory-bound 算子的典型特征
+### 1.2 Memory-bound 算子的典型特征
 LLM 推理中大量算子属于：
 * Elementwise
 * Normalization
@@ -49,12 +50,13 @@ LLM 推理中大量算子属于：
 | Add       | 1            | 3   | memory bound |
 | LayerNorm | ~10          | 大量  | 强访存依赖        |
 | Softmax   | exp + reduce | 高访存 | 典型 IO-bound  |
+
 这些算子的性能主要由
 $$
 T \approx \frac{M}{\beta}
 $$
 决定。
-## 1.3 Operator Fusion 的核心思想
+### 1.3 Operator Fusion 的核心思想
 目标：
 **减少 Global Memory Traffic**
 未融合：
@@ -70,8 +72,10 @@ A -> FusedKernel -> DRAM
 从而减少
 * Global memory load
 * Global memory store
+
 ---
-# 2. 算子融合合法性条件
+
+## 2. 算子融合合法性条件
 算子能否融合取决于 **数据依赖关系**。
 设计算图
 $$
@@ -110,8 +114,9 @@ B -> write X
 则无法直接融合。
 
 ---
-# 3. 算子融合分类
-## 3.1 垂直融合 (Vertical Fusion)
+
+## 3. 算子融合分类
+### 3.1 垂直融合 (Vertical Fusion)
 典型：
 ```
 MatMul
@@ -135,7 +140,7 @@ acc += bias
 acc = activation(acc)
 ```
 仅 **一次 global write**。
-## 3.2 水平融合 (Horizontal Fusion)
+### 3.2 水平融合 (Horizontal Fusion)
 针对 **多个相同算子**。
 Transformer 中：
 $$
@@ -165,7 +170,7 @@ $$
 优势：
 * 更大 GEMM
 * 更高 GPU occupancy
-## 3.3 Reduction Fusion
+### 3.3 Reduction Fusion
 典型算子：
 * Softmax
 * LayerNorm
@@ -182,8 +187,10 @@ x -> square -> reduce -> sqrt -> divide
 ```
 Shared Memory Round-trip
 ```
+
 ---
-# 4. 内存访问优化推导
+
+## 4. 内存访问优化推导
 考虑融合算子
 $$
 A = ReLU(XW + b)
@@ -195,9 +202,9 @@ $$
 $$
 W \in \mathbb{R}^{K \times N}
 $$
-## 4.1 未融合访存
+### 4.1 未融合访存
 步骤：
-### Step1
+#### Step1
 MatMul
 读：
 $$
@@ -207,7 +214,7 @@ $$
 $$
 MN
 $$
-### Step2
+#### Step2
 BiasAdd
 读：
 $$
@@ -217,7 +224,7 @@ $$
 $$
 MN
 $$
-### Step3
+#### Step3
 ReLU
 读：
 $$
@@ -233,7 +240,7 @@ M_{unfused}
 =
 MK + KN + 4MN + N
 $$
-## 4.2 融合后
+### 4.2 融合后
 Kernel 内：
 ```
 acc = dot(x,w)
@@ -259,7 +266,7 @@ $$
 $$
 \Delta M = 3MN
 $$
-## 4.3 实际案例
+### 4.3 实际案例
 假设
 ```
 M = 1024
@@ -278,8 +285,10 @@ LLM 96 层：
 ```
 ≈ 2.3GB
 ```
+
 ---
-# 5. Kernel Launch Overhead
+
+## 5. Kernel Launch Overhead
 GPU Kernel 启动存在固定开销：
 $$
 T_{launch} \approx 5-20\mu s
@@ -305,7 +314,8 @@ T = T_{launch} + T_{compute}
 在 **小 batch inference** 场景中尤为明显。
 
 ---
-# 6. Transformer 中的典型融合
+
+## 6. Transformer 中的典型融合
 Transformer block 中：
 ```
 MatMul(QKV)
@@ -347,8 +357,9 @@ PV
 全部融合。
 
 ---
-# 7. FlashAttention 的 IO Complexity
-## 传统 Attention：
+
+## 7. FlashAttention 的 IO Complexity
+### 传统 Attention：
 需要存储
 $$
 S = QK^T
@@ -361,7 +372,7 @@ $$
 $$
 O(N^2)
 $$
-## FlashAttention 使用 **block streaming**：
+### FlashAttention 使用 **block streaming**：
 分块：
 ```
 Q_block
@@ -384,8 +395,10 @@ N²
 ```
 Nd
 ```
+
 ---
-# 8. CUDA Kernel 融合结构
+
+## 8. CUDA Kernel 融合结构
 融合 Kernel 层级：
 ```
 Register
@@ -399,7 +412,8 @@ Global Memory
 | Register      | 中间结果       |
 | Shared Memory | block tile |
 | Global Memory | 输入输出       |
-## 示例：Warp-level Fusion
+
+### 示例：Warp-level Fusion
 ```cpp
 #include <cuda_fp16.h>
 __global__ void fused_linear_swiglu(
@@ -431,8 +445,10 @@ Sigmoid
 Mul
 Gate
 ```
+
 ---
-# 9. Triton 融合机制
+
+## 9. Triton 融合机制
 Triton 编译流程：
 ```
 Python Kernel
@@ -456,8 +472,9 @@ RMSNorm + SwiGLU
 自动融合为单 Kernel。
 
 ---
-# 10. 2025–2026 前沿趋势
-## 10.1 NVIDIA Blackwell FP4
+
+## 10. 2025–2026 前沿趋势
+### 10.1 NVIDIA Blackwell FP4
 新数据格式：
 ```
 NVFP4
@@ -478,11 +495,12 @@ Micro-block scaling：
 | FP16 | 2B   |
 | FP8  | 1B   |
 | FP4  | 0.5B |
+
 内存下降：
 ```
 4x vs FP16
 ```
-## 10.2 Warp Specialization
+### 10.2 Warp Specialization
 FlashAttention-3 使用：
 ```
 Producer Warp
@@ -499,7 +517,8 @@ Tensor Core compute
 形成 **异步流水线**。
 
 ---
-# 11. 融合限制
+
+## 11. 融合限制
 并非所有算子都适合融合。
 限制：
 
@@ -510,6 +529,7 @@ Tensor Core compute
 | 调度复杂                | Occupancy 下降 |
 | 动态 shape            | 难以编译优化       |
 | 通信算子                | 无法融合         |
+
 过度融合可能导致：
 ```
 register spill
@@ -517,7 +537,9 @@ register spill
 反而 **降低性能**。
 
 ---
-# 12. 推理框架中的融合实现
+
+## 12. 推理框架中的融合实现
+
 | 框架               | 融合方式                    |
 | ---------------- | ----------------------- |
 | TensorRT         | Pattern Graph Fusion    |
@@ -527,7 +549,8 @@ register spill
 | TensorRT-LLM     | Attention + Comm Fusion |
 
 ---
-# 13. 核心结论
+
+## 13. 核心结论
 算子融合的本质：
 ```
 减少 DRAM 访问
