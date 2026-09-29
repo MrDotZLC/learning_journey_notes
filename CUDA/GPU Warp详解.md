@@ -87,14 +87,14 @@ GPU divergence 中涉及 **三个 PC**：
 - Divergence 结束
 ## 3. Ampere/Ada vs Hopper 架构差异（Divergence）
 
-|特性|Ampere/Ada|Hopper|
-|---|---|---|
-|Warp Scheduler|4|6|
-|Divergence处理|每 warp 保持独立路径|Dynamic Warp Recomposition (DWR) 重组 active threads|
-|Active Mask|warp 内分支线程独立|合并同路径线程形成 full warp|
-|SIMT Stack|多 entry → 多 warp 发射|entry 少，lane 利用率高|
-|发射次数|多次|少次 → 发射开销降低|
-|Lane 利用率|< 100%，idle lane 多|≈ 100%|
+| 特性             | Ampere/Ada          | Hopper                                             |
+| -------------- | ------------------- | -------------------------------------------------- |
+| Warp Scheduler | 4                   | 6                                                  |
+| Divergence处理   | 每 warp 保持独立路径       | Dynamic Warp Recomposition (DWR) 重组 active threads |
+| Active Mask    | warp 内分支线程独立        | 合并同路径线程形成 full warp                                |
+| SIMT Stack     | 多 entry → 多 warp 发射 | entry 少，lane 利用率高                                  |
+| 发射次数           | 多次                  | 少次 → 发射开销降低                                        |
+| Lane 利用率       | < 100%，idle lane 多  | ≈ 100%                                             |
 
 ## 4. Hopper 详细优化
 ### 4.1 Dynamic Warp Recomposition (DWR)
@@ -151,6 +151,7 @@ Entry 2: { mask = merged_active_threads_pathB, pc = pathB_start, joinPC = path_e
 |W2|6|26|
 |W3|8|24|
 
+执行开销为 4 单位/路径。
 - 总线程：
     - A = 32
     - B = 96
