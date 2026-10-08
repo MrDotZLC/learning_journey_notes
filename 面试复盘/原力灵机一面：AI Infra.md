@@ -432,15 +432,15 @@ Pause
 
 你的回答应该是：
 
-Tstep=Tcompute+Tcommunication+Tsynchronization+TpipelineT_{step}=T_{compute}+T_{communication}+T_{synchronization}+T_{pipeline}
+T_{step}=T_{compute}+T_{communication}+T_{synchronization}+T_{pipeline}
 
 GPU 数增加：
 
-Tcompute↓T_{compute}\downarrow
+T_{compute}↓
 
 但：
 
-TcommunicationT_{communication}
+T_{communication}
 
 不一定同比下降。
 
@@ -488,15 +488,15 @@ Scaling 差
 
 用公式：
 
-Tstep=Tcompute(P)+Tcomm(P)T_{step}=T_{compute}(P)+T_{comm}(P)
+T_{step}=T_{compute}(P)+T_{comm}(P)
 
 随着 $P$ 增加：
 
-Tcompute(P)↓T_{compute}(P)\downarrow
+T_{compute}(P)↓
 
 但：
 
-Tcomm(P)↑T_{comm}(P)\uparrow
+T_{comm}(P)↑
 
 最终出现 diminishing return。
 
