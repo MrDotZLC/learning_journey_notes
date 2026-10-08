@@ -44,9 +44,7 @@
 
 > 我用 C++ / CUDA 手写了一个极简的 TensorRT 推理引擎，把 TensorRT-LLM 的核心机制实现了一遍：
 
-> 配置驱动建图、分页 KV Cache、自研 PagedAttention（含长上下文的上下文维切分）、
-
-> 设备侧采样器、prefill/decode 双引擎，CV 与 LLM 跑在同一套框架里。
+> 配置驱动建图、分页 KV Cache、自研 PagedAttention（含长上下文的上下文维切分）、采样器、prefill/decode 双引擎，CV 与 LLM 跑在同一套框架里。
 
 > GPT-2 FP32 的贪心输出与 HuggingFace 逐 token 一致，logits 相对偏差 `9.19e-07`；
 
@@ -56,65 +54,25 @@
 
 **2 分钟版**（按"背景 → 做法 → 验证 → 性能 → 收尾"五段）
 
-1. **背景**：仓库里原本是两个各写各的 ONNX 示例（ResNet18 / GPT-2），我把它们合并成一个框架，
-
-   并给自己定了一条约束：**只依赖 TensorRT + CUDA，关键 kernel 自己写**。目标是搞清楚机制，
-
-   不是替换 TensorRT-LLM。
-
+1. **背景**：仓库里原本是两个各写各的 ONNX 示例（ResNet18 / GPT-2），我把它们合并成一个框架，并给自己定了一条约束：**只依赖 TensorRT + CUDA，关键 kernel 自己写**。目标是搞清楚机制，不是替换 TensorRT-LLM。
 2. **做法**：`config.json` 描述结构 → `ModelRegistry` 分发到具体 `IModelBuilder`；
 
-   权重走 Safetensors（自己写 dtype 转换）；同一个 builder 出三种切面
-
-   （`kSingle` / `kPrefill` / `kDecode`）；KV Cache 分页；decode 注意力用 `IPluginV3` 手写；
+   权重走 Safetensors（自己写 dtype 转换）；同一个 builder 出三种切面  （`kSingle` / `kPrefill` / `kDecode`）；KV Cache 分页；decode 注意力用 `IPluginV3` 手写；
 
    采样器（greedy / top-k / top-p）全部设备侧，**解码循环内零 H2D/D2H**；另留一条 ONNX 路径做交叉验证。
 
-3. **验证**：与 HuggingFace / PyTorch 对拍——GPT-2 FP32 贪心 **8/8 token 全中**，
-
-   logits 相对偏差 `9.19e-07`；ResNet18 FP32 对 torchvision `9.5e-06`；
-
-   INT8 用"FP32 余量子集一致率"判，实测 **12/12**。
-
-4. **性能**：先建立可复现的测量口径与**判别下限**，再定位瓶颈——长上下文下 attention 占每步约 80%，
-
-   机制是每层只有 `12 heads × 1 batch = 12` 个 block、而机器有 24 个 SM（一半闲置），
-
-   且每块串行扫完整段上下文；改成上下文维切分（stage-1 局部 `m/l/acc` + stage-2 保序归约）后，
-
-   斜率降 **88.85%**（kernel 级）/ **88.20%**（端到端），结果与单趟实现完全一致。
-
-5. **收尾**：引擎构建指纹缓存、插件与图版本的手工代次契约、按 `REQ-NNN` 组织的 20 个开发条目，
-
-   每个条目一套 artifact（需求 / 分析 / 设计 / 评审 / 基准 / 用例 / 总结 / 面试笔记）。
+3. **验证**：与 HuggingFace / PyTorch 对拍——GPT-2 FP32 贪心 **8/8 token 全中**， logits 相对偏差 `9.19e-07`；ResNet18 FP32 对 torchvision `9.5e-06`； INT8 用"FP32 余量子集一致率"判，实测 **12/12**。
+4. **性能**：先建立可复现的测量口径与**判别下限**，再定位瓶颈——长上下文下 attention 占每步约 80%，机制是每层只有 `12 heads × 1 batch = 12` 个 block、而机器有 24 个 SM（一半闲置），且每块串行扫完整段上下文；改成上下文维切分（stage-1 局部 `m/l/acc` + stage-2 保序归约）后，斜率降 **88.85%**（kernel 级）/ **88.20%**（端到端），结果与单趟实现完全一致。
+5. **收尾**：引擎构建指纹缓存、插件与图版本的手工代次契约、按 `REQ-NNN` 组织的 20 个开发条目，每个条目一套 artifact（需求 / 分析 / 设计 / 评审 / 基准 / 用例 / 总结 / 面试笔记）。
 
 **5 分钟版**：2 分钟版 + 下面两条"反直觉的实测结论"（这是最能体现工程判断力的部分）
 
-- **packed 混合批不如 padding**：我做了"把两相装进一个 packed 张量、只算真实 token"的路径，
+- **packed 混合批不如 padding**：我做了"把两相装进一个 packed 张量、只算真实 token"的路径，但放大到真实 GPT-2（prompt 192+64）实测**比 padding 慢 11.79%**（28.441 → 31.793 ms，远超本机 0.6 ms 的判别下限，三次可复现）。再做判别实验（把长度比从 1.5× 拉到 1.92×），劣势从 +11.2% 收到 +5.88% ⇒ 说明它**不是天生更贵，而是固定成本还没被省下的 token 抵消**。
 
-  但放大到真实 GPT-2（prompt 192+64）实测**比 padding 慢 11.79%**（28.441 → 31.793 ms，
+  结论写进 `benchmark.md` 的 `Negative`，Gate-B 裁决"保留 opt-in、不继续投入"，并把 kernel 级定位另立成 REQ-020。
 
-  远超本机 0.6 ms 的判别下限，三次可复现）。再做判别实验（把长度比从 1.5× 拉到 1.92×），
-
-  劣势从 +11.2% 收到 +5.88% ⇒ 说明它**不是天生更贵，而是固定成本还没被省下的 token 抵消**。
-
-  结论写进 `benchmark.md` 的 `Negative`，Gate-B 裁决"保留 opt-in、不继续投入"，
-
-  并把 kernel 级定位另立成 REQ-020。
-
-- **LLM 的 weight-only INT8 收益不成立**：prefill 中/长档慢 +10.2% / +4.1~4.4%，decode 无显著差异，
-
-  体积两引擎合计只省 6.67%（且 decode 引擎反而大 7.7%）。根因是**这个形态不产生 INT8 计算**——
-
- 48 个 Linear 折回 FP32、0 层带 Int8，多出来的 DQ 每步都要算。我原来的推导
-
- （"decode 访存受限 ⇒ 省带宽"）被实测否掉。
-
-- **FP16 的 NaN 不只是"修好了"，而是"定位到了算子和数值机理"**：TRT 把 MLP 的 `c_fc` 的
-
-  MatMul+bias+GELU 融进一个 FP16 的 Turing GEMM epilogue，而那个 epilogue 的 tanh 在 FP16 下
-
-  `exp` 会溢出（自变量 `2v ≈ 120` ≫ `ln(65504) ≈ 11.09`）⇒ `inf/inf` = NaN。
+- **LLM 的 weight-only INT8 收益不成立**：prefill 中/长档慢 +10.2% / +4.1~4.4%，decode 无显著差异，体积两引擎合计只省 6.67%（且 decode 引擎反而大 7.7%）。根因是**这个形态不产生 INT8 计算**——48 个 Linear 折回 FP32、0 层带 Int8，多出来的 DQ 每步都要算。我原来的推导（"decode 访存受限 ⇒ 省带宽"）被实测否掉。
+- **FP16 的 NaN 不只是"修好了"，而是"定位到了算子和数值机理"**：TRT 把 MLP 的 `c_fc` 的 MatMul+bias+GELU 融进一个 FP16 的 Turing GEMM epilogue，而那个 epilogue 的 tanh 在 FP16 下 `exp` 会溢出（自变量 `2v ≈ 120` ≫ `ln(65504) ≈ 11.09`）⇒ `inf/inf` = NaN。
 
   证据是**逐层一一对应**（该融合内核所在的层 ⟺ 该层残差 NaN），修法是 FP16 建图下把 GELU
 
@@ -158,13 +116,9 @@
 
 #### S1 离线产图 —— 接口约定：HF / ONNX 权重 → `config.json` + `model.safetensors`（+ 量化清单）
 
-**实现**：`tools/convert/hf_to_mini_trt_llm.py` 把 HF checkpoint 转成 `config.json`
+**实现**：`tools/convert/hf_to_mini_trt_llm.py` 把 HF checkpoint 转成 `config.json`（`model_type` / `architecture` / `hyper_params` / `weight_map`）+ `model.safetensors`；
 
-（`model_type` / `architecture` / `hyper_params` / `weight_map`）+ `model.safetensors`；
-
-ResNet18 走 `onnx_to_mini_trt_llm.py`（**BN 在导出时就折进 Conv**）。INT8 另由 `quantize_*.py`
-
-产出 `quant_int8.json` 清单 + int8 权重文件。
+ResNet18 走 `onnx_to_mini_trt_llm.py`（**BN 在导出时就折进 Conv**）。INT8 另由 `quantize_*.py` 产出 `quant_int8.json` 清单 + int8 权重文件。
 
 **取舍与代价**：`weight_map` 是"TRT 侧逻辑名 → 权重源 key"的映射，**改名只改 JSON、不动建图代码**；
 
@@ -208,21 +162,13 @@ ResNet18 走 `onnx_to_mini_trt_llm.py`（**BN 在导出时就折进 Conv**）。
 
 #### S2 引擎构建与缓存 —— 接口约定：`model_dir` + `Config` → `<engine>` + `<engine>.fingerprint`
 
-**实现**：`EngineBuilder::BuildFromConfig(model_dir, engine_path, stage)` → `SetupBuilder`
-
-（workspace / builder flags）→ 模型 builder 的 `Build(network, weights, config, BuildOptions)`
+**实现**：`EngineBuilder::BuildFromConfig(model_dir, engine_path, stage)` → `SetupBuilder`（workspace / builder flags）→ 模型 builder 的 `Build(network, weights, config, BuildOptions)`
 
 → `AddLlmOptimizationProfiles` / `AddCvOptimizationProfile` → `buildSerializedNetwork`
 
 → `SerializeAndSave`（引擎与指纹**一起落盘**）。ONNX 路径 `BuildFromOnnx` 走同一套 profile 语义。
 
-**取舍与代价**：① `BuildStage{kSingle, kPrefill, kDecode}` 把"建哪个切面"显式化——prefill 图与
-
-decode 图的 I/O 约定（I/O contract）不同（前者导出每层 K/V、attention 手搭；后者走 PagedAttention 插件、吃每层 cache），
-
-**不是同一张图的两个 profile**；② `BuildOptions` 携带 `weight_dtype` / `quant` / `export_diagnostics`
-
-/ `packed_mixed`，因为 **builder 必须显式知道目标 dtype 与切面**，TRT 的 builder flag 只表达"整网倾向"；
+**取舍与代价**：① `BuildStage{kSingle, kPrefill, kDecode}` 把"建哪个切面"显式化——prefill 图与decode 图的 I/O 约定（I/O contract）不同（前者导出每层 K/V、attention 手搭；后者走 PagedAttention 插件、吃每层 cache），**不是同一张图的两个 profile**；② `BuildOptions` 携带 `weight_dtype` / `quant` / `export_diagnostics`/ `packed_mixed`，因为 **builder 必须显式知道目标 dtype 与切面**，TRT 的 builder flag 只表达"整网倾向"；
 
 ③ 缓存复用**只由指纹决定**。代价：profile 区间或任何建图数值一改就要重建（分钟级/份）。
 
@@ -230,27 +176,17 @@ decode 图的 I/O 约定（I/O contract）不同（前者导出每层 K/V、atte
 
 复用——TRT 的构建与 tactic 选择、TRT 层算子（MatMul / Slice / Softmax / Gather / Conv…）。
 
-**`BuildOptions` 逐项**（`include/mini_trt_llm/core/imodel_builder.hpp` —— 它是**传给 `IModelBuilder::Build`
+**`BuildOptions` 逐项**（`include/mini_trt_llm/core/imodel_builder.hpp` —— 它是**传给 `IModelBuilder::Build`的"本次构建语义"**，不是模型描述、也不是 profile 配置）：
 
-的"本次构建语义"**，不是模型描述、也不是 profile 配置）：
-
-| 字段 | 默认 | 语义 | 谁在读 | 为什么有它 / 代价 |
-
-|---|---|---|---|---|
-
-| `stage` | `kSingle` | 建哪个切面：`kSingle`（一个引擎挂 prefill+decode 两组 profile，Phase 1.5 的旧行为）/ `kPrefill`（整段前向 + 导出每层 K/V）/ `kDecode`（单 token + PagedAttention 插件） | GPT-2 builder 推 `is_decode` / `export_kv`；**ResNet18 builder 只接受 `kSingle`**，其它值直接报错 | 切面是**构建期**参数：模型描述（`ModelConfig`）说不清、profile 配置里也没有它的位置 |
-
-| `weight_dtype` | 结构体默认 `kFLOAT`，但生产路径**总被 `Config::precision` 覆盖**（工程默认 FP16） | 权重**常量层**建成的精度 | 两个 builder 都用它建常量；GPT-2 还用它决定 **GELU 走哪条路**（FP16 才展开 + 限幅） | TRT 的 builder flag 只表达"整网倾向"，回答不了"这个常量该是什么类型" |
-
-| `quant` | `nullptr` | 量化清单指针：非空时，清单点名的权重走"int8 常量 + DQ"，其余走原路径 | 仅 GPT-2 builder（存成 `quant_`） | **生命周期只覆盖本次 Build**：调用方要在同一作用域持有 `QuantSpec`，并保证它在 `buildSerializedNetwork` 之前不析构；`nullptr` 时建图逐位回到改动前 |
-
-| `export_diagnostics` | `false` | 是否把排查用的中途张量挂成网络输出 | GPT-2 builder，且**只对 prefill 生效**（`export_diagnostics && export_kv`） | 它是 **I/O 约定的开关**而非调试开关：打开后每个消费方都要多分配并绑定，否则 enqueue 被拒（`TS-019`） |
-
-| `diagnostic_probe_point_mask` | `kDiagnosticProbeAllPoints` = `0xFF` | 探针**切点位图**：位序 = `kDiagnosticProbePointNames`（`block_in` / `attn_ctx` / `attn_out` / `attn_res` / `ln2_out` / `mlp_fc` / `mlp_gelu` / `mlp_res`，共 8 个） | GPT-2 builder（按**名字**匹配；名单外的切点名**响亮失败**，不静默丢掉探针） | REQ-018 二分定位时加的仪器：**挂不挂探针本身就是另一张图**，所以要能选子集、并且进引擎指纹 |
-
-| `diagnostic_probe_max_layer` | `-1`（= 全部层） | 只挂前 N+1 层的探针 | 同上 | 同上（二分时逐层收窄）；`-1` 是"全部层"的哨兵 |
-
-| `packed_mixed` | `false` | prefill 是否建 S9 的 **packed 混合批图**（一个张量装两相、K/V 输出 token-major `[T,NH,D]`、去掉 `padding_bias`） | GPT-2 builder；**decode 阶段传 `true` 会被拒绝**（"only supported for the prefill stage"） | 它改的是**图的 I/O 约定**，所以必须与 `kPackedPrefillGraphVersion` 配套使用 |
+| 字段                            | 默认                                                           | 语义                                                                                                                                                    | 谁在读                                                                                  | 为什么有它 / 代价                                                                                             |
+| ----------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `stage`                       | `kSingle`                                                    | 建哪个切面：`kSingle`（一个引擎挂 prefill+decode 两组 profile，Phase 1.5 的旧行为）/ `kPrefill`（整段前向 + 导出每层 K/V）/ `kDecode`（单 token + PagedAttention 插件）                  | GPT-2 builder 推 `is_decode` / `export_kv`；**ResNet18 builder 只接受 `kSingle`**，其它值直接报错 | 切面是**构建期**参数：模型描述（`ModelConfig`）说不清、profile 配置里也没有它的位置                                                 |
+| `weight_dtype`                | 结构体默认 `kFLOAT`，但生产路径**总被 `Config::precision` 覆盖**（工程默认 FP16） | 权重**常量层**建成的精度                                                                                                                                        | 两个 builder 都用它建常量；GPT-2 还用它决定 **GELU 走哪条路**（FP16 才展开 + 限幅）                           | TRT 的 builder flag 只表达"整网倾向"，回答不了"这个常量该是什么类型"                                                          |
+| `quant`                       | `nullptr`                                                    | 量化清单指针：非空时，清单点名的权重走"int8 常量 + DQ"，其余走原路径                                                                                                              | 仅 GPT-2 builder（存成 `quant_`）                                                         | **生命周期只覆盖本次 Build**：调用方要在同一作用域持有 `QuantSpec`，并保证它在 `buildSerializedNetwork` 之前不析构；`nullptr` 时建图逐位回到改动前 |
+| `export_diagnostics`          | `false`                                                      | 是否把排查用的中途张量挂成网络输出                                                                                                                                     | GPT-2 builder，且**只对 prefill 生效**（`export_diagnostics && export_kv`）                  | 它是 **I/O 约定的开关**而非调试开关：打开后每个消费方都要多分配并绑定，否则 enqueue 被拒（`TS-019`）                                        |
+| `diagnostic_probe_point_mask` | `kDiagnosticProbeAllPoints` = `0xFF`                         | 探针**切点位图**：位序 = `kDiagnosticProbePointNames`（`block_in` / `attn_ctx` / `attn_out` / `attn_res` / `ln2_out` / `mlp_fc` / `mlp_gelu` / `mlp_res`，共 8 个） | GPT-2 builder（按**名字**匹配；名单外的切点名**响亮失败**，不静默丢掉探针）                                     | REQ-018 二分定位时加的仪器：**挂不挂探针本身就是另一张图**，所以要能选子集、并且进引擎指纹                                                    |
+| `diagnostic_probe_max_layer`  | `-1`（= 全部层）                                                  | 只挂前 N+1 层的探针                                                                                                                                          | 同上                                                                                   | 同上（二分时逐层收窄）；`-1` 是"全部层"的哨兵                                                                             |
+| `packed_mixed`                | `false`                                                      | prefill 是否建 S9 的 **packed 混合批图**（一个张量装两相、K/V 输出 token-major `[T,NH,D]`、去掉 `padding_bias`）                                                             | GPT-2 builder；**decode 阶段传 `true` 会被拒绝**（"only supported for the prefill stage"）     | 它改的是**图的 I/O 约定**，所以必须与 `kPackedPrefillGraphVersion` 配套使用                                              |
 
 **`EngineBuilder::Config` 与 `BuildOptions` 的分工**（常被问"这两个配置为什么不合并"）：
 
