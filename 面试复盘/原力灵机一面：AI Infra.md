@@ -151,7 +151,7 @@ NCCL 当前官方文档仍把这些作为核心 collective，并强调 NCCL 是 
 
 #### 4.2 必须会回答：AllReduce 为什么可以拆？
 
-AllReduce=ReduceScatter+AllGatherAllReduce=ReduceScatter+AllGather
+AllReduce=ReduceScatter+AllGather
 
 回答：
 
