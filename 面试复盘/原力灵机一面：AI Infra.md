@@ -180,11 +180,11 @@ AllReduce=ReduceScatter+AllGather
 ```text
 NCCL Hang
    │
-   ├── Rank 是否都活着？
+   ├── Rank 是否都活着？（日志最后几行）
    │
-   ├── 所有 Rank 是否进入了 Collective？
+   ├── 所有 Rank 是否进入了 Collective？（数据加载、分支、step步数、kernel）
    │
-   ├── Collective 顺序是否一致？
+   ├── Collective 顺序是否一致？（打开debug，通信序列号、形状、最后操作）
    │
    ├── count / dtype / communicator 是否一致？
    │
