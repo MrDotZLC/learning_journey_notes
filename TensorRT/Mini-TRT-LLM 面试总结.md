@@ -174,9 +174,7 @@ ResNet18 走 `onnx_to_mini_trt_llm.py`（**BN 在导出时就折进 Conv**）。
   一句话：**Config 管"建什么形状 + 缓存键"，BuildOptions 管"这次建哪个切面、用什么精度、开什么仪器"**。
 
 - **为什么要双引擎？** 见"取舍"第 ①。继续追：代价？→ 两份引擎体积与构建时间；`kSingle` 保留给  Phase 1.5 的旧行为与 ONNX 路径。坑：说成"为了性能"（主因是 I/O 约定不同）。
-
 - **指纹包含什么？为什么不用编译时间？** `EngineFingerprintInputs` = stage + precision + source_kind +  源文件身份（size+mtime）+ 全部建图数值参数（profile 区间、workspace、`model.n_positions`）+ 开关（`export_diagnostics` / `detailed_profiling` / 诊断探针版本与子集）+ TRT 版本 + CUDA runtime 版本 +  **手工 `graph_version`** → 64-bit FNV-1a → `<engine>.fingerprint`。不用编译时间：那会让任何一次
-
 - **CV 的 profile 为什么是 1/8/16？** TRT 针对 `kOPT` 形状挑最快 kernel；历史工程就用 1/8/16，
 
   改回 `opt=1` 会让 batch ≥ 2 走非最优 kernel、性能结论失真（`REQ-007` 的 PH4-CV-PROFILE）。
@@ -215,7 +213,6 @@ packed 模式下从侧车读 `n_positions` 并做两条自检、`chunk_limit` �
   附带收益：`getTensorDataType` 对**不存在的名字**按 TRT 约定返回 `kFLOAT`，所以张量名写错也会响亮失败。
 
 - **`num_blocks` 和 `max_blocks_per_seq` 是一回事吗？** 不是：前者是**物理块池**，后者是  `block_tables` 的**宽度**（`ceil(n_positions / block_size)`）。物理池可以更大：插件用运行期算出的  偏移在连续缓冲里寻址，TRT 不校验缓冲容量，所以"池 ≥ 宽度"就不会越界；构造期有反向检查。
-
 - **分页布局长什么样？"两套长度"指什么？** 布局 `[num_layers, num_blocks, block_size, num_kv_heads, head_size]`，  每层切出一段 4-D 交给插件。两套长度：host 侧 `sequences_[id].length`（记账）与设备侧 `context_lens[b]`  （**引擎与 kernel 实际读的那个**）；decode 每步在设备端推进后者。
 
 #### S5 请求入口 —— 接口约定：文本 → ids → `GenerateRequest`；失败 = 整批拒绝
@@ -261,7 +258,6 @@ packed 模式下从侧车读 `n_positions` 并做两条自检、`chunk_limit` �
 **★ 会被追问**
 
 - **prefill 的 attention 为什么手搭？** 见"取舍"；继续追：那要不要换成 `IAttention`？→ 属 `REQ-019` 的  **S3（子图替换）**，前置是 PF-7 的跨构建对照，而且 **PF-7 只决定 S3**，不决定整条。
-
 - **为什么需要行映射？** 源张量的行序与块表的行序**不总是同一个集合**：调度下 context 段只装
 
   "本步新入批的行"，而块表里还有正在 generation 的行；少了映射就会拿源缓冲里上一轮的残留行覆盖**别的序列自己的** prompt K/V（静默算错）。反向也查过（`TS-054`）：decode 追加的行序等于批内顺序，所以走构造期备好的**恒等表**，免得每步拷一次。
@@ -282,11 +278,8 @@ split-K 的代价：短上下文多一次归并（实测 +1.877%，观测项）�
 
 **★ 会被追问**
 - **★ 零同步具体怎么做到的？** 三处：位置由设备端 `context_lens` 填、长度在设备端推进、  采样结果直写显存并当下一步输入。继续追：EOS 怎么办？→ 循环外一次性 D2H 后截断；  真要早停需要设备侧 stop flag + 条件图（G2-4）。坑：说"没有同步"（循环外有一次，且**必须**有）。
-
 - **长度为什么必须"整步只推进一次"？** `AppendDecodeKV`（只写、不推进）+ `AppendDecodeStep`  （一次写全层、只推进一次）：长度是 **per-token 量**，挂在"每层一次"的接口上会被推进 `n_layer` 倍  ——第 3 个新 token 起就发散（`TS-016`）。
-
 - **split-K 的 stage-1 / stage-2 各做什么？为什么不能原子累加？** stage-1 出局部 `m/l/acc`  （online softmax 中间量）；stage-2 用 max-trick 归约。不能用原子累加是因为**不保序 → 结果不可复现**，  而判据正是"生成结果与单趟实现**完全一致**"。
-
 - **分片数为什么是 8 / 目标片长为什么是 128？** `kPagedAttentionMaxSplits = 8`、  `kPagedAttentionTargetChunk = 128`，来源写在头文件里：改动前每层只有 `12 heads × batch(1) = 12`  个 block，而本机 **24 个 SM**——一半闲置，且每块要串行扫完整段上下文（976 次迭代）。取 8 让每层 block  数变成 `12 × 8 = 96`（24 SM 的 4 波）；再加会被"每位置一次 BlockReduceSum"+ 归并开销吃掉收益。
 
   128 让 ctx≈20 落在 1 片、ctx≈976 用满 8 片。这些数字是**先量再定**的（`REQ-014`）。
@@ -298,7 +291,6 @@ split-K 的代价：短上下文多一次归并（实测 +1.877%，观测项）�
   `m = -inf, l = 0`；否则归并会读未初始化显存。Merge 侧还有 `l <= 0` 兜底防 `exp(-inf − -inf)`。
 
 - **`getWorkspaceSize()` 为什么按 `desc.max` 报？** 动态轴在 `desc.dims` 里是 `-1`，按它算会偏小、  kernel 照写就是越界写——而这只在真机暴露。紧跟着的一问：**布局谁定？** →  `plugins/paged_attention_split.hpp` 是**唯一实现**（`__host__ __device__`），`getWorkspaceSize()`  报多少字节、kernel 往哪写走同一组函数；各写一份最容易在"改片数 / 改 head_size"时静默错位。
-
 - **插件反序列化后还会执行 `configurePlugin` 吗？** 不会。而 head 配置是从输入形状推导的，  所以运行期入口必须以**当前形状**为准重新自洽，否则正常形状会被误判成"改了 head 配置"（`TS-008`）。
 
   相关设计：插件只序列化 `rotary_dim` / `base` 这类属性，`num_heads` / `num_kv_heads` / `head_size`  全从形状推导，避免第二份可能与形状失配的状态。
@@ -322,7 +314,6 @@ top-p 的阈值不逐项归一化，而是把阈值乘上总和（`u · Σ`）�
   **容易被当成 host 数组的**是 `seeds` / `offsets` / `top_k` / `top_p` / `eos_hit`——它们由  `LLMRunner` 上传到常驻设备缓冲后再交给采样器。传 host 数组的表现是真机 `illegal access`，  或"读到垃圾随机流"这种**不报错的错**。
 
 - **随机流为什么不能把行号算进去？** 判据是"**同一请求无论落在批内哪一行、批次怎么组成，token 序列都逐位相同**"，  所以非空 `seeds` 时走 `Uniform01(seeds[row], offset, 0)`；`offsets` 是 per-row 的**随机步号** （= 该行自己的已生成计数）。怎么证明？→ `BatchEqualsSequentialUnderScheduling` 与  `DeterminismWithArrivalSteps`（后者缺陷根因就是"逐行参数只认第 0 行"，`TS-057`）。
-
 - **greedy 需要做 softmax 吗？** 不需要（softmax 单调）；并列取小下标以对齐 `torch.argmax`。
 - **top-k 快速路径更快吗？** **不**——正确性与旧实现逐 token 相同
 
@@ -367,7 +358,6 @@ packed 路径是"不想为填充付算力、并把两相并成一次调用"的**
   packed 是"不想为填充付算力"的 opt-in 解法，而且实测更慢（见 F-6）。
 
 - **调度五步是什么？** 见"实现"。其中 context 段"只装新入批的行"是**硬前提**：整批跑 context 会把在跑序列的 K/V 覆盖掉（静默算错）。
-
 - **packed 图的 I/O 约定和 padding 图差在哪？** 多 6 个输入、K/V 输出从 `[1,NH,T,D]` 换成  **token-major** 的 `[T,NH,D]`、去掉 `padding_bias` ⇒ 两套图**各自一个图版本**、复用错引擎是静默错。
 
   `cu_seqlens_ctx` 的行维上界是 `max_prefill_batch + 1`（长度是 `B_ctx + 1`；用 `max_prefill_batch`  会让"整批都是 context 行"的首步 `setInputShape` 直接失败——5→6 那次 bump 就是它）。
@@ -422,19 +412,14 @@ CV 路径同构：`CVRunner` 的输入约定是 float32 / NCHW / `[0,255]`、归
 #### X2 性能方法论（这块最容易拉开差距）
 
 - **"提升 19%"为什么不能写进结论？** 因为绝对差只有 0.17 ms，**低于本机判别下限 0.6 ms**，  测量分辨率不够（本机一个平凡 `greedy` kernel 单发就要 34~156 µs）。纪律：**先声明本次口径的判别  下限（±400~600 µs）再下结论**，低于下限只能写"无显著差异"，**不得按百分比自动接受**  （`PROGRESS.md` §5.13b、`TS-037` / `TS-038`）。
-
 - **怎么把噪声压到这个量级？** 同 session、同二进制、逐轮**交替（ABBA）**、报中位数与四分位；  跨 session 的数字不可比。
-
 - **为什么"改动前后"必须用同一次构建的引擎？** TRT 的 tactic 是 **timing-based**：同一网络重建后引擎体积实测从 `54,196,084` 变到 `52,357,812`。拿两份不同构建的引擎比，比的是 tactic 抽签。
-
 - **split-K 的收益怎么量的？** 同一二进制里 A/B（`SetPagedAttentionNumSplitsOverride` 取负 = 强制单趟），  按**上下文长度扫描**看斜率：降 **88.85%**（kernel）/ **88.20%**（端到端），`max_rel 1.5e-06`，  `ctx = 1024` 每层每步 **0.919 → 0.126 ms**。为什么用斜率而不是单点？单点被固定开销主导。
-
 - **为什么说"负结果也有用"？** 因为它可复现、且被判别实验拆成了两项（固定成本 + 工作量差），指向一个可检验的假设；不可复现的"提升"才是没用的。
 
 #### X3 工程流程与协作（含"用 Codex 怎么开发"）
 
 - **开发流程是什么？** 按 P0–P9 阶段链走（Requirement → Analysis → Design → Review → 实现 → Test →  基准 → 收口 → 面试笔记），每个条目一套 artifact 落 `docs/dev/REQ-NNN-*/`；Gate-A（设计是否被接受）  与 Gate-B（性能结论是否成立）是两个独立关口。入口 `AGENTS.md` §5，流程权威是技能  `trt-inference-engineering`。
-
 - **用 AI 写这个项目怎么保证质量？** 三条自律：① **计划对账**（动手前先确认：有没有计划文档 /
 
   是否一致 / 偏差怎么处理 / 反向矛盾也要查 / 来源缺失就停）；② **批准目标 ≠ 批准手段**，
@@ -454,6 +439,7 @@ CV 路径同构：`CVRunner` 的输入约定是 float32 / NCHW / `[0,255]`、归
 | PagedAttention + 长上下文 split-K        | 有实测收益（斜率降 **88.85% / 88.20%**）**且**与单趟实现逐位一致；难点在约束：宿主拿不到上下文长度、归约必须保序、workspace 必须按 `desc.max` 报 | S7、X2 |
 | 自回归循环内零 H2D/D2H                      | 不是"少拷贝几次"，而是三处机制配合，并且**主动交代代价**（不能循环内早停 EOS）                                                    | S7    |
 | 最小连续批 + 性能方法论（两个 Negative）           | 结论是**负的但可复现**、被判别实验拆成两项；体现"先声明判别下限再下结论"                                                         | S9、X2 |
+
 ### 1.5 只背这 10 组数字
 
 | #   | 数字                                                                                                   | 出处                                             |
