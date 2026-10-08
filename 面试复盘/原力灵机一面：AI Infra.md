@@ -179,18 +179,88 @@ AllReduce=ReduceScatter+AllGather
 
 ```text
 NCCL Hang
-   │
-   ├── Rank 是否都活着？（日志最后几行）
-   │
-   ├── 所有 Rank 是否进入了 Collective？（数据加载、分支、step步数、kernel）
-   │
-   ├── Collective 顺序是否一致？（打开debug，通信序列号、形状、最后操作）
-   │
-   ├── count / dtype / communicator 是否一致？
-   │
-   └── 如果应用逻辑没问题
-             ↓
-          系统层
+│
+├── ① 看 Rank 日志
+│   │
+│   ├── 所有 Rank 都卡在同一个 Collective
+│   │   └── 继续检查 Collective 是否一致
+│   │
+│   └── 某个 Rank 没进入 Collective
+│       └── 查 DataLoader / CUDA Kernel / OOM / 异常 / 代码分支
+│
+├── ② 检查 Collective 一致性
+│   │
+│   ├── Sequence 是否一致
+│   ├── Tensor Shape / Dtype 是否一致
+│   ├── Step 数是否一致
+│   └── 不同 Rank 是否执行了不同代码路径
+│       └── 不一致 → Collective Mismatch → Hang
+│
+├── ③ 检查 CUDA / GPU
+│   │
+│   ├── CUDA OOM
+│   ├── illegal memory access
+│   ├── device-side assert
+│   ├── CUDA Kernel 是否异常
+│   ├── nvidia-smi
+│   └── dmesg → NVRM / Xid
+│       └── 怀疑异步 CUDA 错误 → CUDA_LAUNCH_BLOCKING=1
+│
+├── ④ 打开 Debug 日志
+│   │
+│   ├── TORCH_DISTRIBUTED_DEBUG=DETAIL
+│   ├── NCCL_DEBUG=INFO
+│   └── NCCL_DEBUG_SUBSYS=INIT,COLL,NET
+│       └── 对比不同 Rank 的 Collective Sequence
+│
+├── ⑤ 判断单机 / 多机
+│   │
+│   ├── 单机也 Hang
+│   │   └── 重点查 CUDA / GPU / NCCL / 拓扑
+│   │
+│   └── 单机正常，多机 Hang
+│       └── 重点查网络
+│           ├── InfiniBand / RoCE
+│           ├── GPUDirect RDMA
+│           ├── NIC / HCA
+│           ├── NCCL NET
+│           └── 网络配置
+│
+├── ⑥ 检查 GPU / NIC 拓扑
+│   │
+│   └── nvidia-smi topo -m
+│       ├── GPU ↔ GPU
+│       ├── GPU ↔ NIC
+│       ├── NVLink
+│       ├── PCIe
+│       └── NUMA
+│
+├── ⑦ 用 nccl-tests 隔离问题
+│   │
+│   ├── AllReduce
+│   ├── AllGather
+│   └── ReduceScatter
+│       │
+│       ├── nccl-tests 正常
+│       │   └── 重点查训练代码 / FSDP / Collective 逻辑
+│       │
+│       └── nccl-tests 也 Hang
+│           └── 重点查 NCCL / CUDA / GPU / 网络 / 驱动
+│
+└── ⑧ 如果是 FSDP
+    │
+    ├── Forward
+    │   └── All-Gather
+    │
+    ├── Backward
+    │   ├── All-Gather
+    │   └── Reduce-Scatter
+    │
+    └── 检查
+        ├── FSDP Wrapping 粒度
+        ├── Prefetch
+        ├── Communication-Computation Overlap
+        └── 所有 Rank 的 Collective Sequence 是否一致
 ```
 
 非常重要：
