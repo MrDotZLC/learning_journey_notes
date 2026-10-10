@@ -434,11 +434,11 @@ CV 路径同构：`CVRunner` 的输入约定是 float32 / NCHW / `[0,255]`、归
 
 ### 1.4 亮点排序（按"面试加分"）
 
-| 亮点                                   | 为什么算亮点（**判据**）                                                                                  | 在哪段   |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- | ----- |
-| PagedAttention + 长上下文 split-K        | 有实测收益（斜率降 **88.85% / 88.20%**）**且**与单趟实现逐位一致；难点在约束：宿主拿不到上下文长度、归约必须保序、workspace 必须按 `desc.max` 报 | S7、X2 |
-| 自回归循环内零 H2D/D2H                      | 不是"少拷贝几次"，而是三处机制配合，并且**主动交代代价**（不能循环内早停 EOS）                                                    | S7    |
-| 最小连续批 + 性能方法论（两个 Negative）           | 结论是**负的但可复现**、被判别实验拆成两项；体现"先声明判别下限再下结论"                                                         | S9、X2 |
+| 亮点                            | 为什么算亮点（**判据**）                                                                                  | 在哪段   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- | ----- |
+| PagedAttention + 长上下文 split-K | 有实测收益（斜率降 **88.85% / 88.20%**）**且**与单趟实现逐位一致；难点在约束：宿主拿不到上下文长度、归约必须保序、workspace 必须按 `desc.max` 报 | S7、X2 |
+| 自回归循环内零 H2D/D2H               | 不是"少拷贝几次"，而是三处机制配合，并且**主动交代代价**（不能循环内早停 EOS）                                                    | S7    |
+| 最小连续批 + 性能方法论（两个 Negative）    | 结论是**负的但可复现**、被判别实验拆成两项；体现"先声明判别下限再下结论"                                                         | S9、X2 |
 
 ### 1.5 只背这 10 组数字
 
@@ -460,157 +460,84 @@ CV 路径同构：`CVRunner` 的输入约定是 float32 / NCHW / `[0,255]`、归
 ## 2. 代码地图（被问"在哪实现的"时用）
 
 | 模块 | 文件 | 关键符号 / 常量 |
-
 |---|---|---|
-
 | 引擎封装 | `core/engine.cpp` | `Engine`、`SetOptimizationProfile`、`GetProfileDims`、`Path()` |
-
 | 建图入口 | `core/builder.cpp` | `EngineBuilder`、`BuildFromConfig`、`BuildFromOnnx`、`kEngineGraphVersion`、`kPackedPrefillGraphVersion`、`kDiagnosticProbeVersion` |
-
 | 缓存指纹 | `core/engine_cache.cpp` | `EngineFingerprintInputs`、`ComputeEngineFingerprint`、`ReadEngineSidecarField` |
-
 | 模型注册 / 配置 | `core/model_registry.cpp`、`model_config.cpp` | `ModelRegistry`、`ModelConfig::Load` |
-
 | GPT-2 建图 | `core/gpt2_model_builder.cpp` | LN `setComputePrecision`、prefill 手搭 attention、`AddTanhGeluSubgraph`、int8 常量 + DQ |
-
 | ResNet18 建图 | `core/resnet18_model_builder.cpp` | 折 BN 后的 Conv、Q/DQ |
-
 | LLM 运行时 | `core/llm_runner.cpp` | `GenerateBatch`、`RunScheduler`、`RunPackedMixedStep`、`ReserveBuffers`、`SampleBatch`、`SchedulerStats` |
-
 | 设备侧小工具 | `core/llm_runner_kernel.cu` | `LaunchFillPositionIds` |
-
 | KV Cache | `kv_cache/paged_kv_cache.cpp`、`block_allocator.cpp` | `AllocateSequence`、`WritePrefillKV`、`AppendDecodeKV`、`AppendDecodeStep`、`UploadMetadata` |
-
 | KV 写入 kernel | `kv_cache/paged_kv_cache_kernels.cu` | `WriteKVKernel<SrcT,DstT>`、`AdvanceContextLensKernel` |
-
 | PagedAttention | `plugins/paged_attention_plugin.cu` | `PagedAttentionDecodeKernel`、`...SplitKernel`、`...MergeKernel` |
-
 | split 纯逻辑 | `plugins/paged_attention_split.hpp` | `PagedAttentionResolveSplits`、`kPagedAttentionMaxSplits = 8`、`kPagedAttentionTargetChunk = 128` |
-
 | PackedAttention | `plugins/packed_attention_plugin.cu` | `MiniTrtLlmPackedAttention`、`kPackedAttentionMaxContextSeqLen = 1024` |
-
 | RoPE / RMSNorm | `plugins/rope_*`、`rmsnorm_*` | half-split 约定、`rotary_dim` / `base` |
-
 | 采样器 | `sampler/sampler_kernels.cu`、`nucleus_cutoff.hpp` | `GreedyKernel`、`FastTopKSampleKernel`、`TopPParallelSampleKernel`、`FindCrossingSegment` |
-
 | CV 运行时 | `core/cv_runner.cpp` | `NormalizePixelsToNchw`、`CVRunner::Infer` |
-
 | 权重 / I/O | `utils/safetensors_loader.cpp`、`weight_loader.cpp`、`json.hpp` | dtype 转换与缓存、递归下降 JSON |
-
 | 测试基建 | `tests/test_gpu_guard.hpp`、`tools/check_skips.py`、`tools/check_docs_index.py` | `MINI_TRT_SKIP_IF_NO_CUDA`、`MINI_TRT_REQUIRE_GPU/ASSETS` |
 
 ---
 
-## 3. 一分钟速查（面试中快速回忆）
+## 3. KV Cache 的分配、追加与释放
+**证据链层级：** 需求/设计（REQ-016 的 docs/dev/REQ-016-continuous-batching/design.md:212 不变量 1/4/5/6、D6/D9/D16 + docs/dev/REQ-016-continuous-batching/requirement.md:69）→ 代码（kv_cache/* + llm_runner.cpp）→ 用例（test_paged_kv_cache.cpp 等）→ 真机绿（docs/dev/REQ-016-continuous-batching/test_plan.md:22）→ 排查留痕（TROUBLESHOOTING (docs/TROUBLESHOOTING.md:518) #14/#16/#18/#52–54/#58）。
+
+  **分配**
+  **池尺寸建图期定死：** num_blocks = ceil(n_positions/block_size)，block_tables 第二维与 cache 第 0 维共用（mini_trt_llm/src/core/gpt2_model_builder.cpp:688）。
+  
+  构造期一次性按 max_batch 预分配元数据 + 整块 K/V 缓冲，指针恒定（mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:41、:52 (mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:52)）。
+  
+  每序列分配先校验（批上限、≤ max_blocks_per_seq、≤ 空闲块）再取块，D9 先检查后分配避免半分配泄漏（:103 (mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:103)、mini_trt_llm/src/core/llm_runner.cpp:748）。
+  
+  **追加**
+  **Prefill 走 WritePrefillKV：** 逐行校验 + 行映射 H2D + 写完立刻把长度推回设备（mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:269、:356 (mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:356)）——即 TS-014.2 的修复形态。
+  
+  Decode 走AppendDecodeKV（只写）+ AppendDecodeStep（全层写完只推进一次长度，:430 (mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:430)）——TS-016 的修复形态，否则长度被推进 n_layer 倍、第 3 个 token 起发散。
+  
+  **释放**
+  FreeSequence = 逐块归还 + 从批内移除 + 幸存行整体前移并重建镜像（mini_trt_llm/src/kv_cache/paged_kv_cache.cpp:147）；上层 SequenceScope RAII 保证任何出口都归还（mini_trt_llm/src/core/llm_runner.cpp:29）。
+  
+  判据是空闲块引用相等，不是"不低于"。证据：FreeSequenceCompactsRemainingRows、FreeBlocksReturnAfterBatch、BlocksReturnAtEnd（含失败路径）、ChunkedRetireAndBlocks。
+  
+---
+
+## 4. 一分钟速查（面试中快速回忆）
 
 | 问 | 一句话答 |
-
 |---|---|
-
 | 为什么不直接用 TRT-LLM | 目标是搞清楚机制；本机无 Tensor Core、调库吃不到低精度收益；生产替代不成立 |
-
 | TRT 有没有 attention / KV cache 设施 | 有（`IAttention` / `IKVCacheUpdateLayer`，KV 仅 `kLINEAR`）；我们要的是分页布局与并行控制面 |
-
 | 为什么双引擎 | prefill 手搭子图 + 导出每层 K/V，decode 走分页插件，**I/O 约定不同** |
-
 | 引擎什么时候重建 | 指纹不一致或缺失就重建（含 profile 区间 / 源文件身份 / 开关 / 版本 / 手工图版本） |
-
 | 指纹看不见什么 | 建图代码与插件源码——所以改图必须手工 bump 图版本 |
-
 | 循环里真的没有同步拷贝吗 | 是：位置由设备端填、长度在设备端推进、采样结果留在显存 |
-
 | EOS 为什么不早停 | 与"循环内零同步"冲突；代价是多算几步，语义仍正确 |
-
 | 精度为什么不能按配置假定 | 弱类型下由 TRT 决定；假定会让 FP16 越界写而不报错 |
-
 | 为什么每层一对 cache | 共用一张时每层都读第 0 段，12 层完全失真 |
-
 | 长度为什么整步只推进一次 | 挂在 per-layer 接口上会被推进 `n_layer` 倍 |
-
 | split-K 为什么不能原子加 | 不保序 → 不可复现；判据是"与单趟实现完全一致" |
-
 | 分片数为什么是 8 | 12 blocks vs 24 SM 一半闲置；8 让每层 96 blocks，再加被归并开销吃掉 |
-
 | 空片怎么办 | 写哨兵 `m = -inf, l = 0`，且 grid 恒为上限 |
-
 | 采样为什么全设备指针 | 循环内零 H2D/D2H；传 host 数组会非法访存或读垃圾随机流 |
-
 | 随机流为什么不带行号 | 判据是"同一请求在任何批位置逐位相同" |
-
 | top-k 快速路径更快吗 | 不，慢 6~9 倍，已撤出生产，只留 A/B 入口 |
-
 | 连续批的硬判据 | 批量 == 逐条单跑，逐位相同（管住 KV 落点、位置、随机流） |
-
 | 长度不齐怎么办 | 默认右填充 + `padding_bias`；opt-in packed 只算真实 token |
-
 | packed 更省吗 | 实测**慢 11.79%**（真实 GPT-2 192+64）；判别实验显示是固定成本尚未抵消 |
-
 | `chunk_limit` 从哪来 | 显式声明的 `max_prefill_seq_len`（五条交叉校验），不从 profile 反推 |
-
 | `n_positions` 从哪来 | 引擎 sidecar 读回；缺则拒绝启动 |
-
 | INT8 判据为什么不用绝对误差 | 这批图 FP32 自身摇摆；改用余量子集一致率 ≥ 90%（实测 12/12） |
-
 | 怎么证明在跑 INT8 | `IEngineInspector` + `kDETAILED` 读逐层 `Format/Datatype: Int8` |
-
 | LLM 的 INT8 有收益吗 | 没有：不产生 INT8 计算（0 层带 Int8），prefill 慢 10.2% / 4.1% |
-
 | FP16 的 NaN 怎么回事 | `c_fc` 的 GEMM+GELU 融合 epilogue 在 FP16 下 `exp` 溢出 ⇒ `inf/inf`；判据是逐层一一对应 |
-
 | FP16 怎么修的 | FP16 建图下 GELU 展开 + tanh 自变量限幅 ±5；两次失败尝试说明"精度提示 ≠ 结构约束" |
-
 | 性能结论凭什么可信 | 同 session、同二进制、ABBA、先声明判别下限；低于下限只写"无显著差异" |
-
 | 为什么必须同一次构建比 | TRT 的 tactic 是 timing-based，同网络重建体积都会变 |
-
 | 遇到真的过不去的用例 | 三种动作：继续查 / 证明期望值错（要独立依据）/ 保持红；禁止放宽阈值 |
-
 | 沙箱能验什么 | 编译、host 逻辑与约定、脚本护栏；GPU 用例显式跳过，真机跳过即失败 |
-
 | 最大的不足 | 绝对性能与生态、模型覆盖窄、SentencePiece 未验证、还剩 1 条按设计红 |
 
 ---
-
-## 附录 A｜出处索引（面试前抽查用）
-
-| 你想证明的 | 去哪看 |
-
-|---|---|
-
-| 现状 / 基线 / 版本 / 产物尺寸 | `PROGRESS.md`（唯一出处） |
-
-| 某条结论怎么查出来的 | `TROUBLESHOOTING.md` 的 `TS-001`~`TS-061`（FP16 的定位是 `TS-018` 的 18.3） |
-
-| 没做什么 / 触发条件 | `future_iterations.md`（`OI-*`） |
-
-| 某个 feature 的完整 artifact | `docs/dev/REQ-NNN-*/`（入口 `STATE.md`） |
-
-| 条目编号与状态快照 | `docs/dev/INDEX.md` §1 |
-
-| 权限与开工纪律 | `AGENTS.md` §0 / §5 |
-
-**最常被追问的 8 个 TS**：`TS-002`（`supportsFormatCombination` 越界读）、`TS-004`（部分旋转未写尾部）、
-
-`TS-015`（多层共用 cache）、`TS-016`（按层推进长度）、`TS-018`（FP16：非法访存 → NaN → 18.3 定位修复）、
-
-`TS-019`（诊断输出打破 I/O 约定）、`TS-042`（同一 kernel 两套量法差 2.5 倍）、`TS-046`（量 A 裁 B）。
-
-## 附录 B｜与 `interview_summary.md` 的已知差异（**那份需要更新**）
-
-| 项 | `interview_summary.md` 写的 | 现状 |
-
-|---|---|---|
-
-| 用例数 / 红 | 268 条 | **351 条 / 1 红**（2026-10-08 第 8 轮） |
-
-| 代码规模 | 13.8k 行（2026-10-05） | **13.9k 行**（2026-10-07 实测） |
-
-| 排查记录 | 56 条 | **61** 条 |
-
-| 批量的状态 | "已落码未验证、默认单请求" | **REQ-016 已交付**（真机全绿）；packed 结论 = `Negative` |
-
-| LLM 量化 | "LLM 量化未做" | **REQ-017 已交付**（weight-only INT8，opt-in，收益不成立） |
-
-| FP16 | 已同步（2026-10-08） | 一致（`TROUBLESHOOTING.md` + 18.3） |
-
-> 两份都属**材料类**、不参与 SSOT；数字冲突时以 `PROGRESS.md` 为准。
