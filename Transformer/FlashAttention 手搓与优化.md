@@ -206,12 +206,12 @@ void flash_attn_v1_naive(
 ### 2.3 flash_attn_v2_tiled
 #### 2.3.1 方案设计
 
-|维度|v1|v2|
-|---|---|---|
-|smem|`s_scores[seq_len]`，随 seq_len 增长|固定大小 KV tile|
-|K/V 访问|全部加载，$O(N^2)$ HBM|分块加载，$O(N)$ HBM|
-|softmax|两遍（先求 max，再 exp+sum）|online 单遍|
-|seq_len 限制|smem 随 seq_len 增长，有上限|无限制|
+| 维度         | v1                               | v2              |
+| ---------- | -------------------------------- | --------------- |
+| smem       | `s_scores[seq_len]`，随 seq_len 增长 | 固定大小 KV tile    |
+| K/V 访问     | 全部加载，$O(N^2)$ HBM                | 分块加载，$O(N)$ HBM |
+| softmax    | 两遍（先求 max，再 exp+sum）             | online 单遍       |
+| seq_len 限制 | smem 随 seq_len 增长，有上限            | 无限制             |
 
 ```
 grid = (ceil(seq_len / Br),)        每 block 处理 Br 行 Q

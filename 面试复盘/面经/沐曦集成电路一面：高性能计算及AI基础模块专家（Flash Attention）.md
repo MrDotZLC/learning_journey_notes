@@ -186,6 +186,16 @@ CUDA 是 32 线程 Warp，部分国产芯片是 64 线程 Wavefront。依赖 `wa
 | 关键优化 | IO-aware Tiling、Online Softmax、并行工作划分 | 根据请求形状、KV Cache 布局和执行场景选择高效 Kernel          |
 | 系统关联 | 主要解决 Attention 计算效率                   | 更直接面向推理系统的算子调用与 KV Cache 接口                 |
 
+FlashMLA 是 Kernel 层面的优化实现：针对 MLA 的实际计算、Cache 布局、线程调度和硬件指令进行优化。
+
+| 优化方向              | 具体做法                             | 解决的问题                    |
+| ----------------- | -------------------------------- | ------------------------ |
+| Paged KV Cache 访问 | 适配分页存储和特定 Cache Layout，优化数据加载    | 减少无效访存和地址计算开销            |
+| Tile 与线程调度        | 根据序列长度、Batch Size 和硬件资源划分工作块     | 提高并行度，减少负载不均             |
+| 矩阵计算              | 充分利用目标硬件的矩阵计算单元，优化数据类型和累加路径      | 提升计算吞吐量                  |
+| Decode Split-K并行化 | 通过分块、分段计算和结果合并提高并行度              | 避免单个请求的长序列计算无法充分利用 GPU   |
+| Kernel Fusion     | 将部分归一化、RoPE、Attention 或类型转换等操作融合 | 减少 Kernel Launch 和中间数据读写 |
+
 ### PagedAttention 与 Continuous Batching
 答：
 PagedAttention 解决的是 KV Cache 的存储与寻址问题：把每个请求的 KV Cache 切分成固定大小的物理 Block，通过 Block Table 将逻辑 Token 位置映射到物理存储位置，从而减少连续大块内存分配带来的浪费，并支持动态增长和跨请求管理。
@@ -213,6 +223,49 @@ Continuous Batching 解决的是请求调度问题：每一步生成后，根据
 对于 Paged KV Cache，重点难点是 **Block 的分配与回收、并发请求下的生命周期管理、最后一个 Block 的有效长度、Block Table 更新、Prefix Cache 共享，以及内存碎片和容量控制**。特别是 Prefix Cache 共享场景，需要通过引用计数或等价的生命周期管理机制，避免一个请求释放仍被其他请求引用的 Block；同时要保证异步 GPU 操作完成前不会提前复用相关内存。
 
 整体策略是先确认官方适配栈，完成基础推理和正确性验证，再逐步补齐算子、KV Cache、调度及分布式能力，最后基于实际负载进行性能优化，而不是简单地替换 CUDA API。
+
+### 将 FlashMLA 适配到沐曦，需要改什么？
+答：如果目标是将使用 FlashMLA 的模型部署到沐曦 GPU，我会按以下步骤实施。
+
+第一步：检查依赖和硬件假设
+梳理原 Kernel 对 CUDA Runtime、Warp、Shared Memory、Tensor Core、异步数据搬运及特定指令的依赖，确认哪些能力在目标平台上有等价实现。
+
+第二步：适配 KV Cache 格式
+检查 Cache 的数据类型、量化 Scale、分页布局、Block Size 和地址计算，确保 Kernel 能正确读取 vLLM 分配的 KV Cache。
+
+第三步：替换或重写 Kernel
+优先寻找沐曦已有的高性能算子；如果没有适配实现，就使用 MXMACA 支持的编程模型重写核心计算，并重新设计 Tile、线程映射、数据搬运和融合策略。
+
+第四步：接入 vLLM 并验证
+对接 Attention Backend 的输入输出约定，验证 Prefill、Decode、变长序列、分页 Cache 和不同 Batch Size，再分别测量延迟、吞吐量及显存带宽。
+
+### SparseAttention
+答：只计算选定的部分 Attention 连接，可能降低计算复杂度，但通常改变了原始全量 Attention 的计算语义。
+
+|稀疏策略|实现方式|适用特点|
+|---|---|---|
+|Local Window|每个 Query 只关注附近的 Token|局部依赖明显的长序列任务|
+|Block Sparse|只计算选定的矩阵块|稀疏模式规则，便于并行计算|
+|Top-K Attention|根据相关性选择得分最高的 K 个 Token|需要选择机制，适合选择性访问|
+|Token-level Sparse Attention|根据每个 Query 选择具体的历史 Token|稀疏模式灵活，但索引与访存更复杂|
+
+### deepSeek Sparse Attention（DSA）与 FlashMLA 的关系
+
+DeepSeek 的 DSA 是一种稀疏注意力机制，FlashMLA 则提供与之配套的高性能 Kernel 实现。DSA计算流程可以概括为：
+
+输入 Query 和历史 KV Cache
+
+索引器（Indexer）选择相关历史 Token
+
+生成被选中 Token 的索引或稀疏访问信息
+
+Sparse Attention Kernel
+
+仅访问选定的 KV 数据，计算对应 Score 和加权输出
+
+输出 Attention 结果
+
+DSA 的关键不是简单地将一部分 Attention Score 置零，而是通过索引机制选择需要参与计算的历史 Token，再由对应的稀疏 Kernel 完成 Attention。DeepSeek 开源的 FlashMLA 包含面向 DSA 的 Token-level Sparse Prefill 和 Decode Kernel，具体支持情况与模型版本、硬件架构和 Cache 格式相关。
 
 
 ## C++
