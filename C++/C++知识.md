@@ -46,9 +46,120 @@
 ---
 
 ## 找错题
-### 1. 
+### 1. size_t 溢出
 ```cpp
+#include <iostream>  
+#include <vector>  
+  
+void print_reverse(const std::vector<int>& vec) {  
+    for (std::size_t i = vec.size() - 1; i >= 0; --i) {  
+        std::cout << vec[i] << " ";  
+    }  
+}  
+```
 
+### 2. delete 数组，用delete[]
+```
+class Buffer {  
+public:  
+    Buffer(size_t n)  
+        : size_(n), data_(new int[n]) {  
+    }  
+  
+    ~Buffer() {  
+        delete data_;  
+    }  
+  
+private:  
+    size_t size_;  
+    int* data_;  
+};  
+  
+int main() {  
+    Buffer a(100);  
+    Buffer b = a;  
+}  
+```
+
+### 3. 迭代器删除
+```
+#include <iostream>  
+#include <vector>  
+  
+void removeEvens(std::vector<int>& vec) {  
+    for (auto it = vec.begin(); it != vec.end(); ++it) {  
+        if (*it % 2 == 0) {  
+            vec.erase(it);  
+        }  
+    }  
+} 
+```
+
+### 4. const& 返回值 指针空悬、临时对象
+```
+#include <iostream>  
+#include <string>  
+  
+const std::string& get_longer(const std::string& a,  
+                              const std::string& b) {  
+    return (a.size() >= b.size()) ? a : b;  
+}  
+  
+int main() {  
+    std::string str1 = "Hello";  
+    const std::string& longer = get_longer(str1, "World_Longer");  
+    std::cout << "Longer string: " << longer << "\n";  
+}
+```
+
+### 5. map[] 默认插入
+```
+#include <map>  
+#include <string>  
+  
+class AccessController {  
+private:  
+    // 用户 ID -> 角色（例如 "ADMIN"、"MEMBER"）  
+    std::map<std::string, std::string> user_roles_;  
+  
+public:  
+    AccessController() {  
+        user_roles_["admin_888"] = "ADMIN";  
+        user_roles_["user_001"]  = "MEMBER";  
+    }  
+  
+    // 校验某个用户是否是管理员  
+    bool is_admin(const std::string& user_id) {  
+        if (user_roles_[user_id] == "ADMIN") {  
+            return true;  
+        }  
+        return false;  
+    }  
+  
+    // 获取当前已记录的用户总数  
+    std::size_t get_total_users() const {  
+        return user_roles_.size();  
+    }  
+};  
+```
+
+### 6. 死锁
+```
+#include <mutex>  
+#include <thread>  
+  
+struct Account {  
+    std::mutex mtx;  
+    int balance = 1000;  
+};  
+  
+void transfer_money(Account& from, Account& to, int amount) {  
+    std::lock_guard<std::mutex> lock_from(from.mtx);  
+    std::lock_guard<std::mutex> lock_to(to.mtx);  
+  
+    from.balance -= amount;  
+    to.balance += amount;  
+}
 ```
 
 ---
